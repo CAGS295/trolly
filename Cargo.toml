@@ -7,6 +7,7 @@ edition = "2021"
 async-trait = "0.1.57"
 clap = { version = "4.2.1", features = ["derive"] }
 color-eyre = { version = "0.6.2", default-features = false }
+ctrlc = "3.2.3"
 tokio = { version = "1.20.1", features = ["rt", "macros"] }
 tracing = "0.1.36"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
