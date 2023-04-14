@@ -1,0 +1,11 @@
+[package]
+name = "trolly"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+async-trait = "0.1.57"
+clap = { version = "4.2.1", features = ["derive"] }
+tokio = { version = "1.20.1", features = ["rt", "macros"] }
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
