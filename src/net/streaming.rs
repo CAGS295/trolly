@@ -9,7 +9,7 @@ use url::Url;
 #[async_trait]
 pub(crate) trait EventHandler {
     /// Use the Result to break out of the handler loop;
-    async fn handle_event(&self, event: Result<Message, Error>) -> Result<(), ()>;
+    async fn handle_event(&mut self, event: Result<Message, Error>) -> Result<(), ()>;
 }
 
 pub struct SimpleStream<'a> {
@@ -17,7 +17,7 @@ pub struct SimpleStream<'a> {
 }
 
 impl<'a> SimpleStream<'a> {
-    pub(crate) async fn stream<T: EventHandler>(&self, handler: &T) {
+    pub(crate) async fn stream<T: EventHandler>(&self, handler: &mut T) {
         let ctrl_c = Terminate::new();
 
         let url = Url::parse(self.url).expect("invalid websocket");

@@ -1,0 +1,2 @@
+[alias]
+depth = "run -- monitor depth -p binance -s btcusdt"

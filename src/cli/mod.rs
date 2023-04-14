@@ -1,3 +1,4 @@
+use crate::monitor::{Monitor, Monitorables};
 use async_trait::async_trait;
 use clap::{Parser, Subcommand};
 
@@ -20,7 +21,10 @@ impl Cli {
 #[derive(Subcommand, Debug)]
 enum Commands {
     /// Stream data from an exchange and monitor a metric or structure.
-    Monitor,
+    Monitor {
+        #[clap(subcommand)]
+        metric: Monitorables,
+    },
     /// Comming soon
     Execute,
 }
@@ -34,8 +38,10 @@ pub trait Run {
 impl Run for Commands {
     async fn run(&self) {
         match self {
-            Self::Monitor => {
-                todo!()
+            Self::Monitor {
+                metric: Monitorables::Depth(args),
+            } => {
+                args.monitor().await;
             }
             _ => todo!(),
         };
