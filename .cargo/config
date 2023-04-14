@@ -1,0 +1,3 @@
+[alias]
+candle = "run -- monitor binance wss://data-stream.binance.com/ws/btcusdt@kline_1s"
+book = "run -- monitor depth -p binance -w wss://data-stream.binance.com/ws/btcusdt@bookTicker"
