@@ -5,6 +5,7 @@ use crate::providers::{Binance, Depth, Endpoints};
 use async_trait::async_trait;
 use clap::Args;
 use lob::LimitOrderBook;
+use std::error::Error;
 use tracing::error;
 
 #[derive(Args, Debug)]
@@ -30,10 +31,10 @@ impl DepthConfig {
         }
     }
 
-    pub(crate) async fn to_event_handler(
+    pub(crate) async fn event_handler_builder(
         &self,
         provider: &impl Endpoints<Depth>,
-    ) -> reqwest::Result<impl EventHandler> {
+    ) -> Result<impl EventHandler, impl Error> {
         let url = provider.rest_api_url(&self.symbol);
         let response: reqwest::Response = reqwest::get(url).await?;
         if let Err(e) = response.error_for_status_ref() {
@@ -49,10 +50,10 @@ impl DepthConfig {
 impl super::Monitor for DepthConfig {
     async fn monitor(&self) {
         let provider = self.select_provider();
-        let mut handler = self.to_event_handler(&provider).await.unwrap();
+        let handler_builder = || self.event_handler_builder(&provider);
         let stream = SimpleStream {
             url: &provider.websocket_url(&self.symbol),
         };
-        stream.stream(&mut handler).await;
+        stream.stream(handler_builder).await;
     }
 }

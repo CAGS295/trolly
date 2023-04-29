@@ -1,6 +1,7 @@
-use crate::net::streaming::{Error, EventHandler, Message};
+use crate::net::streaming::{EventHandler, Message};
 use async_trait::async_trait;
 use lob::{DepthUpdate, LimitOrderBook};
+use std::error::Error;
 use tracing::{debug, error, info};
 
 pub struct OrderBook(LimitOrderBook);
@@ -13,7 +14,7 @@ impl From<LimitOrderBook> for OrderBook {
 
 #[async_trait]
 impl EventHandler for OrderBook {
-    async fn handle_event(&mut self, event: Result<Message, Error>) -> Result<(), ()> {
+    async fn handle_event(&mut self, event: Result<Message, impl Error + Send>) -> Result<(), ()> {
         match event {
             Ok(message) => {
                 let mut update: DepthUpdate = serde_json::from_slice(&message.into_data()).unwrap();
