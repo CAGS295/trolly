@@ -3,15 +3,17 @@
 
 ## WIP
 
-- it should work as follows ./bin snoop <metric/struct?command> [sources, symbol]
-- define a new subcommand depth for monitor
-- buffer events
-- decouple web socket base url from the event subscription.
 - optimize allocations
 - prometheus server.
+- add a DockerFile
+- serve through grpc
+- add multiple readers/single writer for a monitor.
 
 ## change log
 + 
++ decouple web socket base url from the event subscription.
++ define a new subcommand depth for monitor
++ it should work as follows ./bin monitor <metric> [sources, symbol]
 + secure web socket streams
 + Graceful shutdown
 + pretty panics

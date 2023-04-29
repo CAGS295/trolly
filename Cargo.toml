@@ -18,7 +18,10 @@ tokio-tungstenite = { version = "0.18", features = ["native-tls-vendored"] }
 tracing = { version = "0.1.36" }
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 url = "2.2.2"
-lob = { path = "../lob", features = ["serde"] }
+lob = { git = "https://github.com/CAGS295/lob.git", features = [
+    "serde",
+    "event-time",
+] }
 serde_json = "*"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

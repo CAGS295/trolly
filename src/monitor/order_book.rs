@@ -19,6 +19,17 @@ impl EventHandler for OrderBook {
             Ok(message) => {
                 let mut update: DepthUpdate = serde_json::from_slice(&message.into_data()).unwrap();
 
+                // immediate transition with update stream.
+                if self.0.update_id + 1 < update.first_update_id
+                    || update.last_update_id + 1 < self.0.update_id
+                {
+                    info!(
+                        "Skipping stale updates stamp:{} [{},{}]",
+                        update.event.time, update.first_update_id, update.last_update_id
+                    );
+                    return Ok(());
+                }
+
                 debug!("DepthUpdate : {update:?}");
 
                 for bid in update.bids.drain(..) {
@@ -28,6 +39,8 @@ impl EventHandler for OrderBook {
                 for ask in update.asks.drain(..) {
                     self.0.add_ask(ask);
                 }
+
+                self.0.update_id = update.last_update_id;
 
                 info!("{:?}", self.0);
 
