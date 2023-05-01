@@ -1,11 +1,15 @@
-use super::{order_book::OrderBook, Provider};
+use super::{
+    order_book::{Operations, OrderBook},
+    Provider,
+};
 use crate::net::streaming::EventHandler;
 use crate::net::streaming::SimpleStream;
 use crate::providers::{Binance, Depth, Endpoints};
 use async_trait::async_trait;
 use clap::Args;
+use left_right::WriteHandle;
 use lob::LimitOrderBook;
-use std::error::Error;
+use std::{error::Error, thread};
 use tracing::error;
 
 #[derive(Args, Debug)]
@@ -34,6 +38,7 @@ impl DepthConfig {
     pub(crate) async fn event_handler_builder(
         &self,
         provider: &impl Endpoints<Depth>,
+        mut writer: WriteHandle<LimitOrderBook, Operations>,
     ) -> Result<impl EventHandler, impl Error> {
         let url = provider.rest_api_url(&self.symbol);
         let response: reqwest::Response = reqwest::get(url).await?;
@@ -42,7 +47,8 @@ impl DepthConfig {
             return Err(e);
         };
         let lob: LimitOrderBook = response.json().await?;
-        Ok(OrderBook::from(lob))
+        writer.append(Operations::Initialize(lob));
+        Ok(OrderBook::from(writer))
     }
 }
 
@@ -50,10 +56,13 @@ impl DepthConfig {
 impl super::Monitor for DepthConfig {
     async fn monitor(&self) {
         let provider = self.select_provider();
-        let handler_builder = || self.event_handler_builder(&provider);
+        let (w, r) = left_right::new();
+        let handler_builder = || self.event_handler_builder(&provider, w);
         let stream = SimpleStream {
             url: &provider.websocket_url(&self.symbol),
         };
+
+        thread::spawn(move || crate::tonic::start(r.factory()));
         stream.stream(handler_builder).await;
     }
 }

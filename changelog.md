@@ -6,13 +6,17 @@
 - optimize allocations
 - prometheus server.
 - serve through grpc
-- add multiple readers/single writer for a monitor.
-- add concurrent reads to the LOB
-- single writer, multiple readers
-- serve depth reads with tonic.
+    - graceful reader shutdown
+    - single writer, multiple readers
+    - add concurrent reads to the LOB
+    - add multiple readers/single writer for a monitor.
+    - serve depth reads with tonic.
+    - reader client tests
+    - add depth options to control reader server
 
 ## change log
 + add a DockerFile
++ Serve the LOB through gRPC.
 + decouple web socket base url from the event subscription.
 + define a new subcommand depth for monitor
 + it should work as follows ./bin monitor <metric> [sources, symbol]

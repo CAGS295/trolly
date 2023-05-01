@@ -23,9 +23,9 @@ lob = { git = "https://github.com/CAGS295/lob.git", features = [
     "event-time",
 ] }
 serde_json = "*"
+left-right = "0.11.5"
 tonic = { version = "*", optional = true }
 prost = { version = "*", optional = true }
-left-right = "*"
 axum = "0.6.18"
 hyper = "0.14.26"
 
