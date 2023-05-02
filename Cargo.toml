@@ -23,5 +23,14 @@ lob = { git = "https://github.com/CAGS295/lob.git", features = [
     "event-time",
 ] }
 serde_json = "*"
+tonic = { version = "*", optional = true }
+prost = { version = "*", optional = true }
+left-right = "*"
+axum = "0.6.18"
+hyper = "0.14.26"
+
+[features]
+default = ["grpc"]
+grpc = ["tonic", "prost", "lob/prost"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
