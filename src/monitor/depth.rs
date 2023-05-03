@@ -25,6 +25,8 @@ pub struct DepthConfig {
     ws_url: Option<String>,
     #[arg(short, long, help = "e.g. btcusdt")]
     symbol: String,
+    #[arg(long, help = "Serve the book at this port.")]
+    server_port: Option<u16>,
 }
 
 impl DepthConfig {
@@ -58,11 +60,11 @@ impl super::Monitor for DepthConfig {
         let provider = self.select_provider();
         let (w, r) = left_right::new();
         let handler_builder = || self.event_handler_builder(&provider, w);
+        let port = self.server_port.unwrap_or(50051u16);
+        thread::spawn(move || crate::tonic::start(r.factory(), port));
         let stream = SimpleStream {
             url: &provider.websocket_url(&self.symbol),
         };
-
-        thread::spawn(move || crate::tonic::start(r.factory()));
         stream.stream(handler_builder).await;
     }
 }

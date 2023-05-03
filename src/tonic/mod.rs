@@ -8,10 +8,10 @@ use lob::limit_order_book::protos::{
     limit_order_book_service_server::{LimitOrderBookService, LimitOrderBookServiceServer},
     LimitOrderBook,
 };
-use std::time::Duration;
+use std::{net::Ipv6Addr, time::Duration};
 use tonic::transport::NamedService;
 use tonic::{Request, Response, Status};
-use tracing::{error, trace};
+use tracing::{error, info, trace};
 
 pub struct Hook(ReadHandleFactory<lob::LimitOrderBook>);
 
@@ -34,10 +34,10 @@ impl LimitOrderBookService for Hook {
 }
 
 #[tokio::main(flavor = "current_thread")]
-pub async fn start(factory: ReadHandleFactory<lob::LimitOrderBook>) -> Result<(), ()> {
-    let addr = "[::1]:50051".parse().unwrap();
+pub async fn start(factory: ReadHandleFactory<lob::LimitOrderBook>, port: u16) -> Result<(), ()> {
+    let addr: std::net::SocketAddr = ("::1".parse::<Ipv6Addr>().unwrap(), port).into();
 
-    println!("BookServer listening on {addr}");
+    info!("BookServer listening on {addr}");
 
     let svc = LimitOrderBookServiceServer::new(Hook(factory));
     let path = format!(
