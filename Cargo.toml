@@ -29,6 +29,9 @@ prost = { version = "*", optional = true }
 axum = "0.6.18"
 hyper = "0.14.26"
 
+[dev-dependencies]
+rand = { version = "*" }
+
 [features]
 default = ["grpc"]
 grpc = ["tonic", "prost", "lob/prost"]

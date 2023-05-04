@@ -4,6 +4,7 @@ use axum::Router;
 use hyper::server::conn::AddrIncoming;
 use left_right::ReadHandleFactory;
 pub use lob::limit_order_book::protos::Pair;
+pub use lob::limit_order_book::protos::limit_order_book_service_client;
 use lob::limit_order_book::protos::{
     limit_order_book_service_server::{LimitOrderBookService, LimitOrderBookServiceServer},
     LimitOrderBook,

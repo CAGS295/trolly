@@ -32,6 +32,7 @@ WORKDIR /trolly
 # Copy in the rest of the source code and build the application
 COPY Cargo.toml .
 COPY src ./src
+COPY examples ./examples
 
 RUN cargo build --release
 

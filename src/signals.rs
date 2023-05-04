@@ -2,10 +2,10 @@ use std::sync::atomic::Ordering;
 use std::sync::{atomic::AtomicBool, Arc};
 
 #[derive(Clone)]
-pub(crate) struct Terminate(Arc<AtomicBool>);
+pub struct Terminate(Arc<AtomicBool>);
 
 impl Terminate {
-    pub(crate) fn new() -> Terminate {
+    pub fn new() -> Terminate {
         let flag = Terminate(Arc::new(AtomicBool::new(false)));
         Self::set_ctrl_c(&flag);
         flag
@@ -22,7 +22,7 @@ impl Terminate {
         .expect("/r Error setting Ctrl-C handler");
     }
 
-    pub(crate) fn is_terminated(&self) -> bool {
+    pub fn is_terminated(&self) -> bool {
         self.0.load(Ordering::Relaxed)
     }
 }

@@ -5,11 +5,10 @@
 
 - optimize allocations
 - prometheus server.
-- serve through grpc
-    - reader client tests
 
 ## change log
 + add a DockerFile
++ Added a client example consumig the orderbook.
 + Serve the LOB through gRPC.
 + decouple web socket base url from the event subscription.
 + define a new subcommand depth for monitor
