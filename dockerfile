@@ -33,6 +33,7 @@ WORKDIR /trolly
 COPY Cargo.toml .
 COPY src ./src
 COPY examples ./examples
+COPY benches ./benches
 
 RUN cargo build --release
 

@@ -9,6 +9,7 @@
 ## change log
 + add a DockerFile
 + Added a client example consumig the orderbook.
++ Add a client benchmark.
 + Serve the LOB through gRPC.
 + decouple web socket base url from the event subscription.
 + define a new subcommand depth for monitor
