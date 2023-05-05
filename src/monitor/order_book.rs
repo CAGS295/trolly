@@ -2,8 +2,7 @@ use crate::net::streaming::{EventHandler, Message};
 use async_trait::async_trait;
 use left_right::{Absorb, WriteHandle};
 use lob::{DepthUpdate, LimitOrderBook};
-use std::error::Error;
-use tracing::{debug, error, info};
+use tracing::{error, info, trace};
 
 pub struct OrderBook(WriteHandle<LimitOrderBook, Operations>);
 
@@ -32,7 +31,7 @@ impl Absorb<Operations> for LimitOrderBook {
                     return;
                 }
 
-                debug!("DepthUpdate : {update:?}");
+                trace!("Absorb DepthUpdate : {update:?}");
 
                 for bid in update.bids.iter() {
                     self.add_bid(bid.clone());
@@ -51,7 +50,7 @@ impl Absorb<Operations> for LimitOrderBook {
                 self.extend(book);
             }
         }
-        info!("{:?}", self);
+        trace!("{:?}", self);
     }
 
     fn sync_with(&mut self, first: &Self) {
@@ -61,18 +60,15 @@ impl Absorb<Operations> for LimitOrderBook {
 
 #[async_trait]
 impl EventHandler for OrderBook {
-    async fn handle_event(&mut self, event: Result<Message, impl Error + Send>) -> Result<(), ()> {
-        match event {
-            Ok(message) => {
-                let update: DepthUpdate = serde_json::from_slice(&message.into_data()).unwrap();
-                self.0.append(Operations::Update(update)).publish();
-                Ok(())
-            }
-            Err(e) => {
-                error!("{e}");
-                Err(())
-            }
-        }
+    async fn handle_event(&mut self, msg: Message) -> Result<(), ()> {
+        let update: DepthUpdate =
+            serde_json::from_slice(&msg.into_data()).map_err(|e| error!("{e}"))?;
+        info!(
+            "Appending updates [{},{}]",
+            update.first_update_id, update.last_update_id
+        );
+        self.0.append(Operations::Update(update)).publish();
+        Ok(())
     }
 }
 
