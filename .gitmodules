@@ -1,3 +1,3 @@
 [submodule "lob"]
-	path = lob
-	url = https://github.com/CAGS295/LOB.git
+	path = ../lob
+	url = https://github.com/CAGS295/lob.git
