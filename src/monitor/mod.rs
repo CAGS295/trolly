@@ -4,6 +4,7 @@ use clap::{Subcommand, ValueEnum};
 mod depth;
 mod order_book;
 
+pub(crate) use depth::Depth;
 use depth::DepthConfig;
 
 #[derive(Subcommand, Debug)]

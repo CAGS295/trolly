@@ -1,4 +1,5 @@
-use super::{ApiURL, Depth, Endpoints};
+use super::{ApiURL, Endpoints};
+use crate::monitor::Depth;
 
 pub(crate) struct Binance;
 

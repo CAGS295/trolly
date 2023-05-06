@@ -4,13 +4,15 @@ use super::{
 };
 use crate::net::streaming::EventHandler;
 use crate::net::streaming::SimpleStream;
-use crate::providers::{Binance, Depth, Endpoints};
+use crate::providers::{Binance, Endpoints};
 use async_trait::async_trait;
 use clap::Args;
 use left_right::WriteHandle;
 use lob::LimitOrderBook;
 use std::{error::Error, thread};
 use tracing::error;
+
+pub(crate) struct Depth;
 
 #[derive(Args, Debug)]
 pub struct DepthConfig {

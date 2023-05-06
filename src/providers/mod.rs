@@ -11,5 +11,3 @@ trait ApiURL {
     const STREAM: &'static str;
     const REST: &'static str;
 }
-
-pub(crate) struct Depth;
