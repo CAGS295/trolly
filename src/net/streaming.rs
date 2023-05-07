@@ -1,7 +1,9 @@
 pub use crate::net::ws_adapter::{connect, disconnect};
+use crate::providers::Endpoints;
 use crate::signals::Terminate;
 use async_trait::async_trait;
 use futures_util::Future;
+use futures_util::SinkExt;
 use futures_util::StreamExt;
 use std::error::Error;
 pub(crate) use tokio_tungstenite::tungstenite::protocol::Message;
@@ -15,25 +17,33 @@ pub(crate) trait EventHandler {
     async fn handle_event(&mut self, event: Message) -> Result<(), ()>;
 }
 
-pub struct SimpleStream<'a> {
-    pub(crate) url: &'a str,
+pub(crate) struct SimpleStream<'a> {
+    pub symbols: &'a Vec<String>,
 }
 
 impl<'a> SimpleStream<'a> {
-    pub(crate) async fn stream<
+    pub(crate) async fn stream<H, M, E, Output, F, En>(&self, handler_builder: F, endpoints: &'a En)
+    where
         H: EventHandler,
         E: Error,
         Output: Future<Output = Result<H, E>>,
-        F: FnOnce() -> Output,
-    >(
-        &self,
-        handler_builder: F,
-    ) {
+        En: Endpoints<M>,
+        F: FnOnce(&'a En, &'a Vec<String>) -> Output,
+    {
         let ctrl_c = Terminate::new();
 
-        let url = Url::parse(self.url).expect("invalid websocket");
+        let url = Url::parse(&En::websocket_url()).expect("invalid websocket");
         let mut stream = connect(url).await.expect("stream");
-        let mut handler = handler_builder().await.unwrap();
+        //subscribe
+        stream
+            .send(Message::Text(
+                endpoints.ws_subscriptions(self.symbols.iter()),
+            ))
+            .await
+            .expect("Failed to Send subscriptions.");
+
+        //route
+        let mut handler = handler_builder(&endpoints, self.symbols).await.unwrap();
         while let (Some(res), false) = (stream.next().await, ctrl_c.is_terminated()) {
             match res {
                 Ok(msg) if msg.is_text() => {

@@ -4,8 +4,10 @@ pub mod binance;
 
 pub(crate) use binance::Binance;
 
+/// A [Provider] must implement this trait for [net] to know where to pull the data from.
 pub(crate) trait Endpoints<Monitorable> {
-    fn websocket_url(&self, symbol: impl AsRef<str>) -> String;
+    fn websocket_url() -> String;
+    fn ws_subscriptions(&self, symbols: impl Iterator<Item = impl AsRef<str>>) -> String;
     fn rest_api_url(&self, symbol: impl AsRef<str>) -> String;
 }
 

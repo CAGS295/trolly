@@ -5,6 +5,10 @@
 
 - optimize allocations
 - prometheus server.
+- Add SCALE server with tower.
+- Add multi provider support.
+- Add multi-symbol support.
+ - Add subscriptions to raw WS.
 
 ## change log
 + add a DockerFile

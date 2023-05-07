@@ -26,7 +26,7 @@ pub struct DepthConfig {
     )]
     ws_url: Option<String>,
     #[arg(short, long, help = "e.g. btcusdt")]
-    symbol: String,
+    symbols: Vec<String>,
     #[arg(long, help = "Serve the book at this port.")]
     server_port: Option<u16>,
 }
@@ -40,11 +40,11 @@ impl DepthConfig {
     }
 
     pub(crate) async fn event_handler_builder(
-        &self,
         provider: &impl Endpoints<Depth>,
+        symbols: &Vec<String>,
         mut writer: WriteHandle<LimitOrderBook, Operations>,
     ) -> Result<impl EventHandler, impl Error> {
-        let url = provider.rest_api_url(&self.symbol);
+        let url = provider.rest_api_url(symbols.first().unwrap());
         let response: reqwest::Response = reqwest::get(url).await?;
         if let Err(e) = response.error_for_status_ref() {
             error!("Query failed:{e} {}", response.text().await?);
@@ -61,12 +61,12 @@ impl super::Monitor for DepthConfig {
     async fn monitor(&self) {
         let provider = self.select_provider();
         let (w, r) = left_right::new();
-        let handler_builder = || self.event_handler_builder(&provider, w);
         let port = self.server_port.unwrap_or(50051u16);
         thread::spawn(move || crate::tonic::start(r.factory(), port));
         let stream = SimpleStream {
-            url: &provider.websocket_url(&self.symbol),
+            symbols: &self.symbols,
         };
-        stream.stream(handler_builder).await;
+        let handler_builder = |e, s| Self::event_handler_builder(e, s, w);
+        stream.stream(handler_builder, &provider).await;
     }
 }
