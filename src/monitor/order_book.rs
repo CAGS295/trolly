@@ -34,7 +34,7 @@ impl Absorb<Operations> for LimitOrderBook {
                     return;
                 }
 
-                trace!("Absorb DepthUpdate : {update:?}");
+                trace!("Absorb DepthUpdate: {update}");
 
                 for bid in update.bids.iter() {
                     self.add_bid(bid.clone());
@@ -53,7 +53,7 @@ impl Absorb<Operations> for LimitOrderBook {
                 self.extend(book);
             }
         }
-        trace!("{:?}", self);
+        trace!("{}", self);
     }
 
     fn sync_with(&mut self, first: &Self) {
