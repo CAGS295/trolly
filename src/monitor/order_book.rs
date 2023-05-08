@@ -1,8 +1,11 @@
-use crate::net::streaming::{EventHandler, Message};
+use crate::{
+    net::streaming::{EventHandler, Message},
+    providers::NullResponse,
+};
 use async_trait::async_trait;
 use left_right::{Absorb, WriteHandle};
 use lob::{DepthUpdate, LimitOrderBook};
-use tracing::{error, info, trace};
+use tracing::{info, trace};
 
 pub struct OrderBook(WriteHandle<LimitOrderBook, Operations>);
 
@@ -61,8 +64,19 @@ impl Absorb<Operations> for LimitOrderBook {
 #[async_trait]
 impl EventHandler for OrderBook {
     async fn handle_event(&mut self, msg: Message) -> Result<(), ()> {
-        let update: DepthUpdate =
-            serde_json::from_slice(&msg.into_data()).map_err(|e| error!("{e}"))?;
+        let data = msg.into_data();
+        let Ok(update)= serde_json::from_slice::<DepthUpdate>(&data).map_err(|e| trace!("Failed to deserialize DepthUpdate {e}")) else {
+            let Ok(response) = serde_json::from_slice::<NullResponse>(&data) else{
+                return Err(());
+            };
+
+            if response.result.is_none() {
+                return Ok(());
+            }
+
+            return Err(());
+        };
+
         info!(
             "Appending updates [{},{}]",
             update.first_update_id, update.last_update_id
