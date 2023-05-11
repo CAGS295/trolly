@@ -1,4 +1,5 @@
 mod cli;
+mod connectors;
 pub mod monitor;
 mod net;
 mod providers;
