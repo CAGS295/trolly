@@ -29,12 +29,12 @@ enum Commands {
     Execute,
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 pub trait Run {
     async fn run(&self);
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl Run for Commands {
     async fn run(&self) {
         match self {

@@ -3,7 +3,7 @@ use tracing::Level;
 use tracing_subscriber::EnvFilter;
 use trolly::Cli;
 
-#[tokio::main(flavor = "current_thread")]
+#[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() -> Result<(), color_eyre::Report> {
     color_eyre::install()?;
     let filter = EnvFilter::try_from_default_env().or_else(|_| {

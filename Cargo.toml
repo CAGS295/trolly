@@ -13,7 +13,7 @@ reqwest = { version = "0.11.16", default-features = false, features = [
     "json",
     "native-tls-vendored",
 ] }
-tokio = { version = "1.20.1", features = ["rt", "macros"] }
+tokio = { version = "1.20.1", features = ["rt", "macros", "rt-multi-thread"] }
 tokio-tungstenite = { version = "0.18", features = ["native-tls-vendored"] }
 tracing = { version = "0.1.36" }
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
@@ -21,6 +21,7 @@ url = "2.2.2"
 lob = { git = "https://github.com/CAGS295/lob.git", features = [
     "serde",
     "event-time",
+    "event-symbol",
 ] }
 serde_json = "*"
 serde = "*"

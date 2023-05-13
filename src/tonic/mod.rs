@@ -3,18 +3,20 @@
 use axum::Router;
 use hyper::server::conn::AddrIncoming;
 use left_right::ReadHandleFactory;
-pub use lob::limit_order_book::protos::Pair;
 pub use lob::limit_order_book::protos::limit_order_book_service_client;
+pub use lob::limit_order_book::protos::Pair;
 use lob::limit_order_book::protos::{
     limit_order_book_service_server::{LimitOrderBookService, LimitOrderBookServiceServer},
     LimitOrderBook,
 };
+use std::collections::HashMap;
 use std::{net::Ipv6Addr, time::Duration};
+use tokio::sync::mpsc::UnboundedReceiver;
 use tonic::transport::NamedService;
 use tonic::{Request, Response, Status};
-use tracing::{error, info, trace};
+use tracing::{error, info, trace, warn};
 
-pub struct Hook(ReadHandleFactory<lob::LimitOrderBook>);
+pub struct Hook(HashMap<String, ReadHandleFactory<lob::LimitOrderBook>>);
 
 #[tonic::async_trait]
 impl LimitOrderBookService for Hook {
@@ -24,8 +26,13 @@ impl LimitOrderBookService for Hook {
     ) -> Result<Response<LimitOrderBook>, Status> {
         trace!("Got a request from {:?}", request.remote_addr());
 
-        let native_book = self
-            .0
+        let pair: String = request.into_inner().pair.to_uppercase();
+
+        let Some(native_book) = self.0.get(&pair)else{
+            return Err(Status::not_found(pair));
+        };
+
+        let native_book = native_book
             .handle()
             .enter()
             .map(|guard| guard.clone())
@@ -35,7 +42,10 @@ impl LimitOrderBookService for Hook {
 }
 
 #[tokio::main(flavor = "current_thread")]
-pub async fn start(factory: ReadHandleFactory<lob::LimitOrderBook>, port: u16) -> Result<(), ()> {
+async fn inner_start(
+    factory: HashMap<String, ReadHandleFactory<lob::LimitOrderBook>>,
+    port: u16,
+) -> Result<(), ()> {
     let addr: std::net::SocketAddr = ("::1".parse::<Ipv6Addr>().unwrap(), port).into();
 
     info!("BookServer listening on {addr}");
@@ -59,5 +69,23 @@ pub async fn start(factory: ReadHandleFactory<lob::LimitOrderBook>, port: u16) -
             error!("{e}");
         })?;
 
+    Ok(())
+}
+
+pub fn start(
+    mut receiver: UnboundedReceiver<(String, ReadHandleFactory<lob::LimitOrderBook>)>,
+    port: u16,
+    n: usize,
+) -> Result<(), ()> {
+    let mut readers = HashMap::new();
+    for _ in 0..n {
+        if let Some((pair, factory)) = receiver.blocking_recv() {
+            readers.insert(pair, factory);
+        } else {
+            warn!("Channel closed while waiting on RPC handlers.");
+            break;
+        }
+    }
+    inner_start(readers, port)?;
     Ok(())
 }

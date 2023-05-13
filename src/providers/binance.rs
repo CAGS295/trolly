@@ -9,7 +9,7 @@ impl ApiURL for Binance {
 }
 
 impl Endpoints<Depth> for Binance {
-    fn websocket_url() -> String {
+    fn websocket_url(&self) -> String {
         format!("{}/ws", Self::STREAM)
     }
 

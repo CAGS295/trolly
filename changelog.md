@@ -7,10 +7,8 @@
 - prometheus server.
 - Add SCALE server with tower.
 - Add multi provider support.
-- Add multi-symbol support.
- - Add subscriptions to raw WS.
-
 ## change log
++ Add multi-symbol support.
 + add a DockerFile
 + Added a client example consumig the orderbook.
 + Add a client benchmark.

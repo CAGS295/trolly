@@ -1,16 +1,13 @@
-use super::{
-    order_book::{Operations, OrderBook},
-    Provider,
+use super::{order_book::OrderBook, Provider};
+use crate::{
+    net::streaming::MultiSymbolStream,
+    providers::{Binance, Endpoints},
 };
-use crate::net::streaming::EventHandler;
-use crate::net::streaming::SimpleStream;
-use crate::providers::{Binance, Endpoints};
 use async_trait::async_trait;
 use clap::Args;
-use left_right::WriteHandle;
-use lob::LimitOrderBook;
-use std::{error::Error, thread};
-use tracing::error;
+use std::thread;
+use tokio::sync::mpsc::unbounded_channel;
+use tokio::task::LocalSet;
 
 pub(crate) struct Depth;
 
@@ -38,35 +35,29 @@ impl DepthConfig {
             _ => unimplemented!(),
         }
     }
-
-    pub(crate) async fn event_handler_builder(
-        provider: &impl Endpoints<Depth>,
-        symbols: &Vec<String>,
-        mut writer: WriteHandle<LimitOrderBook, Operations>,
-    ) -> Result<impl EventHandler, impl Error> {
-        let url = provider.rest_api_url(symbols.first().unwrap());
-        let response: reqwest::Response = reqwest::get(url).await?;
-        if let Err(e) = response.error_for_status_ref() {
-            error!("Query failed:{e} {}", response.text().await?);
-            return Err(e);
-        };
-        let lob: LimitOrderBook = response.json().await?;
-        writer.append(Operations::Initialize(lob));
-        Ok(OrderBook::from(writer))
-    }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl super::Monitor for DepthConfig {
     async fn monitor(&self) {
         let provider = self.select_provider();
-        let (w, r) = left_right::new();
+
+        let (tx, rx) = unbounded_channel();
+
+        let stream = MultiSymbolStream::new(
+            self.symbols.iter().map(|s| s.to_uppercase()).collect(),
+            provider,
+            tx,
+        );
+
         let port = self.server_port.unwrap_or(50051u16);
-        thread::spawn(move || crate::tonic::start(r.factory(), port));
-        let stream = SimpleStream {
-            symbols: &self.symbols,
-        };
-        let handler_builder = |e, s| Self::event_handler_builder(e, s, w);
-        stream.stream(handler_builder, &provider).await;
+        let n = self.symbols.len();
+        thread::spawn(move || crate::tonic::start(rx, port, n));
+
+        let local = LocalSet::new();
+
+        local
+            .run_until(async move { stream.stream::<Depth, OrderBook>().await })
+            .await;
     }
 }

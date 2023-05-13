@@ -1,11 +1,15 @@
 use crate::{
     net::streaming::{EventHandler, Message},
-    providers::NullResponse,
+    providers::{Endpoints, NullResponse},
 };
 use async_trait::async_trait;
-use left_right::{Absorb, WriteHandle};
+use left_right::{Absorb, ReadHandleFactory, WriteHandle};
 use lob::{DepthUpdate, LimitOrderBook};
-use tracing::{info, trace};
+use tokio::sync::mpsc::UnboundedSender;
+use tracing::error;
+use tracing::{info, trace, warn};
+
+use super::Depth;
 
 pub struct OrderBook(WriteHandle<LimitOrderBook, Operations>);
 
@@ -53,7 +57,7 @@ impl Absorb<Operations> for LimitOrderBook {
                 self.extend(book);
             }
         }
-        trace!("{}", self);
+        trace!("Book: {}", self);
     }
 
     fn sync_with(&mut self, first: &Self) {
@@ -61,28 +65,75 @@ impl Absorb<Operations> for LimitOrderBook {
     }
 }
 
-#[async_trait]
-impl EventHandler for OrderBook {
-    async fn handle_event(&mut self, msg: Message) -> Result<(), ()> {
-        let data = msg.into_data();
-        let Ok(update)= serde_json::from_slice::<DepthUpdate>(&data).map_err(|e| trace!("Failed to deserialize DepthUpdate {e}")) else {
-            let Ok(response) = serde_json::from_slice::<NullResponse>(&data) else{
-                return Err(());
-            };
+#[async_trait(?Send)]
+impl<'h> EventHandler<'h, Depth> for OrderBook {
+    type Error = color_eyre::eyre::Error;
+    type Context = UnboundedSender<(String, ReadHandleFactory<LimitOrderBook>)>;
+    type Update = DepthUpdate;
 
-            if response.result.is_none() {
-                return Ok(());
+    fn parse_update(value: Message) -> Result<Option<Self::Update>, ()> {
+        let data = value.into_data();
+        let update_result = serde_json::from_slice::<DepthUpdate>(&data)
+            .map_err(|e| trace!("Failed to deserialize DepthUpdate: {}", e));
+
+        match update_result {
+            Ok(update) => Ok(Some(update)),
+            Err(_) => {
+                let response_result = serde_json::from_slice::<NullResponse>(&data)
+                    .map(|response| response.result.is_none());
+
+                match response_result {
+                    Ok(true) => Ok(None),
+                    _ => Err(()),
+                }
             }
+        }
+    }
 
-            return Err(());
-        };
+    fn to_id<'a>(update: &'a DepthUpdate) -> &'a str {
+        &update.event.symbol
+    }
 
+    fn handle_update(&mut self, update: DepthUpdate) -> Result<(), ()> {
         info!(
             "Appending updates [{},{}]",
             update.first_update_id, update.last_update_id
         );
         self.0.append(Operations::Update(update)).publish();
         Ok(())
+    }
+
+    /// Although this takes a symbol slice, it only processes the first element.
+    async fn build<E>(
+        provider: &'h E,
+        symbols: &'h [String],
+        sender: &'h UnboundedSender<(String, ReadHandleFactory<LimitOrderBook>)>,
+    ) -> Result<Self, Self::Error>
+    where
+        E: Endpoints<Depth> + Sync,
+        Self: Sized,
+        Self::Context: Sync,
+    {
+        let symbol = symbols.first().expect("required");
+        //query
+        let response: reqwest::Response = {
+            let url = provider.rest_api_url(symbol);
+            reqwest::get(url).await
+        }?;
+        if let Err(e) = response.error_for_status_ref() {
+            error!("Query failed:{e} {}", response.text().await?);
+            return Err(e.into());
+        };
+        let lob: LimitOrderBook = response.json().await?;
+
+        let (mut w, r) = left_right::new();
+
+        if let Err(e) = sender.send((symbol.to_string(), r.factory())) {
+            warn!("Failed to send {symbol} handler to the RPC server. {e}");
+        }
+
+        w.append(Operations::Initialize(lob));
+        Ok(OrderBook::from(w))
     }
 }
 
