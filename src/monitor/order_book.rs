@@ -1,6 +1,7 @@
 use crate::{
-    net::streaming::{EventHandler, Message},
+    net::streaming::Message,
     providers::{Endpoints, NullResponse},
+    EventHandler,
 };
 use async_trait::async_trait;
 use left_right::{Absorb, ReadHandleFactory, WriteHandle};
