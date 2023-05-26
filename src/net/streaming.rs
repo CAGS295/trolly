@@ -28,12 +28,11 @@ impl<P, Context> MultiSymbolStream<P, Context> {
         }
     }
 
-    pub(crate) async fn stream<'s, Monitorable, Handle>(&'s self)
+    pub(crate) async fn stream<Monitorable, Handle>(&self)
     where
         P: Endpoints<Monitorable> + Sync + Clone,
         Context: Sync + Clone,
-        Monitorable: 's,
-        Handle: EventHandler<'s, Monitorable, Context = Context> + 's,
+        Handle: EventHandler<Monitorable, Context = Context>,
     {
         let ctrl_c = Terminate::new();
 

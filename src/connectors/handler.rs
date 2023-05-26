@@ -5,7 +5,7 @@ use std::fmt::Debug;
 pub(crate) use tokio_tungstenite::tungstenite::protocol::Message;
 
 #[async_trait(?Send)]
-pub(crate) trait EventHandler<'s, Monitorable> {
+pub(crate) trait EventHandler<Monitorable> {
     type Error: Debug;
     type Context;
     type Update;
@@ -36,7 +36,7 @@ pub(crate) trait EventHandler<'s, Monitorable> {
     /// return context.
     async fn build<En>(
         provider: En,
-        symbols: &'s [String],
+        symbols: &[String],
         ctx: Self::Context,
     ) -> Result<Self, Self::Error>
     where

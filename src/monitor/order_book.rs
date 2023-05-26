@@ -67,7 +67,7 @@ impl Absorb<Operations> for LimitOrderBook {
 }
 
 #[async_trait(?Send)]
-impl<'h> EventHandler<'h, Depth> for OrderBook {
+impl EventHandler<Depth> for OrderBook {
     type Error = color_eyre::eyre::Error;
     type Context = UnboundedSender<(String, ReadHandleFactory<LimitOrderBook>)>;
     type Update = DepthUpdate;
@@ -107,7 +107,7 @@ impl<'h> EventHandler<'h, Depth> for OrderBook {
     /// Although this takes a symbol slice, it only processes the first element.
     async fn build<En>(
         provider: En,
-        symbols: &'h [String],
+        symbols: &[String],
         sender: UnboundedSender<(String, ReadHandleFactory<LimitOrderBook>)>,
     ) -> Result<Self, Self::Error>
     where
