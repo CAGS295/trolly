@@ -52,7 +52,7 @@ impl super::Monitor for DepthConfig {
 
         let port = self.server_port.unwrap_or(50051u16);
         let n = self.symbols.len();
-        thread::spawn(move || crate::tonic::start(rx, port, n));
+        thread::spawn(move || crate::servers::start(rx, port, n));
 
         let local = LocalSet::new();
 

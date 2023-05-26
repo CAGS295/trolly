@@ -1,45 +1,18 @@
-#![cfg(feature = "grpc")]
+pub mod grpc;
 
 use axum::Router;
+use grpc::LimitOrderBookServiceServer;
+pub use grpc::{limit_order_book_service_client, Pair};
 use hyper::server::conn::AddrIncoming;
 use left_right::ReadHandleFactory;
-pub use lob::limit_order_book::protos::limit_order_book_service_client;
-pub use lob::limit_order_book::protos::Pair;
-use lob::limit_order_book::protos::{
-    limit_order_book_service_server::{LimitOrderBookService, LimitOrderBookServiceServer},
-    LimitOrderBook,
-};
 use std::collections::HashMap;
-use std::{net::Ipv6Addr, time::Duration};
+use std::net::Ipv6Addr;
+use std::time::Duration;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tonic::transport::NamedService;
-use tonic::{Request, Response, Status};
-use tracing::{error, info, trace, warn};
+use tracing::{error, info, warn};
 
 pub struct Hook(HashMap<String, ReadHandleFactory<lob::LimitOrderBook>>);
-
-#[tonic::async_trait]
-impl LimitOrderBookService for Hook {
-    async fn get_limit_order_book(
-        &self,
-        request: Request<Pair>,
-    ) -> Result<Response<LimitOrderBook>, Status> {
-        trace!("Got a request from {:?}", request.remote_addr());
-
-        let pair: String = request.into_inner().pair.to_uppercase();
-
-        let Some(native_book) = self.0.get(&pair)else{
-            return Err(Status::not_found(pair));
-        };
-
-        let native_book = native_book
-            .handle()
-            .enter()
-            .map(|guard| guard.clone())
-            .unwrap_or_default();
-        Ok(Response::new(From::from(native_book)))
-    }
-}
 
 #[tokio::main(flavor = "current_thread")]
 async fn inner_start(
