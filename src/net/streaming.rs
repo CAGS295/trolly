@@ -15,7 +15,7 @@ use tracing::{error, info};
 use url::Url;
 
 #[async_trait(?Send)]
-pub(crate) trait EventHandler<'s, Monitorable> {
+pub(crate) trait EventHandler<'h, Monitorable> {
     type Error: Debug;
     type Context;
     type Update;
@@ -44,10 +44,10 @@ pub(crate) trait EventHandler<'s, Monitorable> {
 
     /// don't take a writer, take a tx and send the readerfactory with the symbol to the gRPC server.
     /// return context.
-    async fn build<En>(
-        provider: &'s En,
-        symbols: &'s [String],
-        ctx: &'s Self::Context,
+    async fn build<'b, En>(
+        provider: &'b En,
+        symbols: &'h [String],
+        ctx: &'b Self::Context,
     ) -> Result<Self, Self::Error>
     where
         En: Endpoints<Monitorable> + Sync,

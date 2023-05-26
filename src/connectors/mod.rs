@@ -5,16 +5,16 @@ use tokio_tungstenite::tungstenite::Message;
 use tracing::error;
 
 ///Middleware to handle multiple symbols for the same Monitor.
-pub(crate) struct MonitorMultiplexor<'a, Handles, Monitorable> {
-    pub writers: HashMap<&'a str, Handles>,
+pub(crate) struct MonitorMultiplexor<'h, Handles, Monitorable> {
+    pub writers: HashMap<&'h str, Handles>,
     _p: PhantomData<Monitorable>,
 }
 
 #[async_trait(?Send)]
-impl<'a, M, H> EventHandler<'a, M> for MonitorMultiplexor<'a, H, M>
+impl<'h, M, H> EventHandler<'h, M> for MonitorMultiplexor<'h, H, M>
 where
-    M: 'a,
-    H: EventHandler<'a, M> + 'a,
+    M: 'h,
+    H: EventHandler<'h, M> + 'h,
 {
     type Error = H::Error;
     type Context = H::Context;
@@ -39,10 +39,10 @@ where
         handle.handle_update(update)
     }
 
-    async fn build<En>(
-        provider: &'a En,
-        symbols: &'a [String],
-        sender: &'a Self::Context,
+    async fn build<En, 'b>(
+        provider: &'b En,
+        symbols: &'h [String],
+        sender: &'b Self::Context,
     ) -> Result<Self, Self::Error>
     where
         En: crate::providers::Endpoints<M> + Sync,
