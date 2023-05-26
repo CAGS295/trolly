@@ -29,7 +29,7 @@ pub struct DepthConfig {
 }
 
 impl DepthConfig {
-    fn select_provider(&self) -> impl Endpoints<Depth> {
+    fn select_provider(&self) -> impl Endpoints<Depth> + Clone {
         match self.provider {
             Provider::Binance => Binance,
             _ => unimplemented!(),

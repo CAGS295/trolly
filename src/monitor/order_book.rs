@@ -105,13 +105,13 @@ impl<'h> EventHandler<'h, Depth> for OrderBook {
     }
 
     /// Although this takes a symbol slice, it only processes the first element.
-    async fn build<E, 'b>(
-        provider: &'b E,
+    async fn build<En>(
+        provider: En,
         symbols: &'h [String],
-        sender: &'b UnboundedSender<(String, ReadHandleFactory<LimitOrderBook>)>,
+        sender: UnboundedSender<(String, ReadHandleFactory<LimitOrderBook>)>,
     ) -> Result<Self, Self::Error>
     where
-        E: Endpoints<Depth> + Sync,
+        En: Endpoints<Depth> + Sync,
         Self: Sized,
         Self::Context: Sync,
     {

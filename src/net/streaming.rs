@@ -30,8 +30,8 @@ impl<P, Context> MultiSymbolStream<P, Context> {
 
     pub(crate) async fn stream<'s, Monitorable, Handle>(&'s self)
     where
-        P: Endpoints<Monitorable> + Sync,
-        Context: Sync,
+        P: Endpoints<Monitorable> + Sync + Clone,
+        Context: Sync + Clone,
         Monitorable: 's,
         Handle: EventHandler<'s, Monitorable, Context = Context> + 's,
     {
@@ -40,9 +40,9 @@ impl<P, Context> MultiSymbolStream<P, Context> {
         let mut stream = self.subscribe().await;
 
         let mut handler = MonitorMultiplexor::<Handle, Monitorable>::build(
-            &self.provider,
+            self.provider.clone(),
             self.symbols.as_slice(),
-            &self.context,
+            self.context.clone(),
         )
         .await
         .unwrap();

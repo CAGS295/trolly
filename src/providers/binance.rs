@@ -1,6 +1,7 @@
 use super::{ApiURL, Endpoints};
 use crate::monitor::Depth;
 
+#[derive(Clone)]
 pub(crate) struct Binance;
 
 impl ApiURL for Binance {

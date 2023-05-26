@@ -39,19 +39,19 @@ where
         handle.handle_update(update)
     }
 
-    async fn build<En, 'b>(
-        provider: &'b En,
+    async fn build<En>(
+        provider: En,
         symbols: &'h [String],
-        sender: &'b Self::Context,
+        sender: Self::Context,
     ) -> Result<Self, Self::Error>
     where
-        En: crate::providers::Endpoints<M> + Sync,
-        Self::Context: Sync,
+        En: crate::providers::Endpoints<M> + Sync + Clone,
+        Self::Context: Sync + Clone,
     {
         let mut writers: HashMap<&str, H> = HashMap::new();
 
         for s in symbols.windows(1) {
-            let handle = H::build(provider, s, sender)
+            let handle = H::build(provider.clone(), s, sender.clone())
                 .await
                 .expect("Building underlying handle");
             writers.insert(&s[0], handle);
