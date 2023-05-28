@@ -40,7 +40,7 @@ pub(crate) trait EventHandler<Monitorable> {
         ctx: Self::Context,
     ) -> Result<Self, Self::Error>
     where
-        En: Endpoints<Monitorable> + Sync + Clone,
+        En: Endpoints<Monitorable> + Clone + 'static,
         Self: Sized,
-        Self::Context: Sync + Clone;
+        Self::Context: Clone + 'static;
 }

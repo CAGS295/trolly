@@ -44,12 +44,6 @@ impl super::Monitor for DepthConfig {
 
         let (tx, rx) = unbounded_channel();
 
-        let stream = MultiSymbolStream::new(
-            self.symbols.iter().map(|s| s.to_uppercase()).collect(),
-            provider,
-            tx,
-        );
-
         let port = self.server_port.unwrap_or(50051u16);
         let n = self.symbols.len();
         thread::spawn(move || crate::servers::start(rx, port, n));
@@ -57,7 +51,14 @@ impl super::Monitor for DepthConfig {
         let local = LocalSet::new();
 
         local
-            .run_until(async move { stream.stream::<Depth, OrderBook>().await })
+            .run_until(async move {
+                MultiSymbolStream::stream::<Depth, OrderBook, _, _>(
+                    provider,
+                    tx,
+                    self.symbols.iter().map(|s| s.to_uppercase()).collect(),
+                )
+                .await
+            })
             .await;
     }
 }

@@ -111,9 +111,7 @@ impl EventHandler<Depth> for OrderBook {
         sender: UnboundedSender<(String, ReadHandleFactory<LimitOrderBook>)>,
     ) -> Result<Self, Self::Error>
     where
-        En: Endpoints<Depth> + Sync,
-        Self: Sized,
-        Self::Context: Sync,
+        En: Endpoints<Depth>,
     {
         let symbol = symbols.first().expect("required");
         //query

@@ -1,4 +1,5 @@
 use super::handler::EventHandler;
+use crate::providers::Endpoints;
 use async_trait::async_trait;
 use std::{collections::HashMap, marker::PhantomData};
 use tokio_tungstenite::tungstenite::Message;
@@ -13,7 +14,7 @@ pub(crate) struct MonitorMultiplexor<Handles, Monitorable> {
 #[async_trait(?Send)]
 impl<M, H> EventHandler<M> for MonitorMultiplexor<H, M>
 where
-    H: EventHandler<M>,
+    H: EventHandler<M> + 'static,
 {
     type Error = H::Error;
     type Context = H::Context;
@@ -44,17 +45,31 @@ where
         sender: Self::Context,
     ) -> Result<Self, Self::Error>
     where
-        En: crate::providers::Endpoints<M> + Sync + Clone,
-        Self::Context: Sync + Clone,
+        En: Endpoints<M> + Clone + 'static,
+        Self::Context: Clone + 'static,
     {
-        let mut writers = HashMap::new();
+        let mut writers = HashMap::with_capacity(symbols.len() - 1);
+        let mut handles = Vec::with_capacity(symbols.len() - 1);
 
         for s in symbols.windows(1) {
-            let handle = H::build(provider.clone(), s, sender.clone())
-                .await
-                .expect("Building underlying handle");
-            writers.insert(s[0].to_string(), handle);
+            let provider = provider.clone();
+            let s = s.to_vec().clone();
+            let sender = sender.clone();
+            let f = async move {
+                H::build(provider, s.as_slice(), sender)
+                    .await
+                    .expect("Building underlying handle for {s} failed.")
+            };
+
+            handles.push(tokio::task::spawn_local(f));
         }
+
+        for (i, h) in handles.into_iter().enumerate() {
+            if let Ok(handle) = h.await {
+                writers.insert(symbols[i].clone(), handle);
+            }
+        }
+
         Ok(Self {
             writers,
             _p: PhantomData,
