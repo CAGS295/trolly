@@ -38,7 +38,7 @@ criterion = "*"
 
 [features]
 default = ["grpc", "codec"]
-grpc = ["tonic", "prost", "lob/prost"]
+grpc = ["tonic", "prost", "lob/grpc"]
 codec = ["lob/codec"]
 
 [[bench]]
