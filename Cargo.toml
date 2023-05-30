@@ -30,14 +30,16 @@ tonic = { version = "*", optional = true }
 prost = { version = "*", optional = true }
 axum = "0.6.18"
 hyper = "0.14.26"
+http = "0.2.9"
 
 [dev-dependencies]
 rand = { version = "*" }
 criterion = "*"
 
 [features]
-default = ["grpc"]
+default = ["grpc", "codec"]
 grpc = ["tonic", "prost", "lob/prost"]
+codec = ["lob/codec"]
 
 [[bench]]
 name = "depth_monitor"
