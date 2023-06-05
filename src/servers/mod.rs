@@ -1,5 +1,7 @@
 pub mod grpc;
+pub mod scale;
 
+use axum::routing::get;
 use axum::Router;
 use grpc::LimitOrderBookServiceServer;
 pub use grpc::{limit_order_book_service_client, Pair};
@@ -12,6 +14,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use tonic::transport::NamedService;
 use tracing::{error, info, warn};
 
+#[derive(Clone)]
 pub struct Hook(HashMap<String, ReadHandleFactory<lob::LimitOrderBook>>);
 
 impl Hook {
@@ -36,13 +39,16 @@ async fn inner_start(
 
     info!("BookServer listening on {addr}");
 
-    let svc = LimitOrderBookServiceServer::new(Hook(factory));
+    let svc = LimitOrderBookServiceServer::new(Hook(factory.clone()));
     let path = format!(
         "/{}/*rest",
         <LimitOrderBookServiceServer<Hook> as NamedService>::NAME
     );
 
-    let app = Router::new().route_service(&path, svc);
+    let app = Router::new().route_service(&path, svc).route(
+        &"/scale/depth/:symbol",
+        get(scale::serve_book).with_state(Hook(factory)),
+    );
 
     let incoming = AddrIncoming::bind(&addr).unwrap();
     axum::Server::builder(incoming)
