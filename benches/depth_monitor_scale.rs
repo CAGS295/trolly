@@ -6,14 +6,14 @@ use hyper::Uri;
 use lob::Decode;
 use lob::LimitOrderBook;
 
-fn random_probes(c: &mut Criterion) {
+fn random_gets(c: &mut Criterion) {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .expect("Failed building the Runtime");
     let client = Client::builder().http2_only(true).build_http::<Body>();
 
-    c.bench_function("random_probes", |b| {
+    c.bench_function("depth scale", |b| {
         b.iter(|| {
             let future = client.get(Uri::from_static("http://[::1]:50051/scale/depth/btcusdt"));
             let response = rt.block_on(future).unwrap();
@@ -27,5 +27,5 @@ fn random_probes(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, random_probes);
-criterion_main!(benches);
+criterion_group!(depth, random_gets);
+criterion_main!(depth);

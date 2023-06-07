@@ -3,7 +3,7 @@ use tonic::Request;
 use trolly::grpc::LimitOrderBookServiceClient as Client;
 use trolly::grpc::Pair;
 
-fn random_probes(c: &mut Criterion) {
+fn random_gets(c: &mut Criterion) {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -13,7 +13,7 @@ fn random_probes(c: &mut Criterion) {
         .expect("The binary is running and serving.");
     let pair = "btcusdt".to_string();
 
-    c.bench_function("random_probes", |b| {
+    c.bench_function("depth grpc", |b| {
         b.iter(|| {
             let book_snapshot = rt
                 .block_on(client.get_limit_order_book(Request::new(Pair { pair: pair.clone() })))
@@ -25,5 +25,5 @@ fn random_probes(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, random_probes);
-criterion_main!(benches);
+criterion_group!(depth, random_gets);
+criterion_main!(depth);
