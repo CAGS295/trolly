@@ -44,4 +44,7 @@ codec = ["lob/codec"]
 [[bench]]
 name = "depth_monitor"
 harness = false
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[[bench]]
+name = "depth_monitor_scale"
+harness = false
