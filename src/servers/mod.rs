@@ -14,6 +14,19 @@ use tracing::{error, info, warn};
 
 pub struct Hook(HashMap<String, ReadHandleFactory<lob::LimitOrderBook>>);
 
+impl Hook {
+    async fn get_or_default(&self, pair: &String) -> Option<lob::LimitOrderBook> {
+        let native_book = self.0.get(&pair.to_uppercase())?;
+
+        let native_book = native_book
+            .handle()
+            .enter()
+            .map(|guard| guard.clone())
+            .unwrap_or_default();
+        Some(native_book)
+    }
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn inner_start(
     factory: HashMap<String, ReadHandleFactory<lob::LimitOrderBook>>,

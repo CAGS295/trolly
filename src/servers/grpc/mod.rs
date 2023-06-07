@@ -20,15 +20,10 @@ impl LimitOrderBookService for Hook {
 
         let pair: String = request.into_inner().pair.to_uppercase();
 
-        let Some(native_book) = self.0.get(&pair)else{
+        let Some(native_book) = self.get_or_default(&pair).await else {
             return Err(Status::not_found(pair));
         };
 
-        let native_book = native_book
-            .handle()
-            .enter()
-            .map(|guard| guard.clone())
-            .unwrap_or_default();
         Ok(Response::new(From::from(native_book)))
     }
 }
