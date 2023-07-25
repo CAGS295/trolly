@@ -5,13 +5,17 @@ use hyper::Client;
 use hyper::Uri;
 use lob::Decode;
 use lob::LimitOrderBook;
+use std::time::Duration;
 
 fn random_gets(c: &mut Criterion) {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .expect("Failed building the Runtime");
-    let client = Client::builder().http2_only(true).build_http::<Body>();
+    let client = Client::builder()
+        .http2_only(true)
+        .http2_keep_alive_interval(Some(Duration::from_millis(20)))
+        .build_http::<Body>();
 
     c.bench_function("depth scale", |b| {
         b.iter(|| {
