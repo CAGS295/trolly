@@ -50,7 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut bytes = &bytes[..];
         let book_snapshot = LimitOrderBook::decode(&mut bytes)?;
 
-        println!("{}", book_snapshot);
+        println!("{book_snapshot}");
 
         let x: u64 = rng.gen_range(0..2_000);
         thread::sleep(Duration::from_millis(x));

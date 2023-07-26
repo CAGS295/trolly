@@ -36,7 +36,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await?
             .into_inner();
 
-        println!("book={:?}", book_snapshot);
+        println!("book={book_snapshot:?}");
 
         let x: u64 = rng.gen_range(0..2_000);
         thread::sleep(Duration::from_millis(x));

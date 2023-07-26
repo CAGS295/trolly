@@ -42,11 +42,11 @@ impl Absorb<Operations> for LimitOrderBook {
                 trace!("Absorb DepthUpdate: {update}");
 
                 for bid in update.bids.iter() {
-                    self.add_bid(bid.clone());
+                    self.add_bid(*bid);
                 }
 
                 for ask in update.asks.iter() {
-                    self.add_ask(ask.clone());
+                    self.add_ask(*ask);
                 }
 
                 self.update_id = update.last_update_id;
@@ -154,7 +154,7 @@ mod test {
         w.append(Operations::Update(update.clone()));
         update.first_update_id = 3;
         update.last_update_id = 5;
-        w.append(Operations::Update(update.clone())).publish();
+        w.append(Operations::Update(update)).publish();
         let id = r.enter().map(|guard| guard.update_id).unwrap();
         assert_eq!(id, 5);
     }
@@ -166,13 +166,13 @@ mod test {
         let book = {
             let mut book = LimitOrderBook::new();
             for i in asks.iter() {
-                book.add_ask(i.clone());
+                book.add_ask(*i);
             }
             book
         };
 
         let x = DepthUpdate {
-            asks: asks.clone(),
+            asks: asks,
             ..Default::default()
         };
         //Skip the first publish optimization.

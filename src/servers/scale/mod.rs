@@ -11,8 +11,8 @@ pub(super) async fn serve_book(
 ) -> (StatusCode, Vec<u8>) {
     let lob = hook.get_or_default(&symbol).await;
     if let Some(lob) = lob {
-        return (StatusCode::OK, lob.encode());
+        (StatusCode::OK, lob.encode())
     } else {
-        return (StatusCode::NOT_FOUND, lob.encode());
+        (StatusCode::NOT_FOUND, lob.encode())
     }
 }

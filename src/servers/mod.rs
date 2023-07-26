@@ -46,7 +46,7 @@ async fn inner_start(
     );
 
     let app = Router::new().route_service(&path, svc).route(
-        &"/scale/depth/:symbol",
+        "/scale/depth/:symbol",
         get(scale::serve_book).with_state(Hook(factory)),
     );
 
