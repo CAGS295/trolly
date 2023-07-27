@@ -1,10 +1,13 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use flate2::read::GzDecoder;
+use http::header::ACCEPT_ENCODING;
+use http::Request;
 use hyper::body::to_bytes;
 use hyper::Body;
 use hyper::Client;
-use hyper::Uri;
 use lob::Decode;
 use lob::LimitOrderBook;
+use std::io::Read;
 use std::time::Duration;
 
 fn random_gets(c: &mut Criterion) {
@@ -19,12 +22,19 @@ fn random_gets(c: &mut Criterion) {
 
     c.bench_function("depth scale", |b| {
         b.iter(|| {
-            let future = client.get(Uri::from_static("http://[::1]:50051/scale/depth/btcusdt"));
-            let response = rt.block_on(future).unwrap();
+            let req = Request::builder()
+                .header(ACCEPT_ENCODING, "gzip")
+                .method("GET")
+                .uri("http://[::1]:50051/scale/depth/btcusdt")
+                .body(Body::default())
+                .unwrap();
+            let response = rt.block_on(client.request(req)).unwrap();
             let body = response.into_body();
             let bytes = rt.block_on(to_bytes(body)).unwrap();
-            let mut bytes = &bytes[..];
-            let book_snapshot = LimitOrderBook::decode(&mut bytes).unwrap();
+            let mut x = Vec::new();
+            GzDecoder::new(&bytes[..]).read_to_end(&mut x).unwrap();
+
+            let book_snapshot = LimitOrderBook::decode(&mut x.as_slice()).unwrap();
 
             black_box(book_snapshot);
         })

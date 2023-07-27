@@ -1,10 +1,13 @@
-use http::StatusCode;
+use flate2::read::GzDecoder;
+use http::header::{ACCEPT_ENCODING, CONTENT_ENCODING};
+use http::{Request, StatusCode};
 use hyper::body::to_bytes;
-use hyper::{Body, Client, Uri};
+use hyper::{Body, Client};
 use lob::Decode;
 use lob::LimitOrderBook;
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
+use std::io::Read;
 use std::time::Duration;
 use std::{println, thread};
 use tracing::Level;
@@ -30,7 +33,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = Client::builder().http2_only(true).build_http::<Body>();
 
     while !signal.is_terminated() {
-        let future = client.get(Uri::from_static("http://[::1]:50051/scale/depth/btcusdt"));
+        let request = Request::builder()
+            .header(ACCEPT_ENCODING, "gzip")
+            .method("GET")
+            .uri("http://[::1]:50051/scale/depth/btcusdt")
+            .body(Body::default())
+            .unwrap();
+
+        let future = client.request(request);
+
         let response = future.await?;
         match response.status() {
             StatusCode::OK => {}
@@ -45,9 +56,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        let body = response.into_body();
-        let bytes = to_bytes(body).await?;
-        let mut bytes = &bytes[..];
+        let decode = match response.headers().get(CONTENT_ENCODING) {
+            Some(s) if s == "gzip" => true,
+            Some(s) => {
+                panic!("Unhandled encoding {s:?}")
+            }
+            None => false,
+        };
+        let bytes = to_bytes(response.into_body()).await?;
+        let mut decode_output_buffer;
+        let mut bytes = if decode {
+            decode_output_buffer = Vec::new();
+            GzDecoder::new(&bytes[..])
+                .read_to_end(&mut decode_output_buffer)
+                .unwrap();
+            decode_output_buffer.as_slice()
+        } else {
+            &bytes[..]
+        };
+
         let book_snapshot = LimitOrderBook::decode(&mut bytes)?;
 
         println!("{book_snapshot}");

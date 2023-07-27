@@ -29,8 +29,12 @@ serde = "*"
 left-right = "0.11.5"
 tonic = { version = "*", optional = true }
 prost = { version = "*", optional = true }
-hyper = "0.14.26"
+hyper = { version = "0.14.26", features = ["stream"] }
 http = "0.2.9"
+tower-http = { version = "0.4.3", default-features = false, features = [
+    "compression-gzip",
+] }
+flate2 = "1.0.26"
 
 [dev-dependencies]
 rand = { version = "*" }

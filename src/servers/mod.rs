@@ -1,8 +1,8 @@
 pub mod grpc;
 pub mod scale;
 
-use axum::routing::get;
 use axum::Router;
+use axum::{handler::Handler, routing::get};
 use grpc::LimitOrderBookServiceServer;
 pub use grpc::{limit_order_book_service_client, Pair};
 use hyper::server::conn::AddrIncoming;
@@ -12,6 +12,7 @@ use std::net::Ipv6Addr;
 use std::time::Duration;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tonic::transport::NamedService;
+use tower_http::compression::CompressionLayer;
 use tracing::{error, info, warn};
 
 #[derive(Clone)]
@@ -47,7 +48,7 @@ async fn inner_start(
 
     let app = Router::new().route_service(&path, svc).route(
         "/scale/depth/:symbol",
-        get(scale::serve_book).with_state(Hook(factory)),
+        get(scale::serve_book.layer(CompressionLayer::new())).with_state(Hook(factory)),
     );
 
     let incoming = AddrIncoming::bind(&addr).unwrap();
