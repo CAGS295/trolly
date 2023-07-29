@@ -9,26 +9,27 @@ use trolly::Cli;
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() -> Result<(), color_eyre::Report> {
     color_eyre::install()?;
+    let cli = Cli::parse();
+
     let filter = EnvFilter::try_from_default_env().or_else(|_| {
         Ok::<_, color_eyre::Report>(EnvFilter::default().add_directive(Level::INFO.into()))
     })?;
 
-    //tracing_subscriber::fmt().with_env_filter(filter).init();
-    global::set_text_map_propagator(opentelemetry_jaeger::Propagator::new());
+    let registry = tracing_subscriber::registry().with(fmt::Layer::default());
 
-    let tracer = opentelemetry_jaeger::new_agent_pipeline()
-        .with_service_name("depth server")
-        .install_simple()?;
+    if cli.enable_telemetry {
+        global::set_text_map_propagator(opentelemetry_jaeger::Propagator::new());
 
-    let otel = tracing_opentelemetry::layer().with_tracer(tracer);
+        let tracer = opentelemetry_jaeger::new_agent_pipeline()
+            .with_service_name("Trolly")
+            .install_simple()?;
 
-    tracing_subscriber::registry()
-        .with(otel)
-        // Continue logging to stdout
-        .with(fmt::Layer::default())
-        .with(filter)
-        .try_init()?;
+        let otel = tracing_opentelemetry::layer().with_tracer(tracer);
+        registry.with(otel).with(filter).try_init()?;
+    } else {
+        registry.with(filter).try_init()?;
+    }
 
-    Cli::parse().start().await;
+    cli.start().await;
     Ok(())
 }

@@ -10,6 +10,8 @@ use clap::{Parser, Subcommand};
 pub struct Cli {
     #[clap(subcommand)]
     command: Commands,
+    #[clap(long)]
+    pub enable_telemetry: bool,
 }
 
 impl Cli {
