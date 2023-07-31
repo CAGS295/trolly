@@ -8,7 +8,7 @@ use left_right::{Absorb, ReadHandleFactory, WriteHandle};
 use lob::{DepthUpdate, LimitOrderBook};
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::error;
-use tracing::{info, trace, warn};
+use tracing::{info, instrument, trace, warn};
 
 use super::Depth;
 
@@ -72,13 +72,17 @@ impl EventHandler<Depth> for OrderBook {
     type Context = UnboundedSender<(String, ReadHandleFactory<LimitOrderBook>)>;
     type Update = DepthUpdate;
 
+    #[instrument(skip(value), fields(pair))]
     fn parse_update(value: Message) -> Result<Option<Self::Update>, ()> {
         let data = value.into_data();
         let update_result = serde_json::from_slice::<DepthUpdate>(&data)
             .map_err(|e| trace!("Failed to deserialize DepthUpdate: {}", e));
 
         match update_result {
-            Ok(update) => Ok(Some(update)),
+            Ok(update) => {
+                tracing::Span::current().record("pair", Self::to_id(&update));
+                Ok(Some(update))
+            }
             Err(_) => {
                 let response_result = serde_json::from_slice::<NullResponse>(&data)
                     .map(|response| response.result.is_none());
@@ -95,11 +99,11 @@ impl EventHandler<Depth> for OrderBook {
         &update.event.symbol
     }
 
+    #[instrument(skip_all, fields(pair))]
     fn handle_update(&mut self, update: DepthUpdate) -> Result<(), ()> {
-        info!(
-            "Appending updates [{},{}]",
-            update.first_update_id, update.last_update_id
-        );
+        tracing::Span::current().record("pair", Self::to_id(&update));
+        info!("[{},{}]", update.first_update_id, update.last_update_id);
+
         self.0.append(Operations::Update(update)).publish();
         Ok(())
     }

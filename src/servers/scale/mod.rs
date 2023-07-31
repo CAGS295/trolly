@@ -3,7 +3,9 @@ use axum::extract::State;
 use axum::{debug_handler, extract::Path};
 use http::StatusCode;
 use lob::Encode;
+use tracing::instrument;
 
+#[instrument(skip_all, fields(symbol))]
 #[debug_handler]
 pub(super) async fn serve_book(
     Path(symbol): Path<String>,
