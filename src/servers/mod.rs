@@ -2,8 +2,7 @@ pub mod grpc;
 pub mod scale;
 
 use axum::Router;
-use axum::{handler::Handler, routing::get};
-use grpc::LimitOrderBookServiceServer;
+#[cfg(feature = "grpc")]
 pub use grpc::{limit_order_book_service_client, Pair};
 use hyper::server::conn::AddrIncoming;
 use left_right::ReadHandleFactory;
@@ -11,8 +10,6 @@ use std::collections::HashMap;
 use std::net::Ipv6Addr;
 use std::time::Duration;
 use tokio::sync::mpsc::UnboundedReceiver;
-use tonic::transport::NamedService;
-use tower_http::compression::CompressionLayer;
 use tracing::{error, info, warn};
 
 #[derive(Clone)]
@@ -40,23 +37,38 @@ async fn inner_start(
 
     info!("BookServer listening on {addr}");
 
-    let svc = LimitOrderBookServiceServer::new(Hook(factory.clone()));
-    let path = format!(
-        "/{}/*rest",
-        <LimitOrderBookServiceServer<Hook> as NamedService>::NAME
-    );
+    let router = Router::new();
 
-    let app = Router::new().route_service(&path, svc).route(
-        "/scale/depth/:symbol",
-        get(scale::serve_book.layer(CompressionLayer::new())).with_state(Hook(factory)),
-    );
+    #[cfg(feature = "grpc")]
+    let router = {
+        use tonic::server::NamedService;
 
+        let svc = grpc::LimitOrderBookServiceServer::new(Hook(factory.clone()));
+        let path = format!(
+            "/{}/*rest",
+            <grpc::LimitOrderBookServiceServer<Hook> as NamedService>::NAME
+        );
+        router.route_service(&path, svc)
+    };
+
+    #[cfg(feature = "codec")]
+    let router = {
+        use axum::{handler::Handler, routing::get};
+        use tower_http::compression::CompressionLayer;
+
+        router.route(
+            "/scale/depth/:symbol",
+            get(scale::serve_book.layer(CompressionLayer::new())).with_state(Hook(factory)),
+        )
+    };
+
+    let app = router.into_make_service();
     let incoming = AddrIncoming::bind(&addr).unwrap();
     axum::Server::builder(incoming)
         .tcp_keepalive_interval(Some(Duration::from_millis(500)))
         .tcp_nodelay(true)
         .http2_only(true)
-        .serve(app.into_make_service())
+        .serve(app)
         .await
         .map_err(|e| {
             error!("{e}");
