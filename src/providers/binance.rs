@@ -39,7 +39,7 @@ mod test {
 
     #[test]
     fn subscription_serialization() {
-        let symbols = vec!["a", "b"];
+        let symbols = ["a", "b"];
         let value = Binance.ws_subscriptions(symbols.iter());
         assert_eq!(
             value,

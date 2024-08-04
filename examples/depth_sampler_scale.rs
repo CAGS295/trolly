@@ -1,12 +1,11 @@
 use flate2::read::GzDecoder;
 use http::header::{ACCEPT_ENCODING, CONTENT_ENCODING};
-use http::{Request, StatusCode};
-use hyper::body::to_bytes;
-use hyper::{Body, Client};
+use http::StatusCode;
 use lob::Decode;
 use lob::LimitOrderBook;
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
+use reqwest::{Client, Method};
 use std::io::Read;
 use std::time::Duration;
 use std::{println, thread};
@@ -30,19 +29,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         b / 2
     );
 
-    let client = Client::builder().http2_only(true).build_http::<Body>();
+    let client = Client::new();
 
     while !signal.is_terminated() {
-        let request = Request::builder()
+        let req = client
+            .request(Method::GET, "http://[::1]:50051/scale/depth/btcusdt")
             .header(ACCEPT_ENCODING, "gzip")
-            .method("GET")
-            .uri("http://[::1]:50051/scale/depth/btcusdt")
-            .body(Body::default())
-            .unwrap();
+            .build()?;
 
-        let future = client.request(request);
+        let response = client.execute(req).await?;
 
-        let response = future.await?;
         match response.status() {
             StatusCode::OK => {}
             err => {
@@ -63,7 +59,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             None => false,
         };
-        let bytes = to_bytes(response.into_body()).await?;
+        let bytes = response.bytes().await?;
         let mut decode_output_buffer;
         let mut bytes = if decode {
             decode_output_buffer = Vec::new();

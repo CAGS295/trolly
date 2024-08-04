@@ -1,15 +1,18 @@
 pub mod grpc;
 pub mod scale;
 
-use axum::Router;
+use axum::{extract::Request, Router};
+use futures_util::TryFutureExt;
 #[cfg(feature = "grpc")]
 pub use grpc::{limit_order_book_service_client, Pair};
-use hyper::server::conn::AddrIncoming;
+use hyper::body::Incoming;
+use hyper_util::rt::{TokioExecutor, TokioIo, TokioTimer};
 use left_right::ReadHandleFactory;
 use std::collections::HashMap;
 use std::net::Ipv6Addr;
 use std::time::Duration;
 use tokio::sync::mpsc::UnboundedReceiver;
+use tower::Service;
 use tracing::{error, info, warn};
 
 #[derive(Clone)]
@@ -53,28 +56,50 @@ async fn inner_start(
 
     #[cfg(feature = "codec")]
     let router = {
-        use axum::{handler::Handler, routing::get};
         use tower_http::compression::CompressionLayer;
 
         router.route(
             "/scale/depth/:symbol",
-            get(scale::serve_book.layer(CompressionLayer::new())).with_state(Hook(factory)),
+            axum::routing::get(scale::serve_book)
+                .with_state(Hook(factory))
+                .layer(CompressionLayer::new()),
         )
     };
 
-    let app = router.into_make_service();
-    let incoming = AddrIncoming::bind(&addr).unwrap();
-    axum::Server::builder(incoming)
-        .tcp_keepalive_interval(Some(Duration::from_millis(500)))
-        .tcp_nodelay(true)
-        .http2_only(true)
-        .serve(app)
-        .await
-        .map_err(|e| {
-            error!("{e}");
-        })?;
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
 
-    Ok(())
+    loop {
+        let (stream, addr) = match listener.accept().await {
+            Ok(conn) => conn,
+            Err(e) => {
+                error!("{e}");
+                continue;
+            }
+        };
+
+        info!("Connection {addr}, accepted");
+
+        stream.set_nodelay(true).unwrap();
+
+        let tower_service = router.clone();
+        tokio::spawn(async move {
+            let stream = TokioIo::new(stream);
+            let hyper_service = hyper::service::service_fn(move |req: Request<Incoming>| {
+                tower_service.clone().call(req)
+            });
+
+            let mut builder = hyper_util::server::conn::auto::Builder::new(TokioExecutor::new());
+            //builder.keep_alive_interval(Some(Duration::from_millis(500)));
+            //builder.timer(TokioTimer::new());
+
+            let x = builder
+                .serve_connection(stream, hyper_service)
+                .map_err(|e| {
+                    error!("{e}");
+                });
+            x.await.unwrap();
+        });
+    }
 }
 
 pub fn start(

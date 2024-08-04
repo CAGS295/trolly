@@ -15,12 +15,12 @@ pub(crate) trait EventHandler<Monitorable> {
 
     /// A handler shoud be identifiable from a Self::Update.
     /// This is necessary to route updates to their handler when processing multiple subscriptions from the same source.
-    fn to_id<'a>(event: &'a Self::Update) -> &'a str;
+    fn to_id(event: &Self::Update) -> &str;
 
     /// Use the Result to break out of the handler loop;
     /// Handle a raw message.
     fn handle(&mut self, msg: Message) -> Result<(), ()> {
-        let Some(update) = Self::parse_update(msg)? else{
+        let Some(update) = Self::parse_update(msg)? else {
             //Skip if not a relevant update.
             return Ok(());
         };

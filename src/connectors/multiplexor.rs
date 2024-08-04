@@ -24,14 +24,14 @@ where
         H::parse_update(event)
     }
 
-    fn to_id<'b>(event: &'b Self::Update) -> &'b str {
+    fn to_id(event: &Self::Update) -> &str {
         H::to_id(event)
     }
 
     fn handle_update(&mut self, update: Self::Update) -> Result<(), ()> {
         let id = Self::to_id(&update);
 
-        let Some(handle) = self.writers.get_mut(id)else{
+        let Some(handle) = self.writers.get_mut(id) else {
             error!("Unknown handle {id}");
             return Ok(());
         };

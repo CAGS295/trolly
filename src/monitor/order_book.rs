@@ -95,7 +95,7 @@ impl EventHandler<Depth> for OrderBook {
         }
     }
 
-    fn to_id<'a>(update: &'a DepthUpdate) -> &'a str {
+    fn to_id(update: &DepthUpdate) -> &str {
         &update.event.symbol
     }
 
@@ -176,7 +176,7 @@ mod test {
         };
 
         let x = DepthUpdate {
-            asks: asks,
+            asks,
             ..Default::default()
         };
         //Skip the first publish optimization.

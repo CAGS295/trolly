@@ -4,6 +4,12 @@ use std::sync::{atomic::AtomicBool, Arc};
 #[derive(Clone)]
 pub struct Terminate(Arc<AtomicBool>);
 
+impl Default for Terminate {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Terminate {
     pub fn new() -> Terminate {
         let flag = Terminate(Arc::new(AtomicBool::new(false)));

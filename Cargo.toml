@@ -4,13 +4,13 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-axum = { version = "0.6.18", features = ["macros"] }
+axum = { version = "^0.7", features = ["macros"] }
 async-trait = "0.1.57"
 clap = { version = "4.2.1", features = ["derive"] }
 color-eyre = { version = "0.6.2", default-features = false }
 ctrlc = "3.2.3"
 futures-util = "0.3.21"
-reqwest = { version = "0.11.16", default-features = false, features = [
+reqwest = { version = "^0.12", default-features = false, features = [
     "json",
     "native-tls-vendored",
 ] }
@@ -29,19 +29,22 @@ serde = "*"
 left-right = "0.11.5"
 tonic = { version = "*", optional = true }
 prost = { version = "*", optional = true }
-hyper = { version = "0.14.26", features = ["stream"] }
-http = "0.2.9"
-tower-http = { version = "0.4.3", default-features = false, features = [
+hyper = { version = "^1" }
+http = "^1"
+tower-http = { version = "^0", default-features = false, features = [
     "compression-gzip",
 ] }
-flate2 = "1.0.26"
+flate2 = "^1.0"
 opentelemetry = "0.19.0"
 tracing-opentelemetry = "0.19.0"
 opentelemetry-jaeger = "0.18.0"
+hyper-util = { version = "0.1.6", features = ["server", "http2", "tokio"] }
+tower = "0.4.13"
 
 [dev-dependencies]
 rand = { version = "*" }
 criterion = "*"
+http-body-util = "0.1.2"
 
 [features]
 default = ["grpc", "codec"]
@@ -55,3 +58,6 @@ harness = false
 [[bench]]
 name = "depth_monitor_scale"
 harness = false
+
+#[patch."https://github.com/CAGS295/lob.git"]
+#lob = { path = "../lob" }
