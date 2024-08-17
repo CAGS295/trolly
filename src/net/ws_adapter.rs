@@ -1,3 +1,4 @@
+use http::Uri;
 use tokio::net::TcpStream;
 use tokio_tungstenite::{
     connect_async_tls_with_config,
@@ -5,13 +6,12 @@ use tokio_tungstenite::{
     MaybeTlsStream, WebSocketStream,
 };
 use tracing::debug;
-use url::Url;
 
 type WebSocket<S> = WebSocketStream<MaybeTlsStream<S>>;
 
-pub async fn connect(ws_uri: Url) -> Result<WebSocket<TcpStream>, Error> {
+pub async fn connect(ws_uri: Uri) -> Result<WebSocket<TcpStream>, Error> {
     let (socket, res): (WebSocket<_>, _) =
-        connect_async_tls_with_config(ws_uri, None, None).await?;
+        connect_async_tls_with_config(ws_uri, None, false, None).await?;
     debug!("Connection response: {res:?}");
     Ok(socket)
 }

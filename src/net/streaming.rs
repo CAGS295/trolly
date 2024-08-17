@@ -11,7 +11,6 @@ use tokio_tungstenite::MaybeTlsStream;
 use tokio_tungstenite::WebSocketStream;
 use tracing::debug;
 use tracing::{error, info};
-use url::Url;
 
 pub(crate) struct MultiSymbolStream;
 
@@ -63,7 +62,7 @@ impl MultiSymbolStream {
         P: Endpoints<M> + Sync,
     {
         let mut stream = {
-            let url = Url::parse(provider.websocket_url().as_str()).expect("invalid websocket");
+            let url = provider.websocket_url().parse().expect("invalid websocket");
             connect(url).await.expect("stream")
         };
 

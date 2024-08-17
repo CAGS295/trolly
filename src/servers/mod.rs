@@ -10,7 +10,6 @@ use hyper_util::rt::{TokioExecutor, TokioIo, TokioTimer};
 use left_right::ReadHandleFactory;
 use std::collections::HashMap;
 use std::net::Ipv6Addr;
-use std::time::Duration;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tower::Service;
 use tracing::{error, info, warn};
@@ -88,7 +87,7 @@ async fn inner_start(
                 tower_service.clone().call(req)
             });
 
-            let mut builder = hyper_util::server::conn::auto::Builder::new(TokioExecutor::new());
+            let builder = hyper_util::server::conn::auto::Builder::new(TokioExecutor::new());
             //builder.keep_alive_interval(Some(Duration::from_millis(500)));
             //builder.timer(TokioTimer::new());
 

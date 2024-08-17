@@ -15,7 +15,7 @@ reqwest = { version = "^0.12", default-features = false, features = [
     "native-tls-vendored",
 ] }
 tokio = { version = "1.20.1", features = ["rt", "macros", "rt-multi-thread"] }
-tokio-tungstenite = { version = "0.18", features = ["native-tls-vendored"] }
+tokio-tungstenite = { version = "^0", features = ["native-tls-vendored"] }
 tracing = { version = "0.1.36", features = ["attributes"] }
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 url = "2.2.2"
