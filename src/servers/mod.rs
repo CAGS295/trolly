@@ -6,7 +6,7 @@ use futures_util::TryFutureExt;
 #[cfg(feature = "grpc")]
 pub use grpc::{limit_order_book_service_client, Pair};
 use hyper::body::Incoming;
-use hyper_util::rt::{TokioExecutor, TokioIo, TokioTimer};
+use hyper_util::rt::{TokioExecutor, TokioIo};
 use left_right::ReadHandleFactory;
 use std::collections::HashMap;
 use std::net::Ipv6Addr;
