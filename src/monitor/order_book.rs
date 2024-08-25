@@ -206,6 +206,7 @@ mod test {
         w.append(Operations::Update(x));
         w.publish();
         w.publish();
-        r.enter().map(|guard| assert_eq!(guard.deref(), &book));
+        let guard = r.enter().unwrap();
+        assert_eq!(guard.deref(),&book);
     }
 }
