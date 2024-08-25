@@ -6,7 +6,7 @@ use crate::EventHandler;
 use futures_util::SinkExt;
 use futures_util::StreamExt;
 use tokio::net::TcpStream;
-pub(crate) use tokio_tungstenite::tungstenite::protocol::Message;
+pub use tokio_tungstenite::tungstenite::protocol::Message;
 use tokio_tungstenite::MaybeTlsStream;
 use tokio_tungstenite::WebSocketStream;
 use tracing::debug;

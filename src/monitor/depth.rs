@@ -8,8 +8,9 @@ use clap::Args;
 use std::thread;
 use tokio::sync::mpsc::unbounded_channel;
 use tokio::task::LocalSet;
+pub use lob::DepthUpdate;
 
-pub(crate) struct Depth;
+pub struct Depth;
 
 #[derive(Args, Debug)]
 pub struct DepthConfig {

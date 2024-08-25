@@ -3,7 +3,7 @@ mod order_book;
 
 use async_trait::async_trait;
 use clap::{Subcommand, ValueEnum};
-pub(crate) use depth::Depth;
+pub use depth::Depth;
 use depth::DepthConfig;
 
 #[derive(Subcommand, Debug)]

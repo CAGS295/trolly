@@ -1,8 +1,8 @@
 mod cli;
 pub mod connectors;
 pub mod monitor;
-mod net;
-mod providers;
+pub mod net;
+pub mod providers;
 mod servers;
 pub mod signals;
 
