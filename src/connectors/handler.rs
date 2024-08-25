@@ -3,7 +3,7 @@ use crate::providers::Endpoints;
 use std::{fmt::Debug, future::Future};
 pub(crate) use tokio_tungstenite::tungstenite::protocol::Message;
 
-pub trait EventHandler<Monitorable> {
+pub(crate) trait EventHandler<Monitorable> {
     type Error: Debug;
     type Context;
     type Update;

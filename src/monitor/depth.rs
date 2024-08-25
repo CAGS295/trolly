@@ -4,7 +4,8 @@ use crate::{
     providers::{Binance, Endpoints},
 };
 use clap::Args;
-use std::thread;
+pub use lob::DepthUpdate;
+use std::{fmt::Debug, future::Future, thread};
 use tokio::sync::mpsc::unbounded_channel;
 use tokio::task::LocalSet;
 
@@ -59,4 +60,20 @@ impl super::Monitor for DepthConfig {
             })
             .await;
     }
+}
+
+pub trait DepthHandler {
+    type Error: Debug;
+    type Context;
+
+    fn handle_update(&mut self, update: DepthUpdate) -> Result<(), ()>;
+
+    fn build<En>(
+        provider: En,
+        symbols: &[String],
+        sender: Self::Context,
+    ) -> impl Future<Output = Result<Self, Self::Error>>
+    where
+        En: Endpoints<Depth>,
+        Self: Sized;
 }

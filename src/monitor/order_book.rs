@@ -9,7 +9,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use tracing::error;
 use tracing::{info, instrument, trace, warn};
 
-use super::Depth;
+use super::{depth::DepthHandler, Depth};
 
 pub struct OrderBook(WriteHandle<LimitOrderBook, Operations>);
 
@@ -65,9 +65,12 @@ impl Absorb<Operations> for LimitOrderBook {
     }
 }
 
-impl EventHandler<Depth> for OrderBook {
-    type Error = color_eyre::eyre::Error;
-    type Context = UnboundedSender<(String, ReadHandleFactory<LimitOrderBook>)>;
+impl<T> EventHandler<Depth> for T
+where
+    T: DepthHandler,
+{
+    type Error = <T as DepthHandler>::Error;
+    type Context = <T as DepthHandler>::Context;
     type Update = DepthUpdate;
 
     #[instrument(skip(value), fields(pair))]
@@ -102,18 +105,39 @@ impl EventHandler<Depth> for OrderBook {
         tracing::Span::current().record("pair", Self::to_id(&update));
         info!("[{},{}]", update.first_update_id, update.last_update_id);
 
-        self.0.append(Operations::Update(update)).publish();
-        Ok(())
+        DepthHandler::handle_update(self, update)
     }
 
     /// Although this takes a symbol slice, it only processes the first element.
     async fn build<En>(
         provider: En,
         symbols: &[String],
-        sender: UnboundedSender<(String, ReadHandleFactory<LimitOrderBook>)>,
+        sender: Self::Context,
     ) -> Result<Self, Self::Error>
     where
         En: Endpoints<Depth>,
+    {
+        <T as DepthHandler>::build(provider, symbols, sender).await
+    }
+}
+
+impl DepthHandler for OrderBook {
+    type Error = color_eyre::eyre::Error;
+    type Context = UnboundedSender<(String, ReadHandleFactory<LimitOrderBook>)>;
+
+    fn handle_update(&mut self, update: DepthUpdate) -> Result<(), ()> {
+        self.0.append(Operations::Update(update)).publish();
+        Ok(())
+    }
+
+    async fn build<En>(
+        provider: En,
+        symbols: &[String],
+        sender: Self::Context,
+    ) -> Result<Self, Self::Error>
+    where
+        En: Endpoints<Depth>,
+        Self: Sized,
     {
         let symbol = symbols.first().expect("required");
         //query
