@@ -1,10 +1,8 @@
 pub use crate::net::ws_adapter::{connect, disconnect};
 use crate::providers::Endpoints;
-use async_trait::async_trait;
-use std::fmt::Debug;
+use std::{fmt::Debug, future::Future};
 pub(crate) use tokio_tungstenite::tungstenite::protocol::Message;
 
-#[async_trait(?Send)]
 pub trait EventHandler<Monitorable> {
     type Error: Debug;
     type Context;
@@ -34,11 +32,11 @@ pub trait EventHandler<Monitorable> {
 
     /// don't take a writer, take a tx and send the readerfactory with the symbol to the gRPC server.
     /// return context.
-    async fn build<En>(
+    fn build<En>(
         provider: En,
         symbols: &[String],
         ctx: Self::Context,
-    ) -> Result<Self, Self::Error>
+    ) -> impl Future<Output = Result<Self, Self::Error>>
     where
         En: Endpoints<Monitorable> + Clone + 'static,
         Self: Sized,

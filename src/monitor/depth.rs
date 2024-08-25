@@ -3,12 +3,10 @@ use crate::{
     net::streaming::MultiSymbolStream,
     providers::{Binance, Endpoints},
 };
-use async_trait::async_trait;
 use clap::Args;
 use std::thread;
 use tokio::sync::mpsc::unbounded_channel;
 use tokio::task::LocalSet;
-pub use lob::DepthUpdate;
 
 pub struct Depth;
 
@@ -38,7 +36,6 @@ impl DepthConfig {
     }
 }
 
-#[async_trait(?Send)]
 impl super::Monitor for DepthConfig {
     async fn monitor(&self) {
         let provider = self.select_provider();

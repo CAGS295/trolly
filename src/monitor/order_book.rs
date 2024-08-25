@@ -3,7 +3,6 @@ use crate::{
     providers::{Endpoints, NullResponse},
     EventHandler,
 };
-use async_trait::async_trait;
 use left_right::{Absorb, ReadHandleFactory, WriteHandle};
 use lob::{DepthUpdate, LimitOrderBook};
 use tokio::sync::mpsc::UnboundedSender;
@@ -66,7 +65,6 @@ impl Absorb<Operations> for LimitOrderBook {
     }
 }
 
-#[async_trait(?Send)]
 impl EventHandler<Depth> for OrderBook {
     type Error = color_eyre::eyre::Error;
     type Context = UnboundedSender<(String, ReadHandleFactory<LimitOrderBook>)>;

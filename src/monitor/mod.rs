@@ -1,7 +1,6 @@
 mod depth;
 mod order_book;
 
-use async_trait::async_trait;
 use clap::{Subcommand, ValueEnum};
 pub use depth::Depth;
 use depth::DepthConfig;
@@ -19,7 +18,6 @@ pub enum Provider {
     Other,
 }
 
-#[async_trait(?Send)]
 pub(crate) trait Monitor {
     async fn monitor(&self);
 }

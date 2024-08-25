@@ -1,5 +1,4 @@
 use crate::monitor::{Monitor, Monitorables};
-use async_trait::async_trait;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -31,12 +30,10 @@ enum Commands {
     Execute,
 }
 
-#[async_trait(?Send)]
 pub trait Run {
     async fn run(&self);
 }
 
-#[async_trait(?Send)]
 impl Run for Commands {
     async fn run(&self) {
         match self {

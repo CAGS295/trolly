@@ -1,6 +1,5 @@
 use super::handler::EventHandler;
 use crate::providers::Endpoints;
-use async_trait::async_trait;
 use std::{collections::HashMap, marker::PhantomData};
 use tokio_tungstenite::tungstenite::Message;
 use tracing::error;
@@ -11,7 +10,6 @@ pub(crate) struct MonitorMultiplexor<Handles, Monitorable> {
     _p: PhantomData<Monitorable>,
 }
 
-#[async_trait(?Send)]
 impl<M, H> EventHandler<M> for MonitorMultiplexor<H, M>
 where
     H: EventHandler<M> + 'static,

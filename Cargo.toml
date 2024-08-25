@@ -5,9 +5,8 @@ edition = "2021"
 
 [dependencies]
 axum = { version = "^0.7", features = ["macros"] }
-async-trait = "0.1.57"
-clap = { version = "4.2.1", features = ["derive"] }
 color-eyre = { version = "0.6.2", default-features = false }
+clap = { version = "4.2.1", features = ["derive"] }
 ctrlc = "3.2.3"
 futures-util = "0.3.21"
 reqwest = { version = "^0.12", default-features = false, features = [
