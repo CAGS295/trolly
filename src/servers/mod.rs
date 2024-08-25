@@ -18,7 +18,7 @@ use tracing::{error, info, warn};
 pub struct Hook(HashMap<String, ReadHandleFactory<lob::LimitOrderBook>>);
 
 impl Hook {
-    async fn get_or_default(&self, pair: &String) -> Option<lob::LimitOrderBook> {
+    async fn get_or_default(&self, pair: &str) -> Option<lob::LimitOrderBook> {
         let native_book = self.0.get(&pair.to_uppercase())?;
 
         let native_book = native_book

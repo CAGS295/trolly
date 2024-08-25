@@ -18,7 +18,7 @@ where
     type Context = H::Context;
     type Update = H::Update;
 
-    fn parse_update(event: Message) -> Result<Option<Self::Update>, ()> {
+    fn parse_update(event: Message) -> Result<Option<Self::Update>, Self::Error> {
         H::parse_update(event)
     }
 
@@ -26,7 +26,7 @@ where
         H::to_id(event)
     }
 
-    fn handle_update(&mut self, update: Self::Update) -> Result<(), ()> {
+    fn handle_update(&mut self, update: Self::Update) -> Result<(), Self::Error> {
         let id = Self::to_id(&update);
 
         let Some(handle) = self.writers.get_mut(id) else {

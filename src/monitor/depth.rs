@@ -66,7 +66,7 @@ pub trait DepthHandler {
     type Error: Debug;
     type Context;
 
-    fn handle_update(&mut self, update: DepthUpdate) -> Result<(), ()>;
+    fn handle_update(&mut self, update: DepthUpdate) -> Result<(), Self::Error>;
 
     fn build<En>(
         provider: En,

@@ -68,29 +68,30 @@ impl Absorb<Operations> for LimitOrderBook {
 impl<T> EventHandler<Depth> for T
 where
     T: DepthHandler,
+    <T as DepthHandler>::Error: From<serde_json::Error>,
 {
     type Error = <T as DepthHandler>::Error;
     type Context = <T as DepthHandler>::Context;
     type Update = DepthUpdate;
 
     #[instrument(skip(value), fields(pair))]
-    fn parse_update(value: Message) -> Result<Option<Self::Update>, ()> {
+    fn parse_update(value: Message) -> Result<Option<Self::Update>, Self::Error> {
         let data = value.into_data();
         let update_result = serde_json::from_slice::<DepthUpdate>(&data)
-            .map_err(|e| trace!("Failed to deserialize DepthUpdate: {}", e));
+            .inspect_err(|e| trace!("Failed to deserialize DepthUpdate: {}", e));
 
         match update_result {
             Ok(update) => {
                 tracing::Span::current().record("pair", Self::to_id(&update));
                 Ok(Some(update))
             }
-            Err(_) => {
+            Err(e) => {
                 let response_result = serde_json::from_slice::<NullResponse>(&data)
                     .map(|response| response.result.is_none());
 
                 match response_result {
                     Ok(true) => Ok(None),
-                    _ => Err(()),
+                    _ => Err(e.into()),
                 }
             }
         }
@@ -101,7 +102,7 @@ where
     }
 
     #[instrument(skip_all, fields(pair))]
-    fn handle_update(&mut self, update: DepthUpdate) -> Result<(), ()> {
+    fn handle_update(&mut self, update: DepthUpdate) -> Result<(), Self::Error> {
         tracing::Span::current().record("pair", Self::to_id(&update));
         info!("[{},{}]", update.first_update_id, update.last_update_id);
 
@@ -125,7 +126,7 @@ impl DepthHandler for OrderBook {
     type Error = color_eyre::eyre::Error;
     type Context = UnboundedSender<(String, ReadHandleFactory<LimitOrderBook>)>;
 
-    fn handle_update(&mut self, update: DepthUpdate) -> Result<(), ()> {
+    fn handle_update(&mut self, update: DepthUpdate) -> Result<(), Self::Error> {
         self.0.append(Operations::Update(update)).publish();
         Ok(())
     }
@@ -207,6 +208,6 @@ mod test {
         w.publish();
         w.publish();
         let guard = r.enter().unwrap();
-        assert_eq!(guard.deref(),&book);
+        assert_eq!(guard.deref(), &book);
     }
 }
