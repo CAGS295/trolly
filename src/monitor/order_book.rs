@@ -28,9 +28,7 @@ impl Absorb<Operations> for LimitOrderBook {
         match operation {
             Operations::Update(update) => {
                 // immediate transition with update stream.
-                if self.update_id + 1 < update.first_update_id
-                    || update.last_update_id + 1 < self.update_id
-                {
+                if update.skip_update(self.update_id) {
                     info!(
                         "Skipping stale updates stamp:{} [{},{}]",
                         update.event.time, update.first_update_id, update.last_update_id
@@ -106,7 +104,7 @@ where
         tracing::Span::current().record("pair", Self::to_id(&update));
         info!("[{},{}]", update.first_update_id, update.last_update_id);
 
-        DepthHandler::handle_update(self, update)
+        self.handle_update(update)
     }
 
     /// Although this takes a symbol slice, it only processes the first element.
