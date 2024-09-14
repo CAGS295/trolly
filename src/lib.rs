@@ -8,6 +8,7 @@ pub mod signals;
 
 pub use cli::Cli;
 pub use tokio;
+pub use lob;
 
 pub(crate) use connectors::handler::EventHandler;
 
