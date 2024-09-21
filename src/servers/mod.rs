@@ -1,3 +1,5 @@
+#![cfg(any(feature = "codec", feature = "grpc"))]
+
 pub mod grpc;
 pub mod scale;
 

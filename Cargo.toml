@@ -58,5 +58,8 @@ harness = false
 name = "depth_monitor_scale"
 harness = false
 
+[[bin]]
+name = "depth_monitor"
+
 #[patch."https://github.com/CAGS295/lob.git"]
 #lob = { path = "../lob" }

@@ -1,4 +1,3 @@
-use crate::monitor::{Monitor, Monitorables};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -22,9 +21,10 @@ impl Cli {
 #[derive(Subcommand, Debug)]
 enum Commands {
     /// Stream data from an exchange and monitor a metric or structure.
+    #[cfg(any(feature = "codec", feature = "grpc"))]
     Monitor {
         #[clap(subcommand)]
-        metric: Monitorables,
+        metric: super::monitor::Monitorables,
     },
     /// Comming soon
     Execute,
@@ -37,9 +37,11 @@ pub trait Run {
 impl Run for Commands {
     async fn run(&self) {
         match self {
+            #![cfg(any(feature = "codec", feature = "grpc"))]
             Self::Monitor {
-                metric: Monitorables::Depth(args),
+                metric: super::monitor::Monitorables::Depth(args),
             } => {
+                use super::monitor::Monitor;
                 args.monitor().await;
             }
             _ => todo!(),

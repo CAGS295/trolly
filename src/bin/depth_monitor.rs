@@ -1,13 +1,15 @@
-pub use clap::Parser;
-use opentelemetry::global;
-use tracing::Level;
-use tracing_subscriber::{
-    fmt, prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt, EnvFilter,
-};
-use trolly::Cli;
 
+#[cfg(any(feature = "codec", feature = "grpc"))]
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() -> Result<(), color_eyre::Report> {
+    pub use clap::Parser;
+    use opentelemetry::global;
+    use tracing::Level;
+    use tracing_subscriber::{
+        fmt, prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt, EnvFilter,
+    };
+    use trolly::Cli;
+
     color_eyre::install()?;
     let cli = Cli::parse();
 
@@ -33,3 +35,6 @@ async fn main() -> Result<(), color_eyre::Report> {
     cli.start().await;
     Ok(())
 }
+
+#[cfg(not(any(feature = "codec", feature = "grpc")))]
+fn main(){}

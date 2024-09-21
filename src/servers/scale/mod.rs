@@ -1,3 +1,5 @@
+#![cfg(feature = "codec")]
+
 use super::Hook;
 use axum::extract::State;
 use axum::{debug_handler, extract::Path};

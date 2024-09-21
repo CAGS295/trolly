@@ -1,13 +1,6 @@
-use super::{order_book::OrderBook, Provider};
-use crate::{
-    net::streaming::MultiSymbolStream,
-    providers::{Binance, Endpoints},
-};
 use clap::Args;
 pub use lob::DepthUpdate;
-use std::{fmt::Debug, future::Future, thread};
-use tokio::sync::mpsc::unbounded_channel;
-use tokio::task::LocalSet;
+use std::{fmt::Debug, future::Future};
 
 pub struct Depth;
 
@@ -15,7 +8,7 @@ pub struct Depth;
 pub struct DepthConfig {
     #[arg(value_enum)]
     #[arg(short, long)]
-    provider: Provider,
+    provider: super::Provider,
     #[arg(
         short,
         long,
@@ -29,29 +22,35 @@ pub struct DepthConfig {
 }
 
 impl DepthConfig {
-    fn select_provider(&self) -> impl Endpoints<Depth> + Clone {
+    fn select_provider(&self) -> impl crate::providers::Endpoints<Depth> + Clone {
         match self.provider {
-            Provider::Binance => Binance,
+            super::Provider::Binance => crate::providers::Binance,
             _ => unimplemented!(),
         }
     }
 }
 
+#[cfg(any(feature = "codec", feature = "grpc"))]
 impl super::Monitor for DepthConfig {
     async fn monitor(&self) {
         let provider = self.select_provider();
 
-        let (tx, rx) = unbounded_channel();
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
         let port = self.server_port.unwrap_or(50051u16);
         let n = self.symbols.len();
-        thread::spawn(move || crate::servers::start(rx, port, n));
+        std::thread::spawn(move || crate::servers::start(rx, port, n));
 
-        let local = LocalSet::new();
+        let local = tokio::task::LocalSet::new();
 
         local
             .run_until(async move {
-                MultiSymbolStream::stream::<Depth, OrderBook, _, _>(
+                crate::net::streaming::MultiSymbolStream::stream::<
+                    Depth,
+                    super::order_book::OrderBook,
+                    _,
+                    _,
+                >(
                     provider,
                     tx,
                     self.symbols.iter().map(|s| s.to_uppercase()).collect(),
@@ -74,6 +73,6 @@ pub trait DepthHandler {
         sender: Self::Context,
     ) -> impl Future<Output = Result<Self, Self::Error>>
     where
-        En: Endpoints<Depth>,
+        En: crate::providers::Endpoints<Depth>,
         Self: Sized;
 }
