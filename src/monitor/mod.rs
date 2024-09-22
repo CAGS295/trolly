@@ -1,5 +1,5 @@
 mod depth;
-mod order_book;
+pub mod order_book;
 
 use clap::{Subcommand, ValueEnum};
 pub use depth::{Depth, DepthConfig, DepthHandler, DepthUpdate};

@@ -53,7 +53,10 @@ impl super::Monitor for DepthConfig {
                 >(
                     provider,
                     tx,
-                    self.symbols.iter().map(|s| s.to_uppercase()).collect(),
+                    self.symbols
+                        .iter()
+                        .map(|s| s.to_uppercase())
+                        .collect::<Vec<_>>(),
                 )
                 .await
             })

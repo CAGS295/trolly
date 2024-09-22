@@ -12,13 +12,13 @@ use tokio_tungstenite::WebSocketStream;
 use tracing::debug;
 use tracing::{error, info};
 
-pub(crate) struct MultiSymbolStream;
+pub struct MultiSymbolStream;
 
 impl MultiSymbolStream {
-    pub(crate) async fn stream<Monitorable, Handle, P, Context>(
+    pub async fn stream<Monitorable, Handle, P, Context>(
         provider: P,
         context: Context,
-        symbols: Vec<String>,
+        symbols: impl AsRef<[String]>,
     ) where
         P: Endpoints<Monitorable> + Sync + Clone + 'static,
         Context: Sync + Clone + 'static,
@@ -26,10 +26,10 @@ impl MultiSymbolStream {
     {
         let ctrl_c = Terminate::new();
 
-        let mut stream = Self::subscribe(&provider, &symbols).await;
+        let mut stream = Self::subscribe(&provider, symbols.as_ref()).await;
 
         let mut handler =
-            MonitorMultiplexor::<Handle, Monitorable>::build(provider, &symbols, context)
+            MonitorMultiplexor::<Handle, Monitorable>::build(provider, symbols.as_ref(), context)
                 .await
                 .unwrap();
 
