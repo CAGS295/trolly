@@ -7,8 +7,8 @@ mod servers;
 pub mod signals;
 
 pub use cli::Cli;
-pub use tokio;
 pub use lob;
+pub use tokio;
 
 pub(crate) use connectors::handler::EventHandler;
 

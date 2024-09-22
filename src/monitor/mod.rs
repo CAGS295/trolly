@@ -2,8 +2,7 @@ mod depth;
 mod order_book;
 
 use clap::{Subcommand, ValueEnum};
-use depth::DepthConfig;
-pub use depth::{Depth, DepthHandler, DepthUpdate};
+pub use depth::{Depth, DepthConfig, DepthHandler, DepthUpdate};
 
 #[derive(Subcommand, Debug)]
 pub enum Monitorables {

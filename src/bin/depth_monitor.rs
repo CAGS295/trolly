@@ -1,4 +1,3 @@
-
 #[cfg(any(feature = "codec", feature = "grpc"))]
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() -> Result<(), color_eyre::Report> {
@@ -37,4 +36,4 @@ async fn main() -> Result<(), color_eyre::Report> {
 }
 
 #[cfg(not(any(feature = "codec", feature = "grpc")))]
-fn main(){}
+fn main() {}
