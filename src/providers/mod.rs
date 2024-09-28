@@ -1,8 +1,8 @@
 use serde::Deserialize;
 
-pub mod binance;
+mod binance;
 
-pub(crate) use binance::Binance;
+pub use binance::Binance;
 
 /// A [Provider] must implement this trait for [net] to know where to pull the data from.
 pub trait Endpoints<Monitorable> {

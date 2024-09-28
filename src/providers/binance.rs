@@ -2,7 +2,7 @@ use super::{ApiURL, Endpoints};
 use crate::monitor::Depth;
 
 #[derive(Clone)]
-pub(crate) struct Binance;
+pub struct Binance;
 
 impl ApiURL for Binance {
     const STREAM: &'static str = "wss://data-stream.binance.com";
