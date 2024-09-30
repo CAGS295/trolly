@@ -56,7 +56,7 @@ where
             let f = async move {
                 H::build(provider, s.as_slice(), sender)
                     .await
-                    .expect(format!("Building underlying handle for {s:?} failed.").as_str())
+                    .unwrap_or_else(|_| panic!("Building underlying handle for {s:?} failed."))
             };
 
             handles.push(tokio::task::spawn_local(f));
