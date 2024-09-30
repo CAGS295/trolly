@@ -35,13 +35,14 @@ COPY src ./src
 COPY examples ./examples
 COPY benches ./benches
 
-RUN cargo build --release
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=target cargo build --release && mv ./target/release/depth_monitor ./depth_monitor
 
 FROM alpine:latest
 
 COPY --from=openssl /usr/lib/libssl* /usr/lib/
 COPY --from=openssl /usr/lib/libcrypto* /usr/lib/
-COPY --from=rust /trolly/target/release/trolly /usr/local/bin/trolly
+COPY --from=rust /trolly/depth_monitor /usr/bin
 
 # Set LD_LIBRARY_PATH environment variable
 ENV LD_LIBRARY_PATH=/usr/lib/
