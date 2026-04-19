@@ -26,8 +26,8 @@ lob = { git = "https://github.com/CAGS295/lob.git", default-features = false, fe
 serde_json = "*"
 serde = "*"
 left-right = "0.11.5"
-tonic = { version = "*", optional = true }
-prost = { version = "*", optional = true }
+tonic = { version = "^0.12", optional = true }
+prost = { version = "^0.13", optional = true }
 hyper = { version = "^1" }
 http = "^1"
 tower-http = { version = "^0", default-features = false, features = [
@@ -62,4 +62,4 @@ harness = false
 name = "depth_monitor"
 
 #[patch."https://github.com/CAGS295/lob.git"]
-#lob = { path = "../lob" }
+#lob = { path = "./patches/lob" }
