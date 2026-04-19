@@ -26,7 +26,7 @@ Exchange WS feed ──► WebSocket stream ──► left-right LOB writer
 
 | Exchange | Status |
 |----------|--------|
-| Binance  | Implemented (`wss://data-stream.binance.com`, REST depth API) |
+| Binance  | Implemented (`wss://stream.binance.com:9443`, REST depth API v3) |
 
 The provider abstraction (`Endpoints` trait) makes it straightforward to add more exchanges.
 

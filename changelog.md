@@ -8,6 +8,9 @@
 - Add SCALE server with tower.
 - Add multi provider support.
 ## change log
++ Update Binance API endpoints per 2026-04-19 changelog review:
+  - Replace deprecated `wss://data-stream.binance.com` with primary `wss://stream.binance.com:9443`.
+  - Add `limit=5000` to depth snapshot request per Binance best-practices for local order book management.
 + Add multi-symbol support.
 + add a DockerFile
 + Added a client example consumig the orderbook.

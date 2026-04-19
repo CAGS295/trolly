@@ -5,7 +5,7 @@ use crate::monitor::Depth;
 pub struct Binance;
 
 impl ApiURL for Binance {
-    const STREAM: &'static str = "wss://data-stream.binance.com";
+    const STREAM: &'static str = "wss://stream.binance.com:9443";
     const REST: &'static str = "https://api.binance.com/api/v3";
 }
 
@@ -16,7 +16,7 @@ impl Endpoints<Depth> for Binance {
 
     fn rest_api_url(&self, symbol: impl AsRef<str>) -> String {
         format!(
-            "{}/depth?symbol={}",
+            "{}/depth?symbol={}&limit=5000",
             Self::REST,
             symbol.as_ref().to_uppercase()
         )

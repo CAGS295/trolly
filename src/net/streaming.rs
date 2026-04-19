@@ -67,7 +67,7 @@ impl MultiSymbolStream {
         };
 
         stream
-            .send(Message::Text(provider.ws_subscriptions(symbols.iter())))
+            .send(Message::Text(provider.ws_subscriptions(symbols.iter()).into()))
             .await
             .expect("Failed to Send subscriptions.");
         stream

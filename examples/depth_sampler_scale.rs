@@ -3,8 +3,7 @@ use http::header::{ACCEPT_ENCODING, CONTENT_ENCODING};
 use http::StatusCode;
 use lob::Decode;
 use lob::LimitOrderBook;
-use rand::rngs::SmallRng;
-use rand::{Rng, SeedableRng};
+use rand::RngExt;
 use reqwest::{Client, Method};
 use std::io::Read;
 use std::time::Duration;
@@ -22,7 +21,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let signal = trolly::signals::Terminate::new();
 
-    let mut rng = SmallRng::from_entropy();
+    let mut rng = rand::rng();
     let b = 2_000;
     println!(
         "Generating random uniform probes! Average wait: {}ms",
@@ -75,7 +74,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         println!("{book_snapshot}");
 
-        let x: u64 = rng.gen_range(0..2_000);
+        let x: u64 = rng.random_range(0..2_000);
         thread::sleep(Duration::from_millis(x));
     }
 

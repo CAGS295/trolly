@@ -1,5 +1,4 @@
-use rand::rngs::SmallRng;
-use rand::{Rng, SeedableRng};
+use rand::RngExt;
 use std::time::Duration;
 use std::{println, thread};
 use tonic::Request;
@@ -20,7 +19,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await
         .expect("\n Perhaps you forgot to start the server. try $cargo run for help.");
 
-    let mut rng = SmallRng::from_entropy();
+    let mut rng = rand::rng();
 
     let b = 2_000;
     println!(
@@ -38,7 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         println!("book={book_snapshot:?}");
 
-        let x: u64 = rng.gen_range(0..2_000);
+        let x: u64 = rng.random_range(0..2_000);
         thread::sleep(Duration::from_millis(x));
     }
 
