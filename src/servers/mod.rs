@@ -20,15 +20,12 @@ use tracing::{error, info, warn};
 pub struct Hook(HashMap<String, ReadHandleFactory<lob::LimitOrderBook>>);
 
 impl Hook {
-    async fn get_or_default(&self, pair: &str) -> Option<lob::LimitOrderBook> {
-        let native_book = self.0.get(&pair.to_uppercase())?;
-
-        let native_book = native_book
+    async fn get(&self, pair: &str) -> Option<lob::LimitOrderBook> {
+        self.0
+            .get(&pair.to_uppercase())?
             .handle()
             .enter()
             .map(|guard| guard.clone())
-            .unwrap_or_default();
-        Some(native_book)
     }
 }
 
@@ -125,51 +122,61 @@ pub fn start(
 mod test {
     use super::Hook;
     use crate::monitor::order_book::Operations;
-    use left_right::ReadHandleFactory;
+    use left_right::{ReadHandleFactory, WriteHandle};
     use lob::LimitOrderBook;
     use std::collections::HashMap;
 
-    fn hook_with_books(keys: &[&str]) -> Hook {
+    struct TestBooks {
+        hook: Hook,
+        _writers: Vec<WriteHandle<LimitOrderBook, Operations>>,
+    }
+
+    fn hook_with_books(keys: &[&str]) -> TestBooks {
         let mut map: HashMap<String, ReadHandleFactory<LimitOrderBook>> = HashMap::new();
+        let mut writers = Vec::new();
         for key in keys {
             let (mut w, r) = left_right::new::<LimitOrderBook, Operations>();
             w.publish();
             map.insert(key.to_string(), r.factory());
+            writers.push(w);
         }
-        Hook(map)
+        TestBooks {
+            hook: Hook(map),
+            _writers: writers,
+        }
     }
 
     #[tokio::test]
     async fn lookup_standard_symbol() {
-        let hook = hook_with_books(&["BTCUSDT"]);
+        let tb = hook_with_books(&["BTCUSDT"]);
 
-        assert!(hook.get_or_default("BTCUSDT").await.is_some());
-        assert!(hook.get_or_default("btcusdt").await.is_some());
-        assert!(hook.get_or_default("RPI:BTCUSDT").await.is_none());
+        assert!(tb.hook.get("BTCUSDT").await.is_some());
+        assert!(tb.hook.get("btcusdt").await.is_some());
+        assert!(tb.hook.get("RPI:BTCUSDT").await.is_none());
     }
 
     #[tokio::test]
     async fn lookup_rpi_symbol() {
-        let hook = hook_with_books(&["RPI:BTCUSDT"]);
+        let tb = hook_with_books(&["RPI:BTCUSDT"]);
 
-        assert!(hook.get_or_default("RPI:BTCUSDT").await.is_some());
-        assert!(hook.get_or_default("rpi:btcusdt").await.is_some());
-        assert!(hook.get_or_default("BTCUSDT").await.is_none());
+        assert!(tb.hook.get("RPI:BTCUSDT").await.is_some());
+        assert!(tb.hook.get("rpi:btcusdt").await.is_some());
+        assert!(tb.hook.get("BTCUSDT").await.is_none());
     }
 
     #[tokio::test]
     async fn lookup_both_standard_and_rpi() {
-        let hook = hook_with_books(&["BTCUSDT", "RPI:BTCUSDT"]);
+        let tb = hook_with_books(&["BTCUSDT", "RPI:BTCUSDT"]);
 
-        assert!(hook.get_or_default("btcusdt").await.is_some());
-        assert!(hook.get_or_default("rpi:btcusdt").await.is_some());
+        assert!(tb.hook.get("btcusdt").await.is_some());
+        assert!(tb.hook.get("rpi:btcusdt").await.is_some());
     }
 
     #[tokio::test]
     async fn lookup_missing_symbol_returns_none() {
-        let hook = hook_with_books(&["BTCUSDT"]);
+        let tb = hook_with_books(&["BTCUSDT"]);
 
-        assert!(hook.get_or_default("ETHUSDT").await.is_none());
-        assert!(hook.get_or_default("RPI:ETHUSDT").await.is_none());
+        assert!(tb.hook.get("ETHUSDT").await.is_none());
+        assert!(tb.hook.get("RPI:ETHUSDT").await.is_none());
     }
 }

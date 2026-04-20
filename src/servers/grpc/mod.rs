@@ -22,7 +22,7 @@ impl LimitOrderBookService for Hook {
         let pair: String = request.into_inner().pair.to_uppercase();
         let span = info_span!("depth book", op = "get", transport = "grpc", symbol = pair);
         async move {
-            let Some(native_book) = self.get_or_default(&pair).await else {
+            let Some(native_book) = self.get(&pair).await else {
                 return Err(Status::not_found(pair));
             };
             Ok(Response::new(From::from(native_book)))
