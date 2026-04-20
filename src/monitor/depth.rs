@@ -30,7 +30,7 @@ impl super::Monitor for DepthConfig {
     async fn monitor(&self) {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let port = self.server_port.unwrap_or(50051u16);
-        let n = self.symbols.len();
+        let n = self.symbols.split(',').count();
         std::thread::spawn(move || crate::servers::start(rx, port, n));
 
         let local = tokio::task::LocalSet::new();
