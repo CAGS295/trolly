@@ -108,11 +108,12 @@ impl<H, M> MonitorMultiplexor<H, M> {
             connect(url).await.expect("stream")
         };
 
-        let msg = Message::Text(provider.ws_subscriptions(symbols.iter()).into());
-        stream
-            .send(msg)
-            .await
-            .expect("Failed to Send subscriptions.");
+        for msg in provider.ws_subscriptions(symbols.iter()) {
+            stream
+                .send(Message::Text(msg.into()))
+                .await
+                .expect("Failed to send subscription message.");
+        }
         stream
     }
 }

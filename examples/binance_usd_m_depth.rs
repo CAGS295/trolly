@@ -12,8 +12,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tokio_tungstenite::connect_async_tls_with_config(url, None, false, None).await?;
 
     let symbols = ["btcusdt"];
-    let sub = provider.ws_subscriptions(symbols.iter());
-    stream.send(Message::Text(sub.into())).await?;
+    for msg in provider.ws_subscriptions(symbols.iter()) {
+        stream.send(Message::Text(msg.into())).await?;
+    }
 
     let mut n = 0;
     while let Some(Ok(msg)) = stream.next().await {

@@ -1,15 +1,22 @@
 use crate::{
-    providers::{Endpoints, NullResponse},
+    providers::{Endpoints, NullResponse, RPI_PREFIX},
     EventHandler,
 };
 use left_right::{Absorb, ReadHandleFactory, WriteHandle};
 use lob::{DepthUpdate, LimitOrderBook};
+use serde::Deserialize;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio_tungstenite::tungstenite::Message;
 use tracing::error;
 use tracing::{info, instrument, trace, warn};
 
 use super::Depth;
+
+#[derive(Deserialize, Debug)]
+pub(crate) struct StreamEnvelope {
+    pub stream: String,
+    pub data: DepthUpdate,
+}
 
 pub struct OrderBook(WriteHandle<LimitOrderBook, Operations>);
 
@@ -71,23 +78,34 @@ impl EventHandler<Depth> for OrderBook {
     #[instrument(skip(value), fields(pair))]
     fn parse_update(value: Message) -> Result<Option<Self::Update>, Self::Error> {
         let data = value.into_data();
-        let update_result = serde_json::from_slice::<DepthUpdate>(&data)
-            .inspect_err(|e| trace!("Failed to deserialize DepthUpdate: {}", e));
 
-        match update_result {
-            Ok(update) => {
-                tracing::Span::current().record("pair", Self::to_id(&update));
-                Ok(Some(update))
+        // Combined stream envelope: {"stream": "...", "data": {...}}
+        if let Ok(mut envelope) = serde_json::from_slice::<StreamEnvelope>(&data) {
+            if envelope.stream.contains("rpiDepth") {
+                envelope.data.event.symbol.insert_str(0, RPI_PREFIX);
             }
-            Err(e) => {
-                let response_result = serde_json::from_slice::<NullResponse>(&data)
-                    .map(|response| response.result.is_none());
+            tracing::Span::current().record("pair", Self::to_id(&envelope.data));
+            return Ok(Some(envelope.data));
+        }
 
-                match response_result {
-                    Ok(true) => Ok(None),
-                    _ => Err(e.into()),
-                }
-            }
+        // Raw depthUpdate (backward compat with /ws endpoint)
+        if let Ok(update) = serde_json::from_slice::<DepthUpdate>(&data) {
+            tracing::Span::current().record("pair", Self::to_id(&update));
+            return Ok(Some(update));
+        }
+
+        // Subscription ack: {"result": null, "id": 1}
+        let is_ack = serde_json::from_slice::<NullResponse>(&data)
+            .map(|r| r.result.is_none())
+            .unwrap_or(false);
+
+        if is_ack {
+            Ok(None)
+        } else {
+            Err(color_eyre::eyre::eyre!(
+                "unexpected message: {}",
+                String::from_utf8_lossy(&data)
+            ))
         }
     }
 
@@ -144,9 +162,11 @@ impl EventHandler<Depth> for OrderBook {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::EventHandler;
     use lob::Asks;
     use lob::PriceAndQuantity;
     use std::ops::Deref;
+    use tokio_tungstenite::tungstenite::Message;
 
     #[test]
     fn update_id_not_read_from_other() {
@@ -187,5 +207,91 @@ mod test {
         w.publish();
         let guard = r.enter().unwrap();
         assert_eq!(guard.deref(), &book);
+    }
+
+    #[test]
+    fn parse_update_rpi_envelope_prepends_prefix() {
+        let json = include_str!("../../tests/fixtures/binance_usd_m_rpi_depth_envelope.json");
+        let msg = Message::Text(json.into());
+        let update = OrderBook::parse_update(msg).unwrap().unwrap();
+
+        assert_eq!(OrderBook::to_id(&update), "RPI:BTCUSDT");
+        assert_eq!(update.event.symbol, "RPI:BTCUSDT");
+        assert_eq!(update.first_update_id, 4541941613);
+        assert_eq!(update.bids.len(), 2);
+        assert_eq!(update.asks.len(), 1);
+    }
+
+    #[test]
+    fn parse_update_standard_envelope_preserves_symbol() {
+        let json = include_str!("../../tests/fixtures/binance_usd_m_depth_envelope.json");
+        let msg = Message::Text(json.into());
+        let update = OrderBook::parse_update(msg).unwrap().unwrap();
+
+        assert_eq!(OrderBook::to_id(&update), "BTCUSDT");
+        assert_eq!(update.event.symbol, "BTCUSDT");
+        assert_eq!(update.first_update_id, 4541941613);
+    }
+
+    #[test]
+    fn parse_update_raw_depth_still_works() {
+        let json = include_str!("../../tests/fixtures/binance_usd_m_depth_update.json");
+        let msg = Message::Text(json.into());
+        let update = OrderBook::parse_update(msg).unwrap().unwrap();
+
+        assert_eq!(OrderBook::to_id(&update), "BTCUSDT");
+        assert_eq!(update.previous_update_id, Some(4541941610));
+    }
+
+    #[test]
+    fn parse_update_subscription_ack_returns_none() {
+        let json = r#"{"result":null,"id":1}"#;
+        let msg = Message::Text(json.into());
+        let result = OrderBook::parse_update(msg).unwrap();
+
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn to_id_routes_rpi_and_standard_to_different_keys() {
+        use lob::limit_order_book::event::Event;
+
+        let standard = DepthUpdate {
+            event: Event {
+                symbol: "BTCUSDT".into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let rpi = DepthUpdate {
+            event: Event {
+                symbol: "RPI:BTCUSDT".into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        assert_ne!(OrderBook::to_id(&standard), OrderBook::to_id(&rpi));
+        assert_eq!(OrderBook::to_id(&standard), "BTCUSDT");
+        assert_eq!(OrderBook::to_id(&rpi), "RPI:BTCUSDT");
+    }
+
+    /// If the server sends unwrapped (raw) payloads for an rpiDepth stream,
+    /// parse_update cannot distinguish it from a standard depth update.
+    /// The RPI handler would never be reached — the update routes to the
+    /// standard "BTCUSDT" handler instead of "RPI:BTCUSDT".
+    ///
+    /// This test documents that the envelope is *required* for correct routing
+    /// when both streams coexist on the same connection.
+    #[test]
+    fn raw_rpi_payload_misroutes_without_envelope() {
+        let raw_json = include_str!("../../tests/fixtures/binance_usd_m_depth_update.json");
+        let msg = Message::Text(raw_json.into());
+        let update = OrderBook::parse_update(msg).unwrap().unwrap();
+
+        // Without the envelope, the symbol is always the raw exchange symbol.
+        // An RPI handler keyed as "RPI:BTCUSDT" would never match this.
+        assert_eq!(OrderBook::to_id(&update), "BTCUSDT");
+        assert_ne!(OrderBook::to_id(&update), "RPI:BTCUSDT");
     }
 }

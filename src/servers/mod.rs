@@ -120,3 +120,56 @@ pub fn start(
     inner_start(readers, port)?;
     Ok(())
 }
+
+#[cfg(test)]
+mod test {
+    use super::Hook;
+    use crate::monitor::order_book::Operations;
+    use left_right::ReadHandleFactory;
+    use lob::LimitOrderBook;
+    use std::collections::HashMap;
+
+    fn hook_with_books(keys: &[&str]) -> Hook {
+        let mut map: HashMap<String, ReadHandleFactory<LimitOrderBook>> = HashMap::new();
+        for key in keys {
+            let (mut w, r) = left_right::new::<LimitOrderBook, Operations>();
+            w.publish();
+            map.insert(key.to_string(), r.factory());
+        }
+        Hook(map)
+    }
+
+    #[tokio::test]
+    async fn lookup_standard_symbol() {
+        let hook = hook_with_books(&["BTCUSDT"]);
+
+        assert!(hook.get_or_default("BTCUSDT").await.is_some());
+        assert!(hook.get_or_default("btcusdt").await.is_some());
+        assert!(hook.get_or_default("RPI:BTCUSDT").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn lookup_rpi_symbol() {
+        let hook = hook_with_books(&["RPI:BTCUSDT"]);
+
+        assert!(hook.get_or_default("RPI:BTCUSDT").await.is_some());
+        assert!(hook.get_or_default("rpi:btcusdt").await.is_some());
+        assert!(hook.get_or_default("BTCUSDT").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn lookup_both_standard_and_rpi() {
+        let hook = hook_with_books(&["BTCUSDT", "RPI:BTCUSDT"]);
+
+        assert!(hook.get_or_default("btcusdt").await.is_some());
+        assert!(hook.get_or_default("rpi:btcusdt").await.is_some());
+    }
+
+    #[tokio::test]
+    async fn lookup_missing_symbol_returns_none() {
+        let hook = hook_with_books(&["BTCUSDT"]);
+
+        assert!(hook.get_or_default("ETHUSDT").await.is_none());
+        assert!(hook.get_or_default("RPI:ETHUSDT").await.is_none());
+    }
+}

@@ -22,13 +22,13 @@ impl Endpoints<Depth> for Binance {
         )
     }
 
-    fn ws_subscriptions(&self, symbols: impl Iterator<Item = impl AsRef<str>>) -> String {
-        let symbols = symbols.map(|s| s.as_ref().to_lowercase() + "@depth");
+    fn ws_subscriptions(&self, symbols: impl Iterator<Item = impl AsRef<str>>) -> Vec<String> {
+        let symbols: Vec<_> = symbols.map(|s| s.as_ref().to_lowercase() + "@depth").collect();
 
-        format!(
+        vec![format!(
             r#"{{"method": "SUBSCRIBE", "params": {:?}, "id": 1}}"#,
-            symbols.collect::<Vec<_>>()
-        )
+            symbols
+        )]
     }
 }
 
@@ -40,9 +40,10 @@ mod test {
     #[test]
     fn subscription_serialization() {
         let symbols = ["a", "b"];
-        let value = Binance.ws_subscriptions(symbols.iter());
+        let msgs = Binance.ws_subscriptions(symbols.iter());
+        assert_eq!(msgs.len(), 1);
         assert_eq!(
-            value,
+            msgs[0],
             r#"{"method": "SUBSCRIBE", "params": ["a@depth", "b@depth"], "id": 1}"#
         );
     }

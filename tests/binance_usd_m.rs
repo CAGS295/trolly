@@ -33,3 +33,44 @@ fn spot_depth_update_defaults_futures_fields() {
     assert_eq!(update.previous_update_id, None);
     assert_eq!(update.transaction_time, None);
 }
+
+mod combined_stream_envelope {
+    use serde::Deserialize;
+
+    #[derive(Deserialize)]
+    struct StreamEnvelope {
+        stream: String,
+        data: lob::DepthUpdate,
+    }
+
+    #[test]
+    fn deserialize_rpi_envelope() {
+        let json = include_str!("fixtures/binance_usd_m_rpi_depth_envelope.json");
+        let envelope: StreamEnvelope = serde_json::from_str(json).unwrap();
+
+        assert_eq!(envelope.stream, "btcusdt@rpiDepth@500ms");
+        assert_eq!(envelope.data.event.symbol, "BTCUSDT");
+        assert_eq!(envelope.data.first_update_id, 4541941613);
+        assert_eq!(envelope.data.bids.len(), 2);
+        assert_eq!(envelope.data.asks.len(), 1);
+    }
+
+    #[test]
+    fn deserialize_standard_envelope() {
+        let json = include_str!("fixtures/binance_usd_m_depth_envelope.json");
+        let envelope: StreamEnvelope = serde_json::from_str(json).unwrap();
+
+        assert_eq!(envelope.stream, "btcusdt@depth");
+        assert_eq!(envelope.data.event.symbol, "BTCUSDT");
+        assert_eq!(envelope.data.first_update_id, 4541941613);
+    }
+
+    #[test]
+    fn rpi_stream_name_is_detectable() {
+        let rpi_stream = "btcusdt@rpiDepth@500ms";
+        let std_stream = "btcusdt@depth";
+
+        assert!(rpi_stream.contains("rpiDepth"));
+        assert!(!std_stream.contains("rpiDepth"));
+    }
+}
