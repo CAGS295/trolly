@@ -1,15 +1,15 @@
 use crate::{
-    net::streaming::Message,
     providers::{Endpoints, NullResponse},
     EventHandler,
 };
 use left_right::{Absorb, ReadHandleFactory, WriteHandle};
 use lob::{DepthUpdate, LimitOrderBook};
 use tokio::sync::mpsc::UnboundedSender;
+use tokio_tungstenite::tungstenite::Message;
 use tracing::error;
 use tracing::{info, instrument, trace, warn};
 
-use super::{depth::DepthHandler, Depth};
+use super::Depth;
 
 pub struct OrderBook(WriteHandle<LimitOrderBook, Operations>);
 
@@ -63,13 +63,9 @@ impl Absorb<Operations> for LimitOrderBook {
     }
 }
 
-impl<T> EventHandler<Depth> for T
-where
-    T: DepthHandler,
-    <T as DepthHandler>::Error: From<serde_json::Error>,
-{
-    type Error = <T as DepthHandler>::Error;
-    type Context = <T as DepthHandler>::Context;
+impl EventHandler<Depth> for OrderBook {
+    type Error = color_eyre::eyre::Error;
+    type Context = UnboundedSender<(String, ReadHandleFactory<LimitOrderBook>)>;
     type Update = DepthUpdate;
 
     #[instrument(skip(value), fields(pair))]
@@ -104,42 +100,22 @@ where
         tracing::Span::current().record("pair", Self::to_id(&update));
         info!("[{},{}]", update.first_update_id, update.last_update_id);
 
-        self.handle_update(update)
+        self.0.append(Operations::Update(update)).publish();
+        Ok(())
     }
 
     /// Although this takes a symbol slice, it only processes the first element.
     async fn build<En>(
         provider: En,
-        symbols: &[String],
+        symbols: &[impl AsRef<str>],
         sender: Self::Context,
-    ) -> Result<Self, Self::Error>
+    ) -> Result<(String, Self), Self::Error>
     where
         En: Endpoints<Depth>,
     {
-        <T as DepthHandler>::build(provider, symbols, sender).await
-    }
-}
+        assert_eq!(symbols.len(), 1);
+        let symbol = symbols.first().expect("exactly one");
 
-impl DepthHandler for OrderBook {
-    type Error = color_eyre::eyre::Error;
-    type Context = UnboundedSender<(String, ReadHandleFactory<LimitOrderBook>)>;
-
-    fn handle_update(&mut self, update: DepthUpdate) -> Result<(), Self::Error> {
-        self.0.append(Operations::Update(update)).publish();
-        Ok(())
-    }
-
-    async fn build<En>(
-        provider: En,
-        symbols: &[String],
-        sender: Self::Context,
-    ) -> Result<Self, Self::Error>
-    where
-        En: Endpoints<Depth>,
-        Self: Sized,
-    {
-        let symbol = symbols.first().expect("required");
-        //query
         let response: reqwest::Response = {
             let url = provider.rest_api_url(symbol);
             reqwest::get(url).await
@@ -152,12 +128,16 @@ impl DepthHandler for OrderBook {
 
         let (mut w, r) = left_right::new();
 
-        if let Err(e) = sender.send((symbol.to_string(), r.factory())) {
-            warn!("Failed to send {symbol} handler to the RPC server. {e}");
+        let symbol = symbol.as_ref().to_string();
+        if let Err(e) = sender.send((symbol.clone(), r.factory())) {
+            warn!(
+                "Failed to send {} handler to the RPC server. {e}",
+                provider.rest_api_url(&symbol)
+            );
         }
 
         w.append(Operations::Initialize(lob));
-        Ok(OrderBook::from(w))
+        Ok((symbol, OrderBook::from(w)))
     }
 }
 

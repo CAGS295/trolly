@@ -15,17 +15,6 @@ pub trait EventHandler<Monitorable> {
     /// This is necessary to route updates to their handler when processing multiple subscriptions from the same source.
     fn to_id(event: &Self::Update) -> &str;
 
-    /// Use the Result to break out of the handler loop;
-    /// Handle a raw message.
-    fn handle(&mut self, msg: Message) -> Result<(), Self::Error> {
-        let Some(update) = Self::parse_update(msg)? else {
-            //Skip if not a relevant update.
-            return Ok(());
-        };
-
-        self.handle_update(update)
-    }
-
     /// Handle a parsed Update.
     /// Use the Result to break out of the handler loop;
     fn handle_update(&mut self, event: Self::Update) -> Result<(), Self::Error>;
@@ -34,9 +23,9 @@ pub trait EventHandler<Monitorable> {
     /// return context.
     fn build<En>(
         provider: En,
-        symbols: &[String],
+        symbols: &[impl AsRef<str>],
         ctx: Self::Context,
-    ) -> impl Future<Output = Result<Self, Self::Error>>
+    ) -> impl Future<Output = Result<(String, Self), Self::Error>>
     where
         En: Endpoints<Monitorable> + Clone + 'static,
         Self: Sized,
