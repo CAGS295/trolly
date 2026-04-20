@@ -14,6 +14,7 @@ pub enum Monitorables {
 #[non_exhaustive]
 pub enum Provider {
     Binance,
+    BinanceUsdM,
     Other,
 }
 

@@ -53,6 +53,14 @@ impl super::Monitor for DepthConfig {
                         )
                         .await
                     }
+                    Provider::BinanceUsdM => {
+                        MonitorMultiplexor::<OrderBook, Depth>::stream::<_, _>(
+                            crate::providers::BinanceUsdM,
+                            tx,
+                            &symbols.split(",").collect::<Vec<_>>(),
+                        )
+                        .await
+                    }
                     super::Provider::Other => todo!(),
                 };
             })
