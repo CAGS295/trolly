@@ -3,6 +3,7 @@ pub mod connectors;
 pub mod monitor;
 pub mod net;
 pub mod providers;
+#[cfg(any(feature = "codec", feature = "grpc"))]
 mod servers;
 pub mod signals;
 

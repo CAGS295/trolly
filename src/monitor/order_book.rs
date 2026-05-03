@@ -1,22 +1,13 @@
-use crate::{
-    providers::{Endpoints, NullResponse, RPI_PREFIX},
-    EventHandler,
-};
+use crate::{providers::Endpoints, EventHandler};
 use left_right::{Absorb, ReadHandleFactory, WriteHandle};
 use lob::{DepthUpdate, LimitOrderBook};
-use serde::Deserialize;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio_tungstenite::tungstenite::Message;
 use tracing::error;
 use tracing::{info, instrument, trace, warn};
 
+use super::depth_parse;
 use super::Depth;
-
-#[derive(Deserialize, Debug)]
-pub(crate) struct StreamEnvelope {
-    pub stream: String,
-    pub data: DepthUpdate,
-}
 
 pub struct OrderBook(WriteHandle<LimitOrderBook, Operations>);
 
@@ -77,36 +68,11 @@ impl EventHandler<Depth> for OrderBook {
 
     #[instrument(skip(value), fields(pair))]
     fn parse_update(value: Message) -> Result<Option<Self::Update>, Self::Error> {
-        let data = value.into_data();
-
-        // Combined stream envelope: {"stream": "...", "data": {...}}
-        if let Ok(mut envelope) = serde_json::from_slice::<StreamEnvelope>(&data) {
-            if envelope.stream.contains("rpiDepth") {
-                envelope.data.event.symbol.insert_str(0, RPI_PREFIX);
-            }
-            tracing::Span::current().record("pair", Self::to_id(&envelope.data));
-            return Ok(Some(envelope.data));
+        let out = depth_parse::parse_depth_message(value)?;
+        if let Some(ref u) = out {
+            tracing::Span::current().record("pair", Self::to_id(u));
         }
-
-        // Raw depthUpdate (backward compat with /ws endpoint)
-        if let Ok(update) = serde_json::from_slice::<DepthUpdate>(&data) {
-            tracing::Span::current().record("pair", Self::to_id(&update));
-            return Ok(Some(update));
-        }
-
-        // Subscription ack: {"result": null, "id": 1}
-        let is_ack = serde_json::from_slice::<NullResponse>(&data)
-            .map(|r| r.result.is_none())
-            .unwrap_or(false);
-
-        if is_ack {
-            Ok(None)
-        } else {
-            Err(color_eyre::eyre::eyre!(
-                "unexpected message: {}",
-                String::from_utf8_lossy(&data)
-            ))
-        }
+        Ok(out)
     }
 
     fn to_id(update: &DepthUpdate) -> &str {

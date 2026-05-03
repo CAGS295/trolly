@@ -1,8 +1,11 @@
 mod depth;
+pub mod depth_parse;
+pub mod echo_depth;
 pub mod order_book;
 
 use clap::{Subcommand, ValueEnum};
-pub use depth::{Depth, DepthConfig, DepthUpdate};
+pub use depth::{stream_depth_echo, Depth, DepthConfig, DepthOutput, DepthUpdate};
+pub use depth_parse::{parse_depth_bytes, parse_depth_message};
 
 #[derive(Subcommand, Debug)]
 pub enum Monitorables {

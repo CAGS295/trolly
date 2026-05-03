@@ -21,7 +21,6 @@ impl Cli {
 #[derive(Subcommand, Debug)]
 enum Commands {
     /// Stream data from an exchange and monitor a metric or structure.
-    #[cfg(any(feature = "codec", feature = "grpc"))]
     Monitor {
         #[clap(subcommand)]
         metric: super::monitor::Monitorables,
@@ -37,7 +36,6 @@ pub trait Run {
 impl Run for Commands {
     async fn run(&self) {
         match self {
-            #![cfg(any(feature = "codec", feature = "grpc"))]
             Self::Monitor {
                 metric: super::monitor::Monitorables::Depth(args),
             } => {

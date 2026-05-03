@@ -19,8 +19,7 @@ pub trait EventHandler<Monitorable> {
     /// Use the Result to break out of the handler loop;
     fn handle_update(&mut self, event: Self::Update) -> Result<(), Self::Error>;
 
-    /// don't take a writer, take a tx and send the readerfactory with the symbol to the gRPC server.
-    /// return context.
+    /// Build-time context (for example an mpsc sender for read factories, or `()` for echo-only handlers).
     fn build<En>(
         provider: En,
         symbols: &[impl AsRef<str>],

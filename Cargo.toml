@@ -61,5 +61,6 @@ harness = false
 [[bin]]
 name = "depth_monitor"
 
-#[patch."https://github.com/CAGS295/lob.git"]
-#lob = { path = "./patches/lob" }
+[[example]]
+name = "depth_echo"
+path = "examples/depth_echo.rs"

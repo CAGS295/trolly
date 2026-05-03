@@ -1,4 +1,3 @@
-#[cfg(any(feature = "codec", feature = "grpc"))]
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() -> Result<(), color_eyre::Report> {
     pub use clap::Parser;
@@ -34,6 +33,3 @@ async fn main() -> Result<(), color_eyre::Report> {
     cli.start().await;
     Ok(())
 }
-
-#[cfg(not(any(feature = "codec", feature = "grpc")))]
-fn main() {}
