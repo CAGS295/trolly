@@ -1,7 +1,8 @@
 //! Multi-symbol depth: one [`crate::monitor::order_book::OrderBook`] per stream id (e.g. `RPI:BTCUSDC` vs `BTCUSDC`)
-//! plus a **merged** [`lob::LimitOrderBook`] view refreshed after each delta.
+//! plus a **per-instrument merged** [`lob::LimitOrderBook`] refreshed after each delta on any stream in that group.
 //!
-//! Per-symbol books stay authoritative for [`lob::DepthUpdate`] sequencing; the merged book is derived.
+//! [`canonical_depth_symbol`] strips the `RPI:` prefix so `BTCUSDC` and `RPI:BTCUSDC` share one merge bucket;
+//! `ETHBTC` never merges with `BTCUSDC`.
 //!
 //! **Merge semantics (WIP):** [`merge_naive_extend`] concatenates each snapshot’s side vectors via
 //! [`lob::LimitOrderBook::extend`]. That does not sum duplicate price levels; it is a placeholder until
@@ -10,7 +11,10 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use crate::{providers::Endpoints, EventHandler};
+use crate::{
+    providers::{Endpoints, RPI_PREFIX},
+    EventHandler,
+};
 
 use super::{
     order_book::{Operations, OrderBook},
@@ -49,10 +53,23 @@ pub fn merge_naive_extend(books: &[LimitOrderBook]) -> LimitOrderBook {
     out
 }
 
-struct HubInner {
-    factories: HashMap<String, ReadHandleFactory<LimitOrderBook>>,
+/// Instrument key shared by `PAIR` and `RPI:PAIR` depth streams (uppercase, no `RPI:` prefix).
+pub fn canonical_depth_symbol(symbol: &str) -> String {
+    symbol
+        .trim()
+        .strip_prefix(RPI_PREFIX)
+        .unwrap_or(symbol.trim())
+        .to_uppercase()
+}
+
+struct MergedLane {
     merged: WriteHandle<LimitOrderBook, MergedOp>,
     _merged_read: ReadHandle<LimitOrderBook>,
+}
+
+struct HubInner {
+    factories: HashMap<String, ReadHandleFactory<LimitOrderBook>>,
+    merged_by_canonical: HashMap<String, MergedLane>,
 }
 
 /// `Clone` + `Sync` handle for [`MonitorMultiplexor`](crate::connectors::multiplexor::MonitorMultiplexor); all
@@ -64,48 +81,71 @@ pub struct AggregatedDepthHub {
 
 impl AggregatedDepthHub {
     pub fn new() -> Self {
-        let (mut merged_w, merged_r) = left_right::new::<LimitOrderBook, MergedOp>();
-        merged_w.publish();
         Self {
             inner: Arc::new(Mutex::new(HubInner {
                 factories: HashMap::new(),
-                merged: merged_w,
-                _merged_read: merged_r,
+                merged_by_canonical: HashMap::new(),
             })),
         }
     }
 
-    pub fn merged_factory(&self) -> ReadHandleFactory<LimitOrderBook> {
-        self.inner
-            .lock()
-            .expect("hub lock")
-            ._merged_read
-            .factory()
+    /// Merged book for one instrument (`BTCUSDC` aggregates `BTCUSDC` + `RPI:BTCUSDC` factories only).
+    pub fn merged_factory_for(&self, canonical: &str) -> Option<ReadHandleFactory<LimitOrderBook>> {
+        let inner = self.inner.lock().expect("hub lock");
+        let c = canonical.to_uppercase();
+        inner
+            .merged_by_canonical
+            .get(&c)
+            .map(|lane| lane._merged_read.factory())
+    }
+
+    /// Snapshot handles for each live per-symbol book (for inspection or UIs).
+    pub fn per_symbol_factories(&self) -> Vec<(String, ReadHandleFactory<LimitOrderBook>)> {
+        let inner = self.inner.lock().expect("hub lock");
+        inner
+            .factories
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
     }
 
     fn register_factory(&self, symbol: String, factory: ReadHandleFactory<LimitOrderBook>) {
-        self.inner
-            .lock()
-            .expect("hub lock")
-            .factories
-            .insert(symbol, factory);
+        let mut inner = self.inner.lock().expect("hub lock");
+        let canon = canonical_depth_symbol(&symbol);
+        inner.factories.insert(symbol, factory);
+        use std::collections::hash_map::Entry;
+        if let Entry::Vacant(e) = inner.merged_by_canonical.entry(canon.clone()) {
+            let (mut w, r) = left_right::new::<LimitOrderBook, MergedOp>();
+            w.publish();
+            e.insert(MergedLane {
+                merged: w,
+                _merged_read: r,
+            });
+        }
     }
 
-    fn refresh_merged(&self) {
-        let mut inner = self.inner.lock().expect("hub lock");
-        let factories: Vec<ReadHandleFactory<LimitOrderBook>> =
-            inner.factories.values().cloned().collect();
-
-        let snapshots: Vec<LimitOrderBook> = factories
+    fn refresh_merged_for(&self, canonical: &str) {
+        let c = canonical.to_uppercase();
+        let group: Vec<ReadHandleFactory<LimitOrderBook>> = {
+            let inner = self.inner.lock().expect("hub lock");
+            inner
+                .factories
+                .iter()
+                .filter(|(sym, _)| canonical_depth_symbol(sym) == c)
+                .map(|(_, fac)| fac.clone())
+                .collect()
+        };
+        let snapshots: Vec<LimitOrderBook> = group
             .iter()
             .filter_map(|fac| fac.handle().enter().map(|g| (*g).clone()))
             .collect();
-
         let mut merged = merge_naive_extend(&snapshots);
         merged.update_id = snapshots.iter().map(|b| b.update_id).max().unwrap_or(0);
-
-        inner
-            .merged
+        let mut inner = self.inner.lock().expect("hub lock");
+        let Some(lane) = inner.merged_by_canonical.get_mut(&c) else {
+            return;
+        };
+        lane.merged
             .append(MergedOp::Replace(merged))
             .publish();
     }
@@ -115,6 +155,7 @@ impl AggregatedDepthHub {
 pub struct AggregatedDepthShard {
     book: OrderBook,
     hub: AggregatedDepthHub,
+    canonical: String,
 }
 
 impl EventHandler<Depth> for AggregatedDepthShard {
@@ -133,7 +174,7 @@ impl EventHandler<Depth> for AggregatedDepthShard {
     #[instrument(skip_all, fields(pair))]
     fn handle_update(&mut self, update: DepthUpdate) -> Result<(), Self::Error> {
         EventHandler::handle_update(&mut self.book, update)?;
-        self.hub.refresh_merged();
+        self.hub.refresh_merged_for(&self.canonical);
         Ok(())
     }
 
@@ -147,6 +188,7 @@ impl EventHandler<Depth> for AggregatedDepthShard {
     {
         assert_eq!(symbols.len(), 1);
         let symbol = symbols.first().expect("one symbol").as_ref().to_string();
+        let canonical = canonical_depth_symbol(&symbol);
 
         let response: reqwest::Response = {
             let url = provider.rest_api_url(&symbol);
@@ -165,29 +207,26 @@ impl EventHandler<Depth> for AggregatedDepthShard {
         hub.register_factory(symbol.clone(), factory);
 
         w.append(Operations::Initialize(lob));
-        hub.refresh_merged();
+        hub.refresh_merged_for(&canonical);
 
         Ok((
             symbol.clone(),
             AggregatedDepthShard {
                 book: OrderBook::from(w),
                 hub,
+                canonical,
             },
         ))
     }
 }
 
-/// WebSocket depth for many symbols; each keeps its own book and a merged view is recomputed on every delta.
-pub async fn stream_depth_aggregated(provider: super::Provider, symbols: &str) {
+/// Run the multiplexed WebSocket stream with an existing hub (e.g. shared with a TUI).
+pub async fn run_aggregated_depth_stream(
+    hub: AggregatedDepthHub,
+    provider: super::Provider,
+    syms: &[&str],
+) {
     use crate::connectors::multiplexor::MonitorMultiplexor;
-
-    let hub = AggregatedDepthHub::new();
-    let symbols = symbols.to_uppercase();
-    let syms: Vec<&str> = symbols
-        .split(',')
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .collect();
 
     let local = tokio::task::LocalSet::new();
     local
@@ -197,7 +236,7 @@ pub async fn stream_depth_aggregated(provider: super::Provider, symbols: &str) {
                     MonitorMultiplexor::<AggregatedDepthShard, Depth>::stream::<_, _>(
                         crate::providers::Binance,
                         hub.clone(),
-                        &syms,
+                        syms,
                     )
                     .await
                 }
@@ -205,7 +244,7 @@ pub async fn stream_depth_aggregated(provider: super::Provider, symbols: &str) {
                     MonitorMultiplexor::<AggregatedDepthShard, Depth>::stream::<_, _>(
                         crate::providers::BinanceUsdM,
                         hub,
-                        &syms,
+                        syms,
                     )
                     .await
                 }
@@ -217,9 +256,28 @@ pub async fn stream_depth_aggregated(provider: super::Provider, symbols: &str) {
         .await;
 }
 
+/// WebSocket depth for many symbols; each keeps its own book and a merged view is recomputed on every delta.
+pub async fn stream_depth_aggregated(provider: super::Provider, symbols: &str) {
+    let hub = AggregatedDepthHub::new();
+    let symbols = symbols.to_uppercase();
+    let syms: Vec<&str> = symbols
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect();
+    run_aggregated_depth_stream(hub, provider, &syms).await;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn canonical_depth_symbol_groups_rpi() {
+        assert_eq!(canonical_depth_symbol("RPI:BTCUSDC"), "BTCUSDC");
+        assert_eq!(canonical_depth_symbol("btcusdc"), "BTCUSDC");
+        assert_eq!(canonical_depth_symbol("ETHBTC"), "ETHBTC");
+    }
 
     #[test]
     fn merge_naive_extend_empty() {

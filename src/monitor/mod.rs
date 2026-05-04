@@ -4,7 +4,8 @@ pub mod order_book;
 
 use clap::{Subcommand, ValueEnum};
 pub use aggregated_depth::{
-    merge_naive_extend, stream_depth_aggregated, AggregatedDepthHub,
+    canonical_depth_symbol, merge_naive_extend, run_aggregated_depth_stream,
+    stream_depth_aggregated, AggregatedDepthHub,
 };
 pub use depth::{Depth, DepthConfig, DepthUpdate};
 
