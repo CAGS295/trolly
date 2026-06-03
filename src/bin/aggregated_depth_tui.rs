@@ -1,27 +1,9 @@
-//! Terminal UI for [`trolly::monitor::AggregatedDepthHub`]: **per-instrument** `MERGED·BASE` (only
-//! streams sharing [`trolly::monitor::canonical_depth_symbol`]), then each stream id, then a single
-//! **`Δ·BASE`** tab per instrument (`@depth − @rpiDepth` depends only on `BASE`, not on which stream
-//! name you subscribed under).
-//!
-//! **Binance USDS-M RPI (Retail Price Improvement)** — see
-//! [common-definition](https://developers.binance.com/docs/derivatives/usds-margined-futures/common-definition)
-//! (`timeInForce`: *RPI — post-only, matched only with orders from APP or Web*) and
-//! [RPI diff depth stream](https://developers.binance.com/docs/derivatives/usds-margined-futures/websocket-market-streams/Diff-Book-Depth-Streams-RPI)
-//! (`@rpiDepth@500ms`: *bids and asks including RPI orders*, aggregated in the message; crossed RPI
-//! size can be hidden when a level clears).
-//!
-//! **Δ** is **only** defined when both `PAIR` and `RPI:PAIR` are in the hub: **`qty(@depth) −
-//! qty(@rpiDepth)`** per price — a practical proxy for **public book vs RPI-inclusive snapshot**
-//! (not exchange-reported “MM-only” quantity). There is **no** merged or other fallback.
-//!
-//! Depth is drawn with [`ratatui::widgets::Chart`] (cumulative qty vs price), similar in spirit to
-//! the upstream widget examples:
-//! - <https://ratatui.rs/examples/widgets/chart/>
-//! - <https://github.com/ratatui/ratatui/blob/main/ratatui-widgets/examples/chart.rs>
+//! Terminal UI for [`trolly::monitor::GlobalBookHub`]: **cross-source** `MERGED·INSTRUMENT` tabs,
+//! per [`BookSource::stream_id`] legs, and optional Binance-USDM **`Δ·INSTRUMENT`** (`@depth − @rpiDepth`).
 //!
 //! ```text
 //! cargo run --features tui --bin aggregated_depth_tui -- \
-//!   --provider binance-usd-m --symbols rpi:BTCUSDC,BTCUSDC
+//!   --sources binance:BTCUSDT,binance-usd-m:BTCUSDT
 //! ```
 
 use std::io::stdout;
@@ -48,17 +30,18 @@ use left_right::ReadHandleFactory;
 use lob::LimitOrderBook;
 use regex::Regex;
 use trolly::monitor::{
-    canonical_depth_symbol, run_aggregated_depth_stream, AggregatedDepthHub, Provider,
+    parse_book_sources, run_global_book_stream, BookSource, GlobalBookHub,
 };
 use trolly::providers::RPI_PREFIX;
 
 #[derive(Parser, Debug)]
-#[command(about = "Aggregated depth: MERGED·BASE, streams, one Δ·BASE per instrument (@depth−@rpiDepth)")]
+#[command(about = "Global book TUI: MERGED·INSTRUMENT, per-source streams, optional Binance-USDM Δ tab")]
 struct Args {
-    #[arg(short, long, value_enum)]
-    provider: Provider,
-    #[arg(short, long)]
-    symbols: String,
+    #[arg(
+        long,
+        help = "Comma-separated book sources: provider:SYMBOL (e.g. binance:BTCUSDT,binance-usd-m:BTCUSDT)"
+    )]
+    sources: String,
     /// Max bid / ask price levels included in each cumulative curve (nearest the touch).
     #[arg(long, default_value_t = 48)]
     depth_rows: usize,
@@ -68,21 +51,16 @@ fn main() -> color_eyre::Result<()> {
     color_eyre::install()?;
     let args = Args::parse();
 
-    let symbols = args.symbols.to_uppercase();
-    let syms: Vec<String> = symbols
-        .split(',')
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(String::from)
+    let book_sources = parse_book_sources(&args.sources)
+        .map_err(|e| color_eyre::eyre::eyre!(e))?;
+    let stream_order: Vec<String> = book_sources
+        .iter()
+        .map(BookSource::stream_id)
         .collect();
-    if syms.is_empty() {
-        color_eyre::eyre::bail!("--symbols must list at least one pair");
-    }
 
-    let hub = AggregatedDepthHub::new();
+    let hub = GlobalBookHub::new();
     let hub_feed = hub.clone();
-    let provider = args.provider.clone();
-    let syms_feed = syms.clone();
+    let sources_feed = book_sources.clone();
 
     thread::spawn(move || {
         let rt = tokio::runtime::Builder::new_current_thread()
@@ -90,20 +68,22 @@ fn main() -> color_eyre::Result<()> {
             .build()
             .expect("runtime");
         rt.block_on(async move {
-            let syms_ref: Vec<&str> = syms_feed.iter().map(String::as_str).collect();
-            let local = tokio::task::LocalSet::new();
-            local
-                .run_until(run_aggregated_depth_stream(
-                    hub_feed,
-                    provider,
-                    &syms_ref,
-                ))
-                .await;
+            run_global_book_stream(hub_feed, &sources_feed).await;
         });
     });
 
-    run_tui(hub, args.depth_rows, syms)?;
+    run_tui(hub, args.depth_rows, stream_order)?;
     Ok(())
+}
+
+/// Instrument key for cross-source merge (strip known provider prefix from stream id).
+fn canonical_from_stream_id(stream_id: &str) -> String {
+    for prefix in ["binance-usd-m:", "binance:"] {
+        if let Some(sym) = stream_id.strip_prefix(prefix) {
+            return sym.to_uppercase();
+        }
+    }
+    stream_id.to_uppercase()
 }
 
 /// Parse [`lob::LimitOrderBook`]'s `Display` output (`price:qty` tuples) into ladder rows.
@@ -327,7 +307,7 @@ fn fmt_axis_tick(v: f64) -> String {
 fn snapshot_ladder(
     view: &View,
     factories_by_symbol: &HashMap<String, ReadHandleFactory<LimitOrderBook>>,
-    hub: &AggregatedDepthHub,
+    hub: &GlobalBookHub,
 ) -> (u64, u64, Vec<(String, String)>, Vec<(String, String)>) {
     let factory = match view {
         View::MergedCanonical(canon) => {
@@ -362,8 +342,12 @@ fn snapshot_ladder(
     (book_id, fp, bids, asks)
 }
 
-fn rpi_stream_symbol(base: &str) -> String {
-    format!("{RPI_PREFIX}{}", base.to_uppercase())
+fn usdm_std_stream_id(base: &str) -> String {
+    format!("binance-usd-m:{}", base.to_uppercase())
+}
+
+fn usdm_rpi_stream_id(base: &str) -> String {
+    format!("binance-usd-m:{RPI_PREFIX}{}", base.to_uppercase())
 }
 
 fn hub_has_symbol(
@@ -377,11 +361,11 @@ fn hub_has_symbol(
 
 fn hub_has_rpi_depth_pair(
     factories_by_symbol: &HashMap<String, ReadHandleFactory<LimitOrderBook>>,
-    sym_from_tab: &str,
+    instrument: &str,
 ) -> bool {
-    let base = canonical_depth_symbol(sym_from_tab);
-    hub_has_symbol(factories_by_symbol, &base)
-        && hub_has_symbol(factories_by_symbol, &rpi_stream_symbol(&base))
+    let base = instrument.to_uppercase();
+    hub_has_symbol(factories_by_symbol, &usdm_std_stream_id(&base))
+        && hub_has_symbol(factories_by_symbol, &usdm_rpi_stream_id(&base))
 }
 
 const BOOK_ENTER_RETRIES: u32 = 48;
@@ -423,12 +407,12 @@ fn read_symbol_book_with_retry(
 /// [`qty(BASE @depth) − qty(RPI:BASE @rpiDepth)`](https://developers.binance.com/docs/derivatives/usds-margined-futures/websocket-market-streams/Diff-Book-Depth-Streams-RPI)
 /// per price when both legs exist in the hub.
 fn try_snapshot_std_book_minus_rpi_stream(
-    sym_from_tab: &str,
+    instrument: &str,
     factories_by_symbol: &HashMap<String, ReadHandleFactory<LimitOrderBook>>,
 ) -> Option<(u64, u64, Vec<(String, String)>, Vec<(String, String)>)> {
-    let base = canonical_depth_symbol(sym_from_tab);
-    let std_key = base.clone();
-    let rpi_key = rpi_stream_symbol(&base);
+    let base = instrument.to_uppercase();
+    let std_key = usdm_std_stream_id(&base);
+    let rpi_key = usdm_rpi_stream_id(&base);
     if !hub_has_symbol(factories_by_symbol, &std_key)
         || !hub_has_symbol(factories_by_symbol, &rpi_key)
     {
@@ -467,12 +451,12 @@ enum TabKind {
     Diff(String),
 }
 
-/// First-seen order of [`canonical_depth_symbol`] over `symbol_order`.
-fn canonical_first_seen(symbol_order: &[String]) -> Vec<String> {
+/// First-seen order of [`canonical_from_stream_id`] over subscribed stream ids.
+fn canonical_first_seen(stream_order: &[String]) -> Vec<String> {
     let mut out = Vec::new();
     let mut seen = HashSet::new();
-    for s in symbol_order {
-        let c = canonical_depth_symbol(s);
+    for s in stream_order {
+        let c = canonical_from_stream_id(s);
         if seen.insert(c.clone()) {
             out.push(c);
         }
@@ -480,19 +464,18 @@ fn canonical_first_seen(symbol_order: &[String]) -> Vec<String> {
     out
 }
 
-fn tab_strip(symbol_order: &[String]) -> (Vec<String>, Vec<TabKind>) {
+fn tab_strip(stream_order: &[String]) -> (Vec<String>, Vec<TabKind>) {
     let mut labels = Vec::new();
     let mut kinds = Vec::new();
-    for c in canonical_first_seen(symbol_order) {
+    for c in canonical_first_seen(stream_order) {
         labels.push(format!("MERGED·{c}"));
         kinds.push(TabKind::MergedCanon(c.clone()));
-        for s in symbol_order {
-            if canonical_depth_symbol(s) == c {
+        for s in stream_order {
+            if canonical_from_stream_id(s) == c {
                 labels.push(s.clone());
                 kinds.push(TabKind::Sym(s.clone()));
             }
         }
-        // One diff per instrument: same plot for RPI:BASE vs BASE would be redundant.
         labels.push(format!("Δ·{c}"));
         kinds.push(TabKind::Diff(c.clone()));
     }
@@ -515,9 +498,8 @@ enum View {
     Diff(String),
 }
 
-/// Tab title `Δ·BTCUSDC` / legacy `Δ BTCUSDC` → canonical `BTCUSDC`.
 fn diff_tab_title_to_canonical(view_title: &str) -> String {
-    canonical_depth_symbol(
+    canonical_from_stream_id(
         view_title
             .strip_prefix("Δ·")
             .or_else(|| view_title.strip_prefix("Δ "))
@@ -526,7 +508,7 @@ fn diff_tab_title_to_canonical(view_title: &str) -> String {
 }
 
 fn run_tui(
-    hub: AggregatedDepthHub,
+    hub: GlobalBookHub,
     max_rows: usize,
     symbol_order: Vec<String>,
 ) -> color_eyre::Result<()> {
@@ -547,7 +529,7 @@ fn run_tui(
         }
 
         let by_sym: HashMap<String, ReadHandleFactory<LimitOrderBook>> =
-            hub.per_symbol_factories().into_iter().collect();
+            hub.per_source_factories().into_iter().collect();
 
         let view = view_for_tab(tab, &tab_kinds);
         let view_title = tab_labels
@@ -659,9 +641,10 @@ fn ui(
 
     let meta = if missing_symbol && is_diff {
         let base = diff_tab_title_to_canonical(view_title);
-        let rpi = rpi_stream_symbol(&base);
+        let std = usdm_std_stream_id(&base);
+        let rpi = usdm_rpi_stream_id(&base);
         format!(
-            "view: {view_title}  |  Δ undefined: hub needs `{base}` (@depth) and `{rpi}` (@rpiDepth). Subscribe both in --symbols. No fallback.  |  q quit"
+            "view: {view_title}  |  Δ undefined: hub needs `{std}` (@depth) and `{rpi}` (@rpiDepth). Add both to --sources. No fallback.  |  q quit"
         )
     } else if missing_symbol {
         format!(
@@ -671,9 +654,10 @@ fn ui(
         let bb = best_bid.unwrap_or("—");
         let ba = best_ask.unwrap_or("—");
         let base = diff_tab_title_to_canonical(view_title);
-        let rpi = rpi_stream_symbol(&base);
+        let std = usdm_std_stream_id(&base);
+        let rpi = usdm_rpi_stream_id(&base);
         let explain = format!(
-            "Δ = {base} @depth − {rpi} @rpiDepth  |  RPI = Retail Price Improvement (Binance: post-only TIF, matched only with APP/Web). @rpiDepth includes RPI layers in the pushed book. +Δ ⇒ more size on public depth than RPI snapshot at that price (MM/API proxy, not official MM tag).\nPrices are string keys; formatting can split ticks."
+            "Δ = {std} @depth − {rpi} @rpiDepth  |  RPI = Retail Price Improvement (Binance: post-only TIF, matched only with APP/Web). @rpiDepth includes RPI layers in the pushed book. +Δ ⇒ more size on public depth than RPI snapshot at that price (MM/API proxy, not official MM tag).\nPrices are string keys; formatting can split ticks."
         );
         format!(
             "view: {view_title}  |  book_id {book_update_id}  |  snap {snap_fp:016x}  |  non-zero Δ rows {n_bids}/{n_asks}  |  bid Δ @ high p {bb}  ask Δ @ low p {ba}  |  q quit\n{explain}"

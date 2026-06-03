@@ -43,10 +43,14 @@ ratatui = { version = "0.28", optional = true }
 crossterm = { version = "0.28", optional = true }
 regex = { version = "1", optional = true }
 
+[patch."https://github.com/CAGS295/lob.git"]
+lob = { path = "./patches/lob" }
+
 [dev-dependencies]
 rand = { version = "*" }
 criterion = "*"
 http-body-util = "0.1.2"
+dotenvy = "0.15"
 
 [features]
 default = ["grpc", "codec"]
@@ -72,6 +76,3 @@ path = "examples/depth_echo.rs"
 [[bin]]
 name = "aggregated_depth_tui"
 required-features = ["tui"]
-
-#[patch."https://github.com/CAGS295/lob.git"]
-#lob = { path = "./patches/lob" }

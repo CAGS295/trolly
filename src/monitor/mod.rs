@@ -4,12 +4,11 @@ pub mod echo_depth;
 
 pub use depth::{stream_depth_echo, DepthOutput};
 pub use depth_parse::{parse_depth_bytes, parse_depth_message};
-pub mod aggregated_depth;
+pub mod global_book;
 pub mod order_book;
 
-pub use aggregated_depth::{
-    canonical_depth_symbol, merge_naive_extend, run_aggregated_depth_stream,
-    stream_depth_aggregated, AggregatedDepthHub,
+pub use global_book::{
+    parse_book_sources, run_global_book_stream, stream_global_book, BookSource, GlobalBookHub,
 };
 use clap::{Subcommand, ValueEnum};
 pub use depth::{Depth, DepthConfig, DepthUpdate};
@@ -20,7 +19,7 @@ pub enum Monitorables {
     Depth(DepthConfig),
 }
 
-#[derive(Clone, Debug, ValueEnum)]
+#[derive(Clone, Copy, Debug, ValueEnum, Eq, PartialEq, Hash)]
 #[non_exhaustive]
 pub enum Provider {
     Binance,

@@ -1,0 +1,363 @@
+//! Cross-source **global order book**: one live book per [`BookSource`], merged by
+//! [`BookSource::canonical_instrument`] (e.g. `binance:BTCUSDT` + `binance-usd-m:BTCUSDT` → `BTCUSDT`).
+//!
+//! Intra-provider overlays (Binance USDM `@depth` vs `@rpiDepth`) are **not** folded into the
+//! canonical instrument unless you subscribe both under the same symbol name; RPI remains a
+//! venue-specific stream id (`binance-usd-m:RPI:BTCUSDT`).
+
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
+use crate::{providers::Endpoints, EventHandler};
+
+use super::{
+    order_book::{Operations, OrderBook},
+    Depth, Provider,
+};
+use left_right::{Absorb, ReadHandle, ReadHandleFactory, WriteHandle};
+use lob::{DepthUpdate, LimitOrderBook};
+use tokio_tungstenite::tungstenite::Message;
+use tracing::{instrument, warn};
+
+/// One depth feed: exchange provider + subscription symbol (may include venue-specific prefixes).
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct BookSource {
+    pub provider: Provider,
+    pub symbol: String,
+}
+
+impl BookSource {
+    pub fn new(provider: Provider, symbol: impl Into<String>) -> Self {
+        Self {
+            provider,
+            symbol: symbol.into().trim().to_uppercase(),
+        }
+    }
+
+    /// Unique routing / factory key (`binance:BTCUSDT`, `binance-usd-m:RPI:BTCUSDC`, …).
+    pub fn stream_id(&self) -> String {
+        format!("{}:{}", self.provider.label(), self.symbol)
+    }
+
+    /// Instrument identity for cross-source merge (uppercase symbol only).
+    pub fn canonical_instrument(&self) -> String {
+        self.symbol.clone()
+    }
+
+    /// Parse `provider:SYMBOL` (e.g. `binance:BTCUSDT`, `binance-usd-m:RPI:BTCUSDC`).
+    pub fn parse(raw: &str) -> Result<Self, String> {
+        let raw = raw.trim();
+        let (provider_label, symbol) = raw
+            .split_once(':')
+            .ok_or_else(|| format!("expected provider:SYMBOL, got {raw:?}"))?;
+        let provider = Provider::from_label(provider_label)
+            .ok_or_else(|| format!("unknown provider {provider_label:?}"))?;
+        if symbol.trim().is_empty() {
+            return Err(format!("missing symbol in {raw:?}"));
+        }
+        Ok(Self::new(provider, symbol))
+    }
+}
+
+impl Provider {
+    pub fn label(self) -> &'static str {
+        match self {
+            Provider::Binance => "binance",
+            Provider::BinanceUsdM => "binance-usd-m",
+            Provider::Other => "other",
+        }
+    }
+
+    pub fn from_label(label: &str) -> Option<Self> {
+        match label.trim().to_ascii_lowercase().as_str() {
+            "binance" => Some(Provider::Binance),
+            "binance-usd-m" | "binance_usd_m" | "binanceusdm" => Some(Provider::BinanceUsdM),
+            _ => None,
+        }
+    }
+}
+
+/// Parse a comma-separated list of `provider:SYMBOL` entries.
+pub fn parse_book_sources(list: &str) -> Result<Vec<BookSource>, String> {
+    let mut out = Vec::new();
+    for part in list.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+        out.push(BookSource::parse(part)?);
+    }
+    if out.is_empty() {
+        return Err("at least one book source is required".into());
+    }
+    Ok(out)
+}
+
+#[derive(Debug)]
+pub(crate) enum MergedOp {
+    Replace(LimitOrderBook),
+}
+
+impl Absorb<MergedOp> for LimitOrderBook {
+    fn absorb_first(&mut self, op: &mut MergedOp, _other: &Self) {
+        match op {
+            MergedOp::Replace(next) => {
+                *self = std::mem::replace(next, LimitOrderBook::default());
+            }
+        }
+    }
+
+    fn sync_with(&mut self, first: &Self) {
+        *self = first.clone();
+    }
+}
+
+struct MergedLane {
+    merged: WriteHandle<LimitOrderBook, MergedOp>,
+    _merged_read: ReadHandle<LimitOrderBook>,
+}
+
+struct HubInner {
+    factories: HashMap<String, ReadHandleFactory<LimitOrderBook>>,
+    stream_instruments: HashMap<String, String>,
+    merged_by_instrument: HashMap<String, MergedLane>,
+}
+
+/// Shared hub for all cross-source depth streams.
+#[derive(Clone)]
+pub struct GlobalBookHub {
+    inner: Arc<Mutex<HubInner>>,
+}
+
+impl GlobalBookHub {
+    pub fn new() -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(HubInner {
+                factories: HashMap::new(),
+                stream_instruments: HashMap::new(),
+                merged_by_instrument: HashMap::new(),
+            })),
+        }
+    }
+
+    /// Merged book for one instrument (all [`BookSource`]s sharing [`BookSource::canonical_instrument`]).
+    pub fn merged_factory_for(&self, instrument: &str) -> Option<ReadHandleFactory<LimitOrderBook>> {
+        let inner = self.inner.lock().expect("hub lock");
+        inner
+            .merged_by_instrument
+            .get(&instrument.to_uppercase())
+            .map(|lane| lane._merged_read.factory())
+    }
+
+    /// Snapshot handles keyed by [`BookSource::stream_id`].
+    pub fn per_source_factories(&self) -> Vec<(String, ReadHandleFactory<LimitOrderBook>)> {
+        let inner = self.inner.lock().expect("hub lock");
+        inner
+            .factories
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
+    }
+
+    fn register_factory(
+        &self,
+        stream_id: String,
+        factory: ReadHandleFactory<LimitOrderBook>,
+        instrument: &str,
+    ) {
+        let mut inner = self.inner.lock().expect("hub lock");
+        let key = instrument.to_uppercase();
+        inner
+            .stream_instruments
+            .insert(stream_id.clone(), key.clone());
+        inner.factories.insert(stream_id, factory);
+        use std::collections::hash_map::Entry;
+        if let Entry::Vacant(e) = inner.merged_by_instrument.entry(key) {
+            let (mut w, r) = left_right::new::<LimitOrderBook, MergedOp>();
+            w.publish();
+            e.insert(MergedLane {
+                merged: w,
+                _merged_read: r,
+            });
+        }
+    }
+
+    fn refresh_merged_for(&self, instrument: &str) {
+        let key = instrument.to_uppercase();
+        let group: Vec<ReadHandleFactory<LimitOrderBook>> = {
+            let inner = self.inner.lock().expect("hub lock");
+            inner
+                .stream_instruments
+                .iter()
+                .filter(|(_, canon)| **canon == key)
+                .filter_map(|(stream_id, _)| inner.factories.get(stream_id).cloned())
+                .collect()
+        };
+        let snapshots: Vec<LimitOrderBook> = group
+            .iter()
+            .filter_map(|fac| fac.handle().enter().map(|g| (*g).clone()))
+            .collect();
+        let mut merged = LimitOrderBook::merge_aggregate(&snapshots);
+        merged.update_id = snapshots.iter().map(|b| b.update_id).max().unwrap_or(0);
+        let mut inner = self.inner.lock().expect("hub lock");
+        let Some(lane) = inner.merged_by_instrument.get_mut(&key) else {
+            return;
+        };
+        lane.merged
+            .append(MergedOp::Replace(merged))
+            .publish();
+    }
+}
+
+/// One subscribed symbol on one provider, wired into a shared [`GlobalBookHub`].
+pub struct GlobalBookShard {
+    book: OrderBook,
+    hub: GlobalBookHub,
+    instrument: String,
+}
+
+impl EventHandler<Depth> for GlobalBookShard {
+    type Error = color_eyre::eyre::Error;
+    type Context = (GlobalBookHub, Provider);
+    type Update = DepthUpdate;
+
+    fn parse_update(value: Message) -> Result<Option<Self::Update>, Self::Error> {
+        OrderBook::parse_update(value)
+    }
+
+    fn to_id(update: &DepthUpdate) -> &str {
+        OrderBook::to_id(update)
+    }
+
+    #[instrument(skip_all, fields(pair))]
+    fn handle_update(&mut self, update: DepthUpdate) -> Result<(), Self::Error> {
+        EventHandler::handle_update(&mut self.book, update)?;
+        self.hub.refresh_merged_for(&self.instrument);
+        Ok(())
+    }
+
+    async fn build<En>(
+        provider: En,
+        symbols: &[impl AsRef<str>],
+        (hub, venue): Self::Context,
+    ) -> Result<(String, Self), Self::Error>
+    where
+        En: Endpoints<Depth>,
+    {
+        assert_eq!(symbols.len(), 1);
+        let symbol = symbols.first().expect("one symbol").as_ref().to_string();
+        let source = BookSource::new(venue, &symbol);
+        let stream_id = source.stream_id();
+        let instrument = source.canonical_instrument();
+
+        let response: reqwest::Response = {
+            let url = provider.rest_api_url(&symbol);
+            reqwest::get(url).await
+        }?;
+        if let Err(e) = response.error_for_status_ref() {
+            return Err(color_eyre::eyre::eyre!(
+                "REST snapshot failed: {e} {}",
+                response.text().await?
+            ));
+        }
+        let lob: LimitOrderBook = response.json().await?;
+
+        let (mut w, r) = left_right::new::<LimitOrderBook, Operations>();
+        let factory = r.factory();
+        hub.register_factory(stream_id, factory, &instrument);
+
+        w.append(Operations::Initialize(lob));
+        hub.refresh_merged_for(&instrument);
+
+        Ok((
+            symbol.clone(),
+            GlobalBookShard {
+                book: OrderBook::from(w),
+                hub,
+                instrument,
+            },
+        ))
+    }
+}
+
+/// Run one multiplexed WebSocket per provider, all feeding `hub`.
+pub async fn run_global_book_stream(hub: GlobalBookHub, sources: &[BookSource]) {
+    use crate::connectors::multiplexor::MonitorMultiplexor;
+    use futures_util::future::join_all;
+    use std::collections::HashMap;
+
+    let mut by_provider: HashMap<Provider, Vec<String>> = HashMap::new();
+    for s in sources {
+        by_provider
+            .entry(s.provider.clone())
+            .or_default()
+            .push(s.symbol.clone());
+    }
+
+    let local = tokio::task::LocalSet::new();
+    local
+        .run_until(async move {
+            let tasks = by_provider.into_iter().map(|(provider, symbols)| {
+                let hub = hub.clone();
+                async move {
+                    let syms: Vec<&str> = symbols.iter().map(String::as_str).collect();
+                    match provider {
+                        Provider::Binance => {
+                            MonitorMultiplexor::<GlobalBookShard, Depth>::stream::<_, _>(
+                                crate::providers::Binance,
+                                (hub, Provider::Binance),
+                                &syms,
+                            )
+                            .await
+                        }
+                        Provider::BinanceUsdM => {
+                            MonitorMultiplexor::<GlobalBookShard, Depth>::stream::<_, _>(
+                                crate::providers::BinanceUsdM,
+                                (hub, Provider::BinanceUsdM),
+                                &syms,
+                            )
+                            .await
+                        }
+                        Provider::Other => {
+                            warn!("global book: unknown provider");
+                        }
+                    }
+                }
+            });
+            join_all(tasks).await;
+        })
+        .await;
+}
+
+/// Convenience entry: parse `provider:SYMBOL` list and run until shutdown.
+pub async fn stream_global_book(sources: &str) -> Result<(), String> {
+    let parsed = parse_book_sources(sources)?;
+    let hub = GlobalBookHub::new();
+    run_global_book_stream(hub, &parsed).await;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_book_source_spot() {
+        let s = BookSource::parse("binance:btcusdt").unwrap();
+        assert_eq!(s.provider, Provider::Binance);
+        assert_eq!(s.symbol, "BTCUSDT");
+        assert_eq!(s.stream_id(), "binance:BTCUSDT");
+        assert_eq!(s.canonical_instrument(), "BTCUSDT");
+    }
+
+    #[test]
+    fn parse_book_source_usdm_rpi() {
+        let s = BookSource::parse("binance-usd-m:RPI:BTCUSDC").unwrap();
+        assert_eq!(s.stream_id(), "binance-usd-m:RPI:BTCUSDC");
+        assert_eq!(s.canonical_instrument(), "RPI:BTCUSDC");
+    }
+
+    #[test]
+    fn parse_book_sources_list() {
+        let v = parse_book_sources("binance:BTCUSDT,binance-usd-m:BTCUSDT").unwrap();
+        assert_eq!(v.len(), 2);
+        assert_eq!(v[0].canonical_instrument(), "BTCUSDT");
+        assert_eq!(v[1].canonical_instrument(), "BTCUSDT");
+    }
+}

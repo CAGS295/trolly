@@ -12,3 +12,4 @@ justfile
 **local
 #patches
 .todo
+.env
