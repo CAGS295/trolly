@@ -8,7 +8,8 @@ pub mod global_book;
 pub mod order_book;
 
 pub use global_book::{
-    parse_book_sources, run_global_book_stream, stream_global_book, BookSource, GlobalBookHub,
+    parse_book_sources, run_global_book_stream, stream_global_book, stream_global_depth_serve,
+    BookSource, GlobalBookHub,
 };
 use clap::{Subcommand, ValueEnum};
 pub use depth::{Depth, DepthConfig, DepthUpdate};

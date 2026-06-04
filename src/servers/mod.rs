@@ -3,37 +3,56 @@
 pub mod grpc;
 pub mod scale;
 
-use axum::{extract::Request, Router};
+#[cfg(feature = "prometheus")]
+pub mod metrics;
+
+use axum::{extract::Request, response::IntoResponse, Router};
 use futures_util::TryFutureExt;
 #[cfg(feature = "grpc")]
 pub use grpc::{limit_order_book_service_client, Pair};
 use hyper::body::Incoming;
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use left_right::ReadHandleFactory;
+use lob::LimitOrderBook;
 use std::collections::HashMap;
 use std::net::Ipv6Addr;
+use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc::UnboundedReceiver;
 use tower::Service;
 use tracing::{error, info, warn};
 
+pub type BookRegistry = Arc<Mutex<HashMap<String, ReadHandleFactory<LimitOrderBook>>>>;
+
+pub fn new_registry() -> BookRegistry {
+    Arc::new(Mutex::new(HashMap::new()))
+}
+
 #[derive(Clone)]
-pub struct Hook(HashMap<String, ReadHandleFactory<lob::LimitOrderBook>>);
+pub struct Hook(BookRegistry);
 
 impl Hook {
-    async fn get(&self, pair: &str) -> Option<lob::LimitOrderBook> {
+    pub fn new(registry: BookRegistry) -> Self {
+        Self(registry)
+    }
+
+    pub fn register(&self, key: impl Into<String>, factory: ReadHandleFactory<LimitOrderBook>) {
         self.0
-            .get(&pair.to_uppercase())?
-            .handle()
-            .enter()
-            .map(|guard| guard.clone())
+            .lock()
+            .expect("book registry lock")
+            .insert(key.into().to_uppercase(), factory);
+    }
+
+    async fn get(&self, pair: &str) -> Option<LimitOrderBook> {
+        let factory = {
+            let guard = self.0.lock().expect("book registry lock");
+            guard.get(&pair.to_uppercase())?.clone()
+        };
+        factory.handle().enter().map(|guard| guard.clone())
     }
 }
 
 #[tokio::main(flavor = "current_thread")]
-async fn inner_start(
-    factory: HashMap<String, ReadHandleFactory<lob::LimitOrderBook>>,
-    port: u16,
-) -> Result<(), ()> {
+async fn inner_start(hook: Hook, port: u16) -> Result<(), ()> {
     let addr: std::net::SocketAddr = ("::1".parse::<Ipv6Addr>().unwrap(), port).into();
 
     info!("BookServer listening on {addr}");
@@ -44,7 +63,7 @@ async fn inner_start(
     let router = {
         use tonic::server::NamedService;
 
-        let svc = grpc::LimitOrderBookServiceServer::new(Hook(factory.clone()));
+        let svc = grpc::LimitOrderBookServiceServer::new(hook.clone());
         let path = format!(
             "/{}/*rest",
             <grpc::LimitOrderBookServiceServer<Hook> as NamedService>::NAME
@@ -59,10 +78,22 @@ async fn inner_start(
         router.route(
             "/scale/depth/:symbol",
             axum::routing::get(scale::serve_book)
-                .with_state(Hook(factory))
+                .with_state(hook.clone())
                 .layer(CompressionLayer::new()),
         )
     };
+
+    #[cfg(feature = "prometheus")]
+    let router = router.route(
+        "/metrics",
+        axum::routing::get(|| async {
+            (
+                [(http::header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+                metrics::encode(),
+            )
+                .into_response()
+        }),
+    );
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
 
@@ -87,8 +118,6 @@ async fn inner_start(
             });
 
             let builder = hyper_util::server::conn::auto::Builder::new(TokioExecutor::new());
-            //builder.keep_alive_interval(Some(Duration::from_millis(500)));
-            //builder.timer(TokioTimer::new());
 
             let x = builder
                 .serve_connection(stream, hyper_service)
@@ -100,31 +129,41 @@ async fn inner_start(
     }
 }
 
+/// Start the API server after `n` `(symbol, factory)` pairs arrive on `receiver`.
 pub fn start(
-    mut receiver: UnboundedReceiver<(String, ReadHandleFactory<lob::LimitOrderBook>)>,
+    mut receiver: UnboundedReceiver<(String, ReadHandleFactory<LimitOrderBook>)>,
     port: u16,
     n: usize,
 ) -> Result<(), ()> {
-    let mut readers = HashMap::new();
+    let registry = new_registry();
     for _ in 0..n {
         if let Some((pair, factory)) = receiver.blocking_recv() {
-            readers.insert(pair, factory);
+            registry
+                .lock()
+                .expect("book registry lock")
+                .insert(pair.to_uppercase(), factory);
         } else {
             warn!("Channel closed while waiting on RPC handlers.");
             break;
         }
     }
-    inner_start(readers, port)?;
+    inner_start(Hook(registry), port)?;
     Ok(())
+}
+
+/// Start the API server immediately; callers register books on `registry` as they come online.
+pub fn start_background(registry: BookRegistry, port: u16) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        inner_start(Hook(registry), port).expect("book server");
+    })
 }
 
 #[cfg(test)]
 mod test {
     use super::Hook;
     use crate::monitor::order_book::Operations;
-    use left_right::{ReadHandleFactory, WriteHandle};
+    use left_right::WriteHandle;
     use lob::LimitOrderBook;
-    use std::collections::HashMap;
 
     struct TestBooks {
         hook: Hook,
@@ -132,16 +171,19 @@ mod test {
     }
 
     fn hook_with_books(keys: &[&str]) -> TestBooks {
-        let mut map: HashMap<String, ReadHandleFactory<LimitOrderBook>> = HashMap::new();
+        let registry = super::new_registry();
         let mut writers = Vec::new();
         for key in keys {
             let (mut w, r) = left_right::new::<LimitOrderBook, Operations>();
             w.publish();
-            map.insert(key.to_string(), r.factory());
+            registry
+                .lock()
+                .expect("lock")
+                .insert(key.to_string(), r.factory());
             writers.push(w);
         }
         TestBooks {
-            hook: Hook(map),
+            hook: Hook::new(registry),
             _writers: writers,
         }
     }
@@ -178,5 +220,18 @@ mod test {
 
         assert!(tb.hook.get("ETHUSDT").await.is_none());
         assert!(tb.hook.get("RPI:ETHUSDT").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn dynamic_register_after_start() {
+        let registry = super::new_registry();
+        let hook = Hook::new(registry.clone());
+        assert!(hook.get("BTCUSDT").await.is_none());
+
+        let (mut w, r) = left_right::new::<LimitOrderBook, Operations>();
+        w.publish();
+        hook.register("BTCUSDT", r.factory());
+
+        assert!(hook.get("BTCUSDT").await.is_some());
     }
 }

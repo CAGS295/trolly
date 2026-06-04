@@ -116,6 +116,7 @@ struct MergedLane {
 struct HubInner {
     factories: HashMap<String, ReadHandleFactory<LimitOrderBook>>,
     stream_instruments: HashMap<String, String>,
+    sources_by_instrument: HashMap<String, Vec<String>>,
     merged_by_instrument: HashMap<String, MergedLane>,
 }
 
@@ -123,6 +124,8 @@ struct HubInner {
 #[derive(Clone)]
 pub struct GlobalBookHub {
     inner: Arc<Mutex<HubInner>>,
+    #[cfg(any(feature = "codec", feature = "grpc"))]
+    serve: Option<crate::servers::BookRegistry>,
 }
 
 impl GlobalBookHub {
@@ -131,9 +134,40 @@ impl GlobalBookHub {
             inner: Arc::new(Mutex::new(HubInner {
                 factories: HashMap::new(),
                 stream_instruments: HashMap::new(),
+                sources_by_instrument: HashMap::new(),
                 merged_by_instrument: HashMap::new(),
             })),
+            #[cfg(any(feature = "codec", feature = "grpc"))]
+            serve: None,
         }
+    }
+
+    /// Hub that registers merged canonical instruments on `registry` for gRPC / SCALE lookup.
+    #[cfg(any(feature = "codec", feature = "grpc"))]
+    pub fn with_serve_registry(registry: crate::servers::BookRegistry) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(HubInner {
+                factories: HashMap::new(),
+                stream_instruments: HashMap::new(),
+                sources_by_instrument: HashMap::new(),
+                merged_by_instrument: HashMap::new(),
+            })),
+            serve: Some(registry),
+        }
+    }
+
+    #[cfg(any(feature = "codec", feature = "grpc"))]
+    fn publish_serve_instrument(&self, instrument: &str) {
+        let Some(registry) = &self.serve else {
+            return;
+        };
+        let Some(factory) = self.merged_factory_for(instrument) else {
+            return;
+        };
+        registry
+            .lock()
+            .expect("book registry lock")
+            .insert(instrument.to_uppercase(), factory);
     }
 
     /// Merged book for one instrument (all [`BookSource`]s sharing [`BookSource::canonical_instrument`]).
@@ -166,9 +200,14 @@ impl GlobalBookHub {
         inner
             .stream_instruments
             .insert(stream_id.clone(), key.clone());
+        inner
+            .sources_by_instrument
+            .entry(key.clone())
+            .or_default()
+            .push(stream_id.clone());
         inner.factories.insert(stream_id, factory);
         use std::collections::hash_map::Entry;
-        if let Entry::Vacant(e) = inner.merged_by_instrument.entry(key) {
+        if let Entry::Vacant(e) = inner.merged_by_instrument.entry(key.clone()) {
             let (mut w, r) = left_right::new::<LimitOrderBook, MergedOp>();
             w.publish();
             e.insert(MergedLane {
@@ -176,6 +215,9 @@ impl GlobalBookHub {
                 _merged_read: r,
             });
         }
+        drop(inner);
+        #[cfg(any(feature = "codec", feature = "grpc"))]
+        self.publish_serve_instrument(instrument);
     }
 
     fn refresh_merged_for(&self, instrument: &str) {
@@ -183,18 +225,40 @@ impl GlobalBookHub {
         let group: Vec<ReadHandleFactory<LimitOrderBook>> = {
             let inner = self.inner.lock().expect("hub lock");
             inner
-                .stream_instruments
-                .iter()
-                .filter(|(_, canon)| **canon == key)
-                .filter_map(|(stream_id, _)| inner.factories.get(stream_id).cloned())
+                .sources_by_instrument
+                .get(&key)
+                .into_iter()
+                .flatten()
+                .filter_map(|stream_id| inner.factories.get(stream_id).cloned())
                 .collect()
         };
-        let snapshots: Vec<LimitOrderBook> = group
+        if group.is_empty() {
+            return;
+        }
+
+        let merged = if group.len() == 1 {
+            group[0]
+                .handle()
+                .enter()
+                .map(|guard| guard.clone())
+                .unwrap_or_default()
+        } else {
+            let mut snapshots = Vec::with_capacity(group.len());
+            for factory in &group {
+                if let Some(book) = factory.handle().enter() {
+                    snapshots.push(book.clone());
+                }
+            }
+            LimitOrderBook::merge_aggregate(&snapshots)
+        };
+
+        let mut merged = merged;
+        merged.update_id = group
             .iter()
-            .filter_map(|fac| fac.handle().enter().map(|g| (*g).clone()))
-            .collect();
-        let mut merged = LimitOrderBook::merge_aggregate(&snapshots);
-        merged.update_id = snapshots.iter().map(|b| b.update_id).max().unwrap_or(0);
+            .filter_map(|fac| fac.handle().enter().map(|g| g.update_id))
+            .max()
+            .unwrap_or(0);
+
         let mut inner = self.inner.lock().expect("hub lock");
         let Some(lane) = inner.merged_by_instrument.get_mut(&key) else {
             return;
@@ -202,6 +266,9 @@ impl GlobalBookHub {
         lane.merged
             .append(MergedOp::Replace(merged))
             .publish();
+
+        #[cfg(feature = "prometheus")]
+        crate::servers::metrics::record_merge_refresh(&key);
     }
 }
 
@@ -210,6 +277,7 @@ pub struct GlobalBookShard {
     book: OrderBook,
     hub: GlobalBookHub,
     instrument: String,
+    stream_id: String,
 }
 
 impl EventHandler<Depth> for GlobalBookShard {
@@ -229,6 +297,8 @@ impl EventHandler<Depth> for GlobalBookShard {
     fn handle_update(&mut self, update: DepthUpdate) -> Result<(), Self::Error> {
         EventHandler::handle_update(&mut self.book, update)?;
         self.hub.refresh_merged_for(&self.instrument);
+        #[cfg(feature = "prometheus")]
+        crate::servers::metrics::record_depth_update(&self.stream_id);
         Ok(())
     }
 
@@ -260,7 +330,7 @@ impl EventHandler<Depth> for GlobalBookShard {
 
         let (mut w, r) = left_right::new::<LimitOrderBook, Operations>();
         let factory = r.factory();
-        hub.register_factory(stream_id, factory, &instrument);
+        hub.register_factory(stream_id.clone(), factory, &instrument);
 
         w.append(Operations::Initialize(lob));
         hub.refresh_merged_for(&instrument);
@@ -271,6 +341,7 @@ impl EventHandler<Depth> for GlobalBookShard {
                 book: OrderBook::from(w),
                 hub,
                 instrument,
+                stream_id,
             },
         ))
     }
@@ -333,6 +404,25 @@ pub async fn stream_global_book(sources: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Cross-source global book with gRPC / SCALE /metrics on `port` (default 50051).
+#[cfg(any(feature = "codec", feature = "grpc"))]
+pub async fn stream_global_depth_serve(sources: &str, port: Option<u16>) -> Result<(), String> {
+    use crate::servers::{new_registry, start_background};
+
+    let parsed = parse_book_sources(sources)?;
+    let registry = new_registry();
+    let port = port.unwrap_or(50051);
+    let _server = start_background(registry.clone(), port);
+    let hub = GlobalBookHub::with_serve_registry(registry);
+    run_global_book_stream(hub, &parsed).await;
+    Ok(())
+}
+
+#[cfg(not(any(feature = "codec", feature = "grpc")))]
+pub async fn stream_global_depth_serve(_sources: &str, _port: Option<u16>) -> Result<(), String> {
+    Err("global serve requires the `grpc` and/or `codec` feature".into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -359,5 +449,22 @@ mod tests {
         assert_eq!(v.len(), 2);
         assert_eq!(v[0].canonical_instrument(), "BTCUSDT");
         assert_eq!(v[1].canonical_instrument(), "BTCUSDT");
+    }
+
+    #[cfg(any(feature = "codec", feature = "grpc"))]
+    #[test]
+    fn serve_registry_gets_merged_instrument() {
+        use crate::servers::new_registry;
+
+        let registry = new_registry();
+        let hub = GlobalBookHub::with_serve_registry(registry.clone());
+        let (mut w, r) = left_right::new::<LimitOrderBook, Operations>();
+        w.append(Operations::Initialize(LimitOrderBook::new()));
+        hub.register_factory("binance:BTCUSDT".into(), r.factory(), "BTCUSDT");
+
+        assert!(registry
+            .lock()
+            .expect("lock")
+            .contains_key("BTCUSDT"));
     }
 }

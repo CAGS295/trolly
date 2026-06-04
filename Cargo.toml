@@ -42,6 +42,7 @@ tower = "0.4.13"
 ratatui = { version = "0.28", optional = true }
 crossterm = { version = "0.28", optional = true }
 regex = { version = "1", optional = true }
+prometheus = { version = "0.13", optional = true }
 
 [patch."https://github.com/CAGS295/lob.git"]
 lob = { path = "./patches/lob" }
@@ -53,9 +54,10 @@ http-body-util = "0.1.2"
 dotenvy = "0.15"
 
 [features]
-default = ["grpc", "codec"]
+default = ["grpc", "codec", "prometheus"]
 grpc = ["tonic", "prost", "lob/grpc"]
 codec = ["lob/codec"]
+prometheus = ["dep:prometheus"]
 tui = ["ratatui", "crossterm", "regex"]
 
 [[bench]]
