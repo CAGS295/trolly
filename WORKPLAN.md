@@ -9,7 +9,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: never
+- last_run: 2026-06-07T20:00:00Z
 - max_parallel: 3
 
 ## Orchestrator notes
@@ -24,7 +24,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 
 ### WP-001 — Hot-path allocation optimization
 
-- status: in_progress
+- status: done
 - repos: trolly, patches/lob
 - depends_on: []
 - scope: src/monitor/global_book.rs, patches/lob/src/limit_order_book/mod.rs, benches/
@@ -32,11 +32,11 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
   - `git submodule update --init patches/lob && cargo test` passes
   - merge semantics unchanged (`tests/global_book.rs`, `patches/lob` merge tests)
   - fewer full-book clones on `GlobalBookHub::refresh_merged_for` hot path
-- notes: `refresh_merged_for` currently clones every source book before `merge_aggregate`.
+- notes: `refresh_merged_for` uses `merge_into` on read guards for multi-source merge (no per-source clone); single-source path still clones once for `MergedOp::Replace`.
 
 ### WP-002 — Integration test hygiene
 
-- status: in_progress
+- status: done
 - repos: trolly
 - depends_on: []
 - scope: .env.example, tests/global_book.rs, WORKPLAN.md, changelog.md, README.md
@@ -48,7 +48,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 
 ### WP-003 — Provider expansion scaffold
 
-- status: in_progress
+- status: done
 - repos: trolly
 - depends_on: []
 - scope: src/providers/, src/monitor/mod.rs, src/providers/.todo
@@ -56,11 +56,11 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
   - Binance spot refactor toward `depth::binance::spot` (per `.todo`) or documented equivalent layout
   - third venue can register in `--sources provider:SYMBOL` without breaking binance / binance-usd-m
   - `parse_book_sources` unit tests cover new layout; `cargo test` passes
-- notes: see `src/providers/.todo` — `move binance to depth::binance::spot`.
+- notes: Binance spot at `providers::depth::binance::spot`; `other` venue scaffold registered. See `src/providers/.todo` for remaining migrations.
 
 ### WP-004 — Intra-provider overlays (Binance RPI)
 
-- status: todo
+- status: in_progress
 - repos: trolly
 - depends_on: [WP-003]
 - scope: src/providers/binance_usd_m.rs, src/bin/aggregated_depth_tui.rs, src/monitor/global_book.rs
@@ -73,7 +73,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 
 ### WP-005 — Cleanup
 
-- status: todo
+- status: in_progress
 - repos: trolly
 - depends_on: []
 - scope: src/servers/mod.rs, src/cli/mod.rs
