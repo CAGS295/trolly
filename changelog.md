@@ -4,11 +4,13 @@ Project journal for shipped work. Active backlog lives in [`WORKPLAN.md`](WORKPL
 
 ## WIP
 
-- optimize allocations (incremental merge; reduce clone on hot path further)
-- Add more exchange providers beyond Binance spot + USDM.
+- Add more exchange providers beyond Binance spot + USDM (stub scaffold landed; full venues remain).
 - Workspace crates: stream ingress refactor, Binance spot/USDM execution, strategy runtime, libtorch gym scaffold (see [`WORKPLAN.md`](WORKPLAN.md) WP-006 … WP-011).
 
 ## change log
++ Reduce full-book clones on global book merge hot path via `merge_aggregate_absorb`.
++ Refactor Binance spot to `depth::binance::spot`; add `stub` provider scaffold for `--sources`.
++ Fix Hook dead_code warnings; replace CLI `long_about` TODO with project goals.
 + Wire global book into depth monitor (`--output global --sources`).
 + Prometheus `/metrics` on book server; dynamic book registry for late-registered merged instruments.
 + Global book hub: multi-provider WebSocket feeds, `BookSource`, `merge_aggregate` via patched `lob`.

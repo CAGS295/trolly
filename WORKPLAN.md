@@ -12,7 +12,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: never
+- last_run: 2026-06-07
 - max_parallel: 3
 
 ## Orchestrator notes
@@ -45,7 +45,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-001 — Hot-path allocation optimization
 
-- status: todo
+- status: done
 - repos: trolly, patches/lob
 - depends_on: []
 - scope: src/monitor/global_book.rs, patches/lob/src/limit_order_book/mod.rs, benches/
@@ -69,7 +69,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-003 — Provider expansion scaffold
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: []
 - scope: src/providers/, src/monitor/mod.rs, src/providers/.todo
@@ -94,7 +94,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-005 — Cleanup
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: []
 - scope: src/servers/mod.rs, src/cli/mod.rs
