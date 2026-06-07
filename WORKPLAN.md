@@ -9,7 +9,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: 2026-06-07T20:15:00Z
+- last_run: 2026-06-07T21:00:00Z
 - max_parallel: 3
 
 ## Orchestrator notes
@@ -114,7 +114,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 
 ### WP-008 — Venue onboarding checklist
 
-- status: todo
+- status: in_progress
 - repos: trolly
 - depends_on: [WP-006]
 - scope: README.md, src/providers/.todo, WORKPLAN.md, tests/global_book.rs
