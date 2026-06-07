@@ -4,11 +4,12 @@ Project journal for shipped work. Active backlog lives in [`WORKPLAN.md`](WORKPL
 
 ## WIP
 
-- USDM layout migration (`depth::binance::usd_m`) — WP-006
-- Single-source merge clone elimination — WP-007
-- Venue onboarding checklist — WP-008
+_(none — phase 2 workplan items done; see `src/providers/.todo` for open provider wiring)_
 
 ## change log
++ Venue onboarding checklist in README; `registered_labels_match_provider_onboarding_checklist` test; provider `.todo` aligned (WP-008).
++ Single-source merge: `refresh_merged_for` uses borrowed `merge_into` for all paths; `replace_from` in lob avoids clone on sync.
++ USDM provider migrated to `providers::depth::binance::usd_m` (public API unchanged).
 + WP-005 cleanup: wire `Hook` into serve paths (no dead_code); replace CLI `long_about` TODO with project description.
 + Binance USDM RPI overlays: `binance-usd-m:RPI:SYMBOL` routing, isolated merge lanes, TUI `Δ` tab (`@depth − @rpiDepth`); documented in WORKPLAN WP-004.
 + Provider expansion scaffold: `depth::binance::spot` layout and `other` third-venue registration for `--sources`.
