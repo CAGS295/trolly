@@ -1,5 +1,6 @@
-use super::{ApiURL, Endpoints};
 use crate::monitor::Depth;
+
+use crate::providers::{ApiURL, Endpoints};
 
 #[derive(Clone)]
 pub struct Binance;
@@ -35,7 +36,7 @@ impl Endpoints<Depth> for Binance {
 #[cfg(test)]
 mod test {
     use super::Binance;
-    use super::Endpoints;
+    use crate::providers::Endpoints;
 
     #[test]
     fn subscription_serialization() {

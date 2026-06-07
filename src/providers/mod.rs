@@ -1,10 +1,12 @@
 use serde::Deserialize;
 
-mod binance;
 mod binance_usd_m;
+pub mod depth;
 
-pub use binance::Binance;
 pub use binance_usd_m::{BinanceUsdM, RPI_PREFIX};
+pub use depth::binance::spot::Binance;
+pub use depth::other::Other;
+pub use depth::REGISTERED_LABELS;
 
 /// A [Provider] must implement this trait for [net] to know where to pull the data from.
 pub trait Endpoints<Monitorable> {
@@ -26,6 +28,7 @@ pub struct NullResponse {
 
 #[cfg(test)]
 mod test {
+    use super::depth::REGISTERED_LABELS;
     use super::NullResponse;
 
     #[test]
@@ -39,5 +42,12 @@ mod test {
             },
             expected
         );
+    }
+
+    #[test]
+    fn registered_labels_include_binance_and_other() {
+        assert!(REGISTERED_LABELS.contains(&"binance"));
+        assert!(REGISTERED_LABELS.contains(&"binance-usd-m"));
+        assert!(REGISTERED_LABELS.contains(&"other"));
     }
 }

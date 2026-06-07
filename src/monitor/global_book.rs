@@ -72,8 +72,14 @@ impl Provider {
         match label.trim().to_ascii_lowercase().as_str() {
             "binance" => Some(Provider::Binance),
             "binance-usd-m" | "binance_usd_m" | "binanceusdm" => Some(Provider::BinanceUsdM),
+            "other" => Some(Provider::Other),
             _ => None,
         }
+    }
+
+    /// Whether `label` is a known depth venue for `--sources provider:SYMBOL`.
+    pub fn is_registered_label(label: &str) -> bool {
+        Self::from_label(label).is_some()
     }
 }
 
@@ -386,7 +392,10 @@ pub async fn run_global_book_stream(hub: GlobalBookHub, sources: &[BookSource]) 
                             .await
                         }
                         Provider::Other => {
-                            warn!("global book: unknown provider");
+                            warn!(
+                                "global book: provider {:?} has no live stream wired yet (scaffold only)",
+                                provider.label()
+                            );
                         }
                     }
                 }
@@ -449,6 +458,30 @@ mod tests {
         assert_eq!(v.len(), 2);
         assert_eq!(v[0].canonical_instrument(), "BTCUSDT");
         assert_eq!(v[1].canonical_instrument(), "BTCUSDT");
+    }
+
+    #[test]
+    fn parse_book_source_other_venue() {
+        let s = BookSource::parse("other:ETHUSDT").unwrap();
+        assert_eq!(s.provider, Provider::Other);
+        assert_eq!(s.symbol, "ETHUSDT");
+        assert_eq!(s.stream_id(), "other:ETHUSDT");
+        assert!(Provider::is_registered_label("other"));
+    }
+
+    #[test]
+    fn parse_book_sources_three_venues() {
+        let v = parse_book_sources("binance:BTCUSDT,binance-usd-m:BTCUSDT,other:BTCUSDT").unwrap();
+        assert_eq!(v.len(), 3);
+        assert_eq!(v[0].provider, Provider::Binance);
+        assert_eq!(v[1].provider, Provider::BinanceUsdM);
+        assert_eq!(v[2].provider, Provider::Other);
+        assert_eq!(v[0].stream_id(), "binance:BTCUSDT");
+        assert_eq!(v[1].stream_id(), "binance-usd-m:BTCUSDT");
+        assert_eq!(v[2].stream_id(), "other:BTCUSDT");
+        for s in &v {
+            assert_eq!(s.canonical_instrument(), "BTCUSDT");
+        }
     }
 
     #[cfg(any(feature = "codec", feature = "grpc"))]
