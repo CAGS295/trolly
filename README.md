@@ -138,6 +138,38 @@ cargo bench --bench depth_monitor         # gRPC round-trip
 cargo bench --bench depth_monitor_scale   # HTTP codec round-trip
 ```
 
+## Testing
+
+### Default (no network)
+
+Fixture and unit tests run on every `cargo test` with no `.env` and no live exchange calls:
+
+```bash
+cargo test
+```
+
+The global book integration test `global_book_live_rest_merge` is marked `#[ignore]`, so it is skipped unless you opt in explicitly.
+
+### Global book live REST merge (opt-in)
+
+To exercise the cross-source REST fetch → parse → merge path against Binance (or a local stub when Binance is geo-blocked):
+
+1. Copy the env template: `cp .env.example .env`
+2. Set `RUN_GLOBAL_BOOK_INTEGRATION=1` in `.env` (optionally change `TROLLY_INTEGRATION_SYMBOL`)
+3. Run the ignored test:
+
+```bash
+cargo test --test global_book global_book_live_rest_merge -- --ignored --nocapture
+```
+
+If Binance REST returns HTTP 451 from your region, the test automatically falls back to a loopback REST stub so the merge pipeline is still verified. To force the stub:
+
+```bash
+TROLLY_INTEGRATION_USE_LOCAL_REST=1 cargo test --test global_book global_book_live_rest_merge -- --ignored --nocapture
+```
+
+See [`.env.example`](.env.example) for optional REST URL overrides.
+
 ## License
 
 [GPL-3.0](LICENSE)

@@ -44,7 +44,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
   - documented flow: copy `.env.example` → `.env`, set `RUN_GLOBAL_BOOK_INTEGRATION=1`, run live test
   - `cargo test --test global_book global_book_live_rest_merge -- --ignored` passes when env enabled
   - default `cargo test` still skips live network; fixture tests always run
-- notes: complements WP-001; safe to run in parallel (disjoint scope).
+- notes: complements WP-001; safe to run in parallel (disjoint scope). Opt-in live flow — `cp .env.example .env`, set `RUN_GLOBAL_BOOK_INTEGRATION=1`, run `cargo test --test global_book global_book_live_rest_merge -- --ignored`. Default `cargo test` skips live network (`#[ignore]`); fixture tests in `tests/global_book.rs` always run. When Binance REST is geo-blocked, the live test falls back to a loopback REST stub.
 
 ### WP-003 — Provider expansion scaffold
 

@@ -18,7 +18,7 @@
 use std::sync::Arc;
 
 use lob::LimitOrderBook;
-use trolly::monitor::{parse_book_sources, BookSource, Depth, Provider};
+use trolly::monitor::{parse_book_sources, BookSource, Provider};
 use trolly::providers::{Binance, BinanceUsdM, Endpoints};
 
 #[test]
