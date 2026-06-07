@@ -12,82 +12,12 @@ use crate::{providers::Endpoints, EventHandler};
 
 use super::{
     order_book::{Operations, OrderBook},
-    Depth, Provider,
+    parse_book_sources, BookSource, Depth, Provider,
 };
 use left_right::{Absorb, ReadHandle, ReadHandleFactory, WriteHandle};
 use lob::{DepthUpdate, LimitOrderBook};
 use tokio_tungstenite::tungstenite::Message;
 use tracing::{instrument, warn};
-
-/// One depth feed: exchange provider + subscription symbol (may include venue-specific prefixes).
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct BookSource {
-    pub provider: Provider,
-    pub symbol: String,
-}
-
-impl BookSource {
-    pub fn new(provider: Provider, symbol: impl Into<String>) -> Self {
-        Self {
-            provider,
-            symbol: symbol.into().trim().to_uppercase(),
-        }
-    }
-
-    /// Unique routing / factory key (`binance:BTCUSDT`, `binance-usd-m:RPI:BTCUSDC`, …).
-    pub fn stream_id(&self) -> String {
-        format!("{}:{}", self.provider.label(), self.symbol)
-    }
-
-    /// Instrument identity for cross-source merge (uppercase symbol only).
-    pub fn canonical_instrument(&self) -> String {
-        self.symbol.clone()
-    }
-
-    /// Parse `provider:SYMBOL` (e.g. `binance:BTCUSDT`, `binance-usd-m:RPI:BTCUSDC`).
-    pub fn parse(raw: &str) -> Result<Self, String> {
-        let raw = raw.trim();
-        let (provider_label, symbol) = raw
-            .split_once(':')
-            .ok_or_else(|| format!("expected provider:SYMBOL, got {raw:?}"))?;
-        let provider = Provider::from_label(provider_label)
-            .ok_or_else(|| format!("unknown provider {provider_label:?}"))?;
-        if symbol.trim().is_empty() {
-            return Err(format!("missing symbol in {raw:?}"));
-        }
-        Ok(Self::new(provider, symbol))
-    }
-}
-
-impl Provider {
-    pub fn label(self) -> &'static str {
-        match self {
-            Provider::Binance => "binance",
-            Provider::BinanceUsdM => "binance-usd-m",
-            Provider::Other => "other",
-        }
-    }
-
-    pub fn from_label(label: &str) -> Option<Self> {
-        match label.trim().to_ascii_lowercase().as_str() {
-            "binance" => Some(Provider::Binance),
-            "binance-usd-m" | "binance_usd_m" | "binanceusdm" => Some(Provider::BinanceUsdM),
-            _ => None,
-        }
-    }
-}
-
-/// Parse a comma-separated list of `provider:SYMBOL` entries.
-pub fn parse_book_sources(list: &str) -> Result<Vec<BookSource>, String> {
-    let mut out = Vec::new();
-    for part in list.split(',').map(str::trim).filter(|s| !s.is_empty()) {
-        out.push(BookSource::parse(part)?);
-    }
-    if out.is_empty() {
-        return Err("at least one book source is required".into());
-    }
-    Ok(out)
-}
 
 #[derive(Debug)]
 pub(crate) enum MergedOp {
@@ -243,13 +173,13 @@ impl GlobalBookHub {
                 .map(|guard| guard.clone())
                 .unwrap_or_default()
         } else {
-            let mut snapshots = Vec::with_capacity(group.len());
+            let mut merged = LimitOrderBook::new();
             for factory in &group {
                 if let Some(book) = factory.handle().enter() {
-                    snapshots.push(book.clone());
+                    merged.merge_aggregate_absorb(&book);
                 }
             }
-            LimitOrderBook::merge_aggregate(&snapshots)
+            merged
         };
 
         let mut merged = merged;
@@ -385,6 +315,14 @@ pub async fn run_global_book_stream(hub: GlobalBookHub, sources: &[BookSource]) 
                             )
                             .await
                         }
+                        Provider::Stub => {
+                            MonitorMultiplexor::<GlobalBookShard, Depth>::stream::<_, _>(
+                                crate::providers::Stub,
+                                (hub, Provider::Stub),
+                                &syms,
+                            )
+                            .await
+                        }
                         Provider::Other => {
                             warn!("global book: unknown provider");
                         }
@@ -426,30 +364,6 @@ pub async fn stream_global_depth_serve(_sources: &str, _port: Option<u16>) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn parse_book_source_spot() {
-        let s = BookSource::parse("binance:btcusdt").unwrap();
-        assert_eq!(s.provider, Provider::Binance);
-        assert_eq!(s.symbol, "BTCUSDT");
-        assert_eq!(s.stream_id(), "binance:BTCUSDT");
-        assert_eq!(s.canonical_instrument(), "BTCUSDT");
-    }
-
-    #[test]
-    fn parse_book_source_usdm_rpi() {
-        let s = BookSource::parse("binance-usd-m:RPI:BTCUSDC").unwrap();
-        assert_eq!(s.stream_id(), "binance-usd-m:RPI:BTCUSDC");
-        assert_eq!(s.canonical_instrument(), "RPI:BTCUSDC");
-    }
-
-    #[test]
-    fn parse_book_sources_list() {
-        let v = parse_book_sources("binance:BTCUSDT,binance-usd-m:BTCUSDT").unwrap();
-        assert_eq!(v.len(), 2);
-        assert_eq!(v[0].canonical_instrument(), "BTCUSDT");
-        assert_eq!(v[1].canonical_instrument(), "BTCUSDT");
-    }
 
     #[cfg(any(feature = "codec", feature = "grpc"))]
     #[test]
