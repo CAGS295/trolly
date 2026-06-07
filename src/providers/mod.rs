@@ -1,9 +1,10 @@
 use serde::Deserialize;
 
-mod binance;
+pub mod depth;
 mod binance_usd_m;
 
-pub use binance::Binance;
+pub use depth::Binance;
+pub use depth::Stub;
 pub use binance_usd_m::{BinanceUsdM, RPI_PREFIX};
 
 /// A [Provider] must implement this trait for [net] to know where to pull the data from.

@@ -98,6 +98,14 @@ pub async fn stream_depth_echo(provider: super::Provider, symbols: &str) {
                     )
                     .await
                 }
+                super::Provider::Stub => {
+                    MonitorMultiplexor::<super::echo_depth::EchoDepth, Depth>::stream::<_, _>(
+                        crate::providers::Stub,
+                        (),
+                        &syms,
+                    )
+                    .await
+                }
                 super::Provider::Other => tracing::error!("echo: unknown provider"),
             }
         })
@@ -131,6 +139,14 @@ async fn stream_depth_serve(cfg: &DepthConfig) {
         Provider::BinanceUsdM => {
             MonitorMultiplexor::<OrderBook, Depth>::stream::<_, _>(
                 crate::providers::BinanceUsdM,
+                tx,
+                &syms,
+            )
+            .await
+        }
+        Provider::Stub => {
+            MonitorMultiplexor::<OrderBook, Depth>::stream::<_, _>(
+                crate::providers::Stub,
                 tx,
                 &syms,
             )
