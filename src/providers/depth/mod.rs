@@ -1,7 +1,6 @@
 //! Depth feed venues for `--sources provider:SYMBOL`.
 //!
-//! Layout: `depth::<exchange>::<market>` (e.g. [`binance::spot`]).
-//! Top-level siblings like [`super::BinanceUsdM`] remain until migrated (see `.todo`).
+//! Layout: `depth::<exchange>::<market>` (e.g. [`binance::spot`], [`binance::usd_m`]).
 
 pub mod binance;
 pub mod other;

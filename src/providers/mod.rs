@@ -1,9 +1,8 @@
 use serde::Deserialize;
 
-mod binance_usd_m;
 pub mod depth;
 
-pub use binance_usd_m::{BinanceUsdM, RPI_PREFIX};
+pub use depth::binance::usd_m::{BinanceUsdM, RPI_PREFIX};
 pub use depth::binance::spot::Binance;
 pub use depth::other::Other;
 pub use depth::REGISTERED_LABELS;
