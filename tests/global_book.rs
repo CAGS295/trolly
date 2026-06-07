@@ -213,6 +213,26 @@ fn book_source_stream_ids_are_unique_per_venue() {
 }
 
 #[test]
+fn parse_book_sources_usdm_rpi_routing_end_to_end() {
+    let sources = parse_book_sources(
+        "binance-usd-m:BTCUSDT,binance-usd-m:RPI:BTCUSDT",
+    )
+    .expect("parse sources");
+    assert_eq!(sources.len(), 2);
+    assert_eq!(sources[0].stream_id(), "binance-usd-m:BTCUSDT");
+    assert_eq!(sources[1].stream_id(), "binance-usd-m:RPI:BTCUSDT");
+    assert_eq!(sources[0].canonical_instrument(), "BTCUSDT");
+    assert_eq!(sources[1].canonical_instrument(), "RPI:BTCUSDT");
+    assert_ne!(sources[0].canonical_instrument(), sources[1].canonical_instrument());
+
+    let subs = BinanceUsdM.ws_subscriptions(sources.iter().map(|s| s.symbol.as_str()));
+    assert_eq!(subs.len(), 2);
+    assert!(subs[0].contains("SET_PROPERTY"));
+    assert!(subs[1].contains("rpiDepth@500ms"));
+    assert!(subs[1].contains("btcusdt@depth"));
+}
+
+#[test]
 fn parse_book_sources_accepts_third_venue_without_breaking_binance() {
     let sources = parse_book_sources("binance:BTCUSDT,binance-usd-m:ETHUSDT,other:SOLUSDT")
         .expect("parse sources");

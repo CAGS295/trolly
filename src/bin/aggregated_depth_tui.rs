@@ -825,3 +825,63 @@ fn ui(
 
     f.render_widget(chart, chunks[2]);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn canonical_from_stream_id_strips_provider_not_rpi() {
+        assert_eq!(canonical_from_stream_id("binance-usd-m:BTCUSDT"), "BTCUSDT");
+        assert_eq!(
+            canonical_from_stream_id("binance-usd-m:RPI:BTCUSDT"),
+            "RPI:BTCUSDT"
+        );
+    }
+
+    #[test]
+    fn tab_strip_includes_delta_tab_per_canonical() {
+        let order = vec![
+            "binance-usd-m:BTCUSDT".into(),
+            "binance-usd-m:RPI:BTCUSDT".into(),
+        ];
+        let (labels, kinds) = tab_strip(&order);
+        assert!(labels.iter().any(|l| l == "Δ·BTCUSDT"));
+        assert!(labels.iter().any(|l| l == "MERGED·BTCUSDT"));
+        assert!(labels.iter().any(|l| l == "binance-usd-m:RPI:BTCUSDT"));
+        assert!(kinds.iter().any(|k| matches!(k, TabKind::Diff(s) if s == "BTCUSDT")));
+    }
+
+    #[test]
+    fn usdm_stream_ids_for_delta_pair() {
+        assert_eq!(usdm_std_stream_id("btcusdt"), "binance-usd-m:BTCUSDT");
+        assert_eq!(usdm_rpi_stream_id("btcusdt"), "binance-usd-m:RPI:BTCUSDT");
+    }
+
+    #[test]
+    fn diff_qty_levels_computes_std_minus_rpi() {
+        let rpi_bids = vec![("50000".into(), "1".into())];
+        let std_bids = vec![("50000".into(), "3".into())];
+        let db = diff_qty_levels(&rpi_bids, &std_bids, false);
+        assert_eq!(db.len(), 1);
+        assert_eq!(db[0].0, "50000");
+        assert_eq!(db[0].1, "2");
+    }
+
+    #[test]
+    fn diff_qty_levels_keeps_zero_delta_when_requested() {
+        let side = vec![("50000".into(), "1".into())];
+        let db = diff_qty_levels(&side, &side, false);
+        assert_eq!(db.len(), 1);
+        assert_eq!(db[0].1, "0");
+    }
+
+    #[test]
+    fn snapshot_diff_empty_without_both_hub_legs() {
+        let factories = HashMap::new();
+        let snap = snapshot_diff("BTCUSDT", &factories);
+        assert_eq!(snap.0, 0);
+        assert!(snap.2.is_empty());
+        assert!(snap.3.is_empty());
+    }
+}

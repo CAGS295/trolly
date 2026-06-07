@@ -479,6 +479,66 @@ mod tests {
     }
 
     #[test]
+    fn rpi_stream_does_not_pollute_canonical_merge() {
+        use crate::monitor::order_book::Operations;
+
+        let hub = GlobalBookHub::new();
+        let standard: LimitOrderBook = serde_json::from_str(
+            r#"{"lastUpdateId":1,"bids":[["50000.0","1.0"]],"asks":[["50001.0","2.0"]]}"#,
+        )
+        .unwrap();
+        let rpi: LimitOrderBook = serde_json::from_str(
+            r#"{"lastUpdateId":9,"bids":[["50000.0","5.0"]],"asks":[["50001.0","8.0"]]}"#,
+        )
+        .unwrap();
+
+        let (mut w_std, r_std) = left_right::new::<LimitOrderBook, Operations>();
+        w_std.append(Operations::Initialize(standard));
+        w_std.publish();
+        hub.register_factory("binance-usd-m:BTCUSDT".into(), r_std.factory(), "BTCUSDT");
+
+        let (mut w_rpi, r_rpi) = left_right::new::<LimitOrderBook, Operations>();
+        w_rpi.append(Operations::Initialize(rpi));
+        w_rpi.publish();
+        hub.register_factory(
+            "binance-usd-m:RPI:BTCUSDT".into(),
+            r_rpi.factory(),
+            "RPI:BTCUSDT",
+        );
+
+        hub.refresh_merged_for("BTCUSDT");
+        hub.refresh_merged_for("RPI:BTCUSDT");
+
+        let std_handle = hub
+            .merged_factory_for("BTCUSDT")
+            .expect("merged BTCUSDT")
+            .handle();
+        let merged_std = std_handle.enter().expect("snapshot");
+        let std_text = format!("{}", merged_std.deref());
+        assert!(std_text.contains("50000:1"), "canonical merge must exclude RPI size: {std_text}");
+        assert!(!std_text.contains("50000:5"), "RPI qty must not leak into BTCUSDT merge: {std_text}");
+
+        let rpi_handle = hub
+            .merged_factory_for("RPI:BTCUSDT")
+            .expect("merged RPI:BTCUSDT")
+            .handle();
+        let merged_rpi = rpi_handle.enter().expect("snapshot");
+        let rpi_text = format!("{}", merged_rpi.deref());
+        assert!(rpi_text.contains("50000:5"), "RPI lane keeps its own book: {rpi_text}");
+    }
+
+    #[test]
+    fn parse_book_sources_usdm_std_and_rpi_are_distinct_instruments() {
+        let v = parse_book_sources("binance-usd-m:BTCUSDT,binance-usd-m:RPI:BTCUSDT").unwrap();
+        assert_eq!(v.len(), 2);
+        assert_eq!(v[0].stream_id(), "binance-usd-m:BTCUSDT");
+        assert_eq!(v[1].stream_id(), "binance-usd-m:RPI:BTCUSDT");
+        assert_eq!(v[0].canonical_instrument(), "BTCUSDT");
+        assert_eq!(v[1].canonical_instrument(), "RPI:BTCUSDT");
+        assert_ne!(v[0].canonical_instrument(), v[1].canonical_instrument());
+    }
+
+    #[test]
     fn refresh_merged_for_aggregates_cross_source_books() {
         use crate::monitor::order_book::Operations;
 
