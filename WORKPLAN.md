@@ -89,7 +89,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 
 ### WP-006 — USDM provider layout migration
 
-- status: in_progress
+- status: done
 - repos: trolly
 - depends_on: []
 - scope: src/providers/binance_usd_m.rs, src/providers/depth/binance/, src/providers/mod.rs, tests/binance_usd_m.rs
@@ -98,11 +98,11 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
   - all `binance_usd_m` unit/integration tests pass
   - `src/providers/.todo` updated to mark migration done
   - `cargo test` passes
-- notes: follow WP-003 layout; keep RPI behavior intact.
+- notes: `BinanceUsdM` at `providers::depth::binance::usd_m`; public re-exports unchanged; RPI intact.
 
 ### WP-007 — Single-source merge without clone
 
-- status: in_progress
+- status: done
 - repos: trolly, patches/lob
 - depends_on: [WP-001]
 - scope: src/monitor/global_book.rs, patches/lob/src/limit_order_book/mod.rs
@@ -110,7 +110,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
   - `refresh_merged_for` single-source path avoids full `LimitOrderBook` clone when possible
   - merge semantics unchanged (`tests/global_book.rs`, `patches/lob` merge tests)
   - `cargo test` passes
-- notes: WP-001 left a single clone for `MergedOp::Replace`; explore in-place or snapshot borrow.
+- notes: unified refresh path uses `merge_into` on read guards for all source counts; `replace_from` avoids clone in `MergedOp::sync_with`.
 
 ### WP-008 — Venue onboarding checklist
 
@@ -124,6 +124,9 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
   - at least one unit test references the checklist layout (e.g. `REGISTERED_LABELS`)
   - `cargo test` passes
 - notes: complements provider scaffold; orchestrator updates WORKPLAN status only.
+  - **README:** new [Adding a new exchange provider](README.md#adding-a-new-exchange-provider) section (module, `REGISTERED_LABELS`, `Provider::from_label`, `run_global_book_stream` multiplexor arm, tests).
+  - **`.todo`:** USDM migration and RPI marked done; only `Provider::Other` live-stream wiring remains open.
+  - **Tests:** `registered_labels_match_provider_onboarding_checklist` in `tests/global_book.rs` asserts each `REGISTERED_LABELS` entry round-trips through `Provider::from_label` and `parse_book_sources`.
 
 ## Completed milestones
 

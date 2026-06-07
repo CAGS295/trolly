@@ -6,9 +6,12 @@
 - `depth::binance::usd_m` — Binance USD-M futures (done)
 - `depth::other` — third-venue scaffold (parse + stub Endpoints; no WebSocket)
 
+## Completed
+
+- [x] move `binance_usd_m` to `depth::binance::usd_m` (WP-006)
+- [x] add rpi support (WP-004; RPI optional on USDM via `RPI:` symbol prefix)
+- [x] document new venue checklist in README (WP-008)
+
 ## Remaining
 
-- [x] move `binance_usd_m` to `depth::binance::usd_m`
-- [ ] add rpi support (WP-004; keep RPI optional on USDM)
 - [ ] wire `Provider::Other` (or per-label registry) into `run_global_book_stream` when a real venue lands
-- [ ] document new venue checklist: module under `depth/`, `REGISTERED_LABELS`, `Provider::from_label`, multiplexor match arm

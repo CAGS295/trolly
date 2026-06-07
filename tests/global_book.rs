@@ -19,7 +19,24 @@ use std::sync::Arc;
 
 use lob::LimitOrderBook;
 use trolly::monitor::{parse_book_sources, BookSource, Provider};
-use trolly::providers::{Binance, BinanceUsdM, Endpoints};
+use trolly::providers::{Binance, BinanceUsdM, Endpoints, REGISTERED_LABELS};
+
+/// Venue onboarding checklist: every `REGISTERED_LABELS` entry must parse via `Provider::from_label`.
+#[test]
+fn registered_labels_match_provider_onboarding_checklist() {
+    for label in REGISTERED_LABELS {
+        let provider = Provider::from_label(label).unwrap_or_else(|| {
+            panic!("REGISTERED_LABELS entry {label:?} missing from Provider::from_label")
+        });
+        assert_eq!(provider.label(), *label);
+        assert!(Provider::is_registered_label(label));
+
+        let source = parse_book_sources(&format!("{label}:BTCUSDT")).expect("parse source");
+        assert_eq!(source.len(), 1);
+        assert_eq!(source[0].provider, provider);
+        assert_eq!(source[0].stream_id(), format!("{label}:BTCUSDT"));
+    }
+}
 
 #[test]
 fn parse_cross_source_spot_and_usdm() {
