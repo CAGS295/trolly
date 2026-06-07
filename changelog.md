@@ -4,9 +4,10 @@ Project journal for shipped work. Active backlog lives in [`WORKPLAN.md`](WORKPL
 
 ## WIP
 
-- CLI/servers cleanup — WP-005
+_(none — all workplan items done)_
 
 ## change log
++ WP-005 cleanup: wire `Hook` into serve paths (no dead_code); replace CLI `long_about` TODO with project description.
 + Binance USDM RPI overlays: `binance-usd-m:RPI:SYMBOL` routing, isolated merge lanes, TUI `Δ` tab (`@depth − @rpiDepth`); documented in WORKPLAN WP-004.
 + Provider expansion scaffold: `depth::binance::spot` layout and `other` third-venue registration for `--sources`.
 + Hot-path merge: `refresh_merged_for` uses `merge_into` instead of cloning every source book before `merge_aggregate`.

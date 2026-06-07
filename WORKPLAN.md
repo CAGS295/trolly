@@ -9,7 +9,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: 2026-06-07T20:00:00Z
+- last_run: 2026-06-07T20:15:00Z
 - max_parallel: 3
 
 ## Orchestrator notes
@@ -60,7 +60,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 
 ### WP-004 — Intra-provider overlays (Binance RPI)
 
-- status: in_progress
+- status: done
 - repos: trolly
 - depends_on: [WP-003]
 - scope: src/providers/binance_usd_m.rs, src/bin/aggregated_depth_tui.rs, src/monitor/global_book.rs
@@ -77,7 +77,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 
 ### WP-005 — Cleanup
 
-- status: in_progress
+- status: done
 - repos: trolly
 - depends_on: []
 - scope: src/servers/mod.rs, src/cli/mod.rs
@@ -85,7 +85,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
   - no `Hook::new` / `Hook::register` dead_code warning in `src/servers/mod.rs`
   - `long_about` in `src/cli/mod.rs` describes project goals (not a TODO placeholder)
   - `cargo test` passes
-- notes: safe to run in parallel with WP-001 / WP-002 / WP-003 (disjoint scope).
+- notes: `Hook::new`/`register` wired into serve paths; CLI `long_about` describes LOB monitoring and serving goals.
 
 ## Completed milestones
 
