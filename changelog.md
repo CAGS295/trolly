@@ -6,6 +6,7 @@ Project journal for shipped work. Active backlog lives in [`WORKPLAN.md`](WORKPL
 
 - optimize allocations (incremental merge; reduce clone on hot path further)
 - Add more exchange providers beyond Binance spot + USDM.
+- Workspace crates: stream ingress refactor, Binance spot/USDM execution, strategy runtime, libtorch gym scaffold (see [`WORKPLAN.md`](WORKPLAN.md) WP-006 … WP-011).
 
 ## change log
 + Wire global book into depth monitor (`--output global --sources`).
