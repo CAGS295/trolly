@@ -6,6 +6,7 @@
 //! venue-specific stream id (`binance-usd-m:RPI:BTCUSDT`).
 
 use std::collections::HashMap;
+use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 
 use crate::{providers::Endpoints, EventHandler};
@@ -249,21 +250,14 @@ impl GlobalBookHub {
                 .map(|guard| guard.clone())
                 .unwrap_or_default()
         } else {
-            let mut snapshots = Vec::with_capacity(group.len());
+            let mut merged = LimitOrderBook::new();
             for factory in &group {
-                if let Some(book) = factory.handle().enter() {
-                    snapshots.push(book.clone());
+                if let Some(guard) = factory.handle().enter() {
+                    merged.merge_into(guard.deref());
                 }
             }
-            LimitOrderBook::merge_aggregate(&snapshots)
+            merged
         };
-
-        let mut merged = merged;
-        merged.update_id = group
-            .iter()
-            .filter_map(|fac| fac.handle().enter().map(|g| g.update_id))
-            .max()
-            .unwrap_or(0);
 
         let mut inner = self.inner.lock().expect("hub lock");
         let Some(lane) = inner.merged_by_instrument.get_mut(&key) else {
@@ -482,6 +476,42 @@ mod tests {
         for s in &v {
             assert_eq!(s.canonical_instrument(), "BTCUSDT");
         }
+    }
+
+    #[test]
+    fn refresh_merged_for_aggregates_cross_source_books() {
+        use crate::monitor::order_book::Operations;
+
+        let hub = GlobalBookHub::new();
+        let spot: LimitOrderBook = serde_json::from_str(
+            r#"{"lastUpdateId":1,"bids":[["50000.0","1.0"]],"asks":[["50001.0","2.0"]]}"#,
+        )
+        .unwrap();
+        let usdm: LimitOrderBook = serde_json::from_str(
+            r#"{"lastUpdateId":2,"bids":[["50000.0","0.5"]],"asks":[["50002.0","1.0"]]}"#,
+        )
+        .unwrap();
+
+        let (mut w_spot, r_spot) = left_right::new::<LimitOrderBook, Operations>();
+        w_spot.append(Operations::Initialize(spot));
+        w_spot.publish();
+        hub.register_factory("binance:BTCUSDT".into(), r_spot.factory(), "BTCUSDT");
+
+        let (mut w_usdm, r_usdm) = left_right::new::<LimitOrderBook, Operations>();
+        w_usdm.append(Operations::Initialize(usdm));
+        w_usdm.publish();
+        hub.register_factory("binance-usd-m:BTCUSDT".into(), r_usdm.factory(), "BTCUSDT");
+
+        hub.refresh_merged_for("BTCUSDT");
+
+        let factory = hub.merged_factory_for("BTCUSDT").expect("merged factory");
+        let handle = factory.handle();
+        let merged = handle.enter().expect("merged snapshot");
+        assert_eq!(merged.update_id, 2);
+        let text = format!("{}", merged.deref());
+        assert!(text.contains("50000:1.5"), "{text}");
+        assert!(text.contains("50001"));
+        assert!(text.contains("50002"));
     }
 
     #[cfg(any(feature = "codec", feature = "grpc"))]
