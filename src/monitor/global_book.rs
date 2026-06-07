@@ -111,7 +111,7 @@ impl Absorb<MergedOp> for LimitOrderBook {
     }
 
     fn sync_with(&mut self, first: &Self) {
-        *self = first.clone();
+        self.replace_from(first);
     }
 }
 
@@ -243,21 +243,12 @@ impl GlobalBookHub {
             return;
         }
 
-        let merged = if group.len() == 1 {
-            group[0]
-                .handle()
-                .enter()
-                .map(|guard| guard.clone())
-                .unwrap_or_default()
-        } else {
-            let mut merged = LimitOrderBook::new();
-            for factory in &group {
-                if let Some(guard) = factory.handle().enter() {
-                    merged.merge_into(guard.deref());
-                }
+        let mut merged = LimitOrderBook::new();
+        for factory in &group {
+            if let Some(guard) = factory.handle().enter() {
+                merged.merge_into(guard.deref());
             }
-            merged
-        };
+        }
 
         let mut inner = self.inner.lock().expect("hub lock");
         let Some(lane) = inner.merged_by_instrument.get_mut(&key) else {
@@ -536,6 +527,32 @@ mod tests {
         assert_eq!(v[0].canonical_instrument(), "BTCUSDT");
         assert_eq!(v[1].canonical_instrument(), "RPI:BTCUSDT");
         assert_ne!(v[0].canonical_instrument(), v[1].canonical_instrument());
+    }
+
+    #[test]
+    fn refresh_merged_for_single_source_matches_source_book() {
+        use crate::monitor::order_book::Operations;
+
+        let hub = GlobalBookHub::new();
+        let spot: LimitOrderBook = serde_json::from_str(
+            r#"{"lastUpdateId":7,"bids":[["50000.0","1.0"]],"asks":[["50001.0","2.0"]]}"#,
+        )
+        .unwrap();
+
+        let (mut w_spot, r_spot) = left_right::new::<LimitOrderBook, Operations>();
+        w_spot.append(Operations::Initialize(spot));
+        w_spot.publish();
+        hub.register_factory("binance:BTCUSDT".into(), r_spot.factory(), "BTCUSDT");
+
+        hub.refresh_merged_for("BTCUSDT");
+
+        let factory = hub.merged_factory_for("BTCUSDT").expect("merged factory");
+        let handle = factory.handle();
+        let merged = handle.enter().expect("merged snapshot");
+        assert_eq!(merged.update_id, 7);
+        let text = format!("{}", merged.deref());
+        assert!(text.contains("50000:1"), "{text}");
+        assert!(text.contains("50001:2"), "{text}");
     }
 
     #[test]
