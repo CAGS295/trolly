@@ -87,6 +87,44 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
   - `cargo test` passes
 - notes: `Hook::new`/`register` wired into serve paths; CLI `long_about` describes LOB monitoring and serving goals.
 
+### WP-006 — USDM provider layout migration
+
+- status: in_progress
+- repos: trolly
+- depends_on: []
+- scope: src/providers/binance_usd_m.rs, src/providers/depth/binance/, src/providers/mod.rs, tests/binance_usd_m.rs
+- acceptance:
+  - `BinanceUsdM` lives at `providers::depth::binance::usd_m` (re-export from `providers` unchanged)
+  - all `binance_usd_m` unit/integration tests pass
+  - `src/providers/.todo` updated to mark migration done
+  - `cargo test` passes
+- notes: follow WP-003 layout; keep RPI behavior intact.
+
+### WP-007 — Single-source merge without clone
+
+- status: in_progress
+- repos: trolly, patches/lob
+- depends_on: [WP-001]
+- scope: src/monitor/global_book.rs, patches/lob/src/limit_order_book/mod.rs
+- acceptance:
+  - `refresh_merged_for` single-source path avoids full `LimitOrderBook` clone when possible
+  - merge semantics unchanged (`tests/global_book.rs`, `patches/lob` merge tests)
+  - `cargo test` passes
+- notes: WP-001 left a single clone for `MergedOp::Replace`; explore in-place or snapshot borrow.
+
+### WP-008 — Venue onboarding checklist
+
+- status: todo
+- repos: trolly
+- depends_on: [WP-006]
+- scope: README.md, src/providers/.todo, WORKPLAN.md, tests/global_book.rs
+- acceptance:
+  - README documents steps to add a new exchange provider (module, labels, multiplexor, tests)
+  - `src/providers/.todo` reflects current state (no stale unchecked items for done work)
+  - at least one unit test references the checklist layout (e.g. `REGISTERED_LABELS`)
+  - `cargo test` passes
+- notes: complements provider scaffold; orchestrator updates WORKPLAN status only.
+
 ## Completed milestones
 
 - [x] **Cross-source merge:** [`BookSource`](src/monitor/global_book.rs) → [`GlobalBookHub`](src/monitor/global_book.rs) via [`LimitOrderBook::merge_aggregate`](patches/lob/src/limit_order_book/mod.rs).

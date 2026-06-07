@@ -4,7 +4,9 @@ Project journal for shipped work. Active backlog lives in [`WORKPLAN.md`](WORKPL
 
 ## WIP
 
-_(none — all workplan items done)_
+- USDM layout migration (`depth::binance::usd_m`) — WP-006
+- Single-source merge clone elimination — WP-007
+- Venue onboarding checklist — WP-008
 
 ## change log
 + WP-005 cleanup: wire `Hook` into serve paths (no dead_code); replace CLI `long_about` TODO with project description.
