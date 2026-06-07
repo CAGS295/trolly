@@ -3,7 +3,11 @@ use clap::{Parser, Subcommand};
 #[derive(Parser)]
 #[clap(
     about = "Toy streamer client for crypto applications.",
-    long_about = "TODO discribe the main goals"
+    long_about = "Toy streamer client for crypto applications.\n\n\
+        Goals: build a global order book; stream-native execution and account \
+        bookkeeping on Binance spot and USDM (no REST); a strategy layer that \
+        consumes multi-symbol stream events and dispatches outbound messages; \
+        groundwork for a libtorch.rs training gym fed by trolly streams."
 )]
 pub struct Cli {
     #[clap(subcommand)]
