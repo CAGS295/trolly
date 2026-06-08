@@ -135,26 +135,23 @@ pub fn start(
     port: u16,
     n: usize,
 ) -> Result<(), ()> {
-    let registry = new_registry();
+    let hook = Hook::new(new_registry());
     for _ in 0..n {
         if let Some((pair, factory)) = receiver.blocking_recv() {
-            registry
-                .lock()
-                .expect("book registry lock")
-                .insert(pair.to_uppercase(), factory);
+            hook.register(pair, factory);
         } else {
             warn!("Channel closed while waiting on RPC handlers.");
             break;
         }
     }
-    inner_start(Hook(registry), port)?;
+    inner_start(hook, port)?;
     Ok(())
 }
 
 /// Start the API server immediately; callers register books on `registry` as they come online.
 pub fn start_background(registry: BookRegistry, port: u16) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
-        inner_start(Hook(registry), port).expect("book server");
+        inner_start(Hook::new(registry), port).expect("book server");
     })
 }
 
