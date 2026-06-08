@@ -60,7 +60,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 
 ### WP-004 — Intra-provider overlays (Binance RPI)
 
-- status: in_progress
+- status: done
 - repos: trolly
 - depends_on: [WP-003]
 - scope: src/providers/binance/usd_m.rs, src/bin/aggregated_depth_tui.rs, src/monitor/global_book.rs
