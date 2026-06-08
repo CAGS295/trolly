@@ -4,9 +4,10 @@ Project journal for shipped work. Active backlog lives in [`WORKPLAN.md`](WORKPL
 
 ## WIP
 
-- RPI overlay routing and TUI delta tab (WP-004).
+_(none — all workplan items complete)_
 
 ## change log
++ RPI overlay verified end-to-end: `binance-usd-m:RPI:SYMBOL` routing, TUI Δ tab tests, canonical merge isolation documented in WORKPLAN.md.
 + Provider expansion scaffold: binance split into `providers/binance/{spot,usd_m}`; arbitrary `--sources provider:SYMBOL` labels parse via `Provider::Other`.
 + Hot-path allocation: `merge_aggregate_refs` avoids full-book clones on multi-source `refresh_merged_for`; criterion bench added.
 + CLI cleanup: wire `Hook::new`/`register` in book server; replace `long_about` TODO with project description.
