@@ -9,7 +9,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: never
+- last_run: 2026-06-08T08:01:11Z
 - max_parallel: 3
 
 ## Orchestrator notes
@@ -24,7 +24,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 
 ### WP-001 — Hot-path allocation optimization
 
-- status: todo
+- status: in_progress
 - repos: trolly, patches/lob
 - depends_on: []
 - scope: src/monitor/global_book.rs, patches/lob/src/limit_order_book/mod.rs, benches/
@@ -36,7 +36,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 
 ### WP-002 — Integration test hygiene
 
-- status: todo
+- status: in_progress
 - repos: trolly
 - depends_on: []
 - scope: .env.example, tests/global_book.rs, WORKPLAN.md, changelog.md, README.md
@@ -73,7 +73,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 
 ### WP-005 — Cleanup
 
-- status: todo
+- status: in_progress
 - repos: trolly
 - depends_on: []
 - scope: src/servers/mod.rs, src/cli/mod.rs
