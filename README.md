@@ -129,6 +129,44 @@ src/
 └── lib.rs                  # Library root, re-exports
 ```
 
+## Testing
+
+### Unit & fixture tests
+
+Fixture tests (no network required) run as part of the default test suite:
+
+```bash
+cargo test
+```
+
+This includes the `tests/global_book.rs` fixture tests that verify cross-source parsing, merge semantics, and stream-ID uniqueness without hitting any external service.
+
+### Live integration tests
+
+The live global-book integration test fetches real order book snapshots from Binance REST (spot + USDM futures) and merges them. It is **opt-in** to avoid requiring network access during normal development.
+
+To run it:
+
+```bash
+# 1. Create a local .env from the example
+cp .env.example .env
+
+# 2. Enable the live test
+#    Edit .env and set:
+#    RUN_GLOBAL_BOOK_INTEGRATION=1
+
+# 3. Run the ignored live test
+cargo test --test global_book global_book_live_rest_merge -- --ignored
+```
+
+The test reads `RUN_GLOBAL_BOOK_INTEGRATION` from `.env` (via `dotenvy`) or the environment. When the variable is unset or `0`, the test exits early with a skip message even if invoked with `--ignored`.
+
+You can also override the symbol (defaults to `BTCUSDT`):
+
+```bash
+TROLLY_INTEGRATION_SYMBOL=ETHUSDT cargo test --test global_book global_book_live_rest_merge -- --ignored
+```
+
 ## Benchmarks
 
 Criterion benchmarks for both serving paths:

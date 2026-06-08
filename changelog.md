@@ -8,6 +8,7 @@ Project journal for shipped work. Active backlog lives in [`WORKPLAN.md`](WORKPL
 - Add more exchange providers beyond Binance spot + USDM.
 
 ## change log
++ Integration test hygiene: document live global-book test flow (`.env.example` → `.env`, `RUN_GLOBAL_BOOK_INTEGRATION=1`); fixture tests always run, live test opt-in via env.
 + Wire global book into depth monitor (`--output global --sources`).
 + Prometheus `/metrics` on book server; dynamic book registry for late-registered merged instruments.
 + Global book hub: multi-provider WebSocket feeds, `BookSource`, `merge_aggregate` via patched `lob`.

@@ -83,6 +83,25 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
   - `cargo test` passes
 - notes: safe to run in parallel with WP-001 / WP-002 / WP-003 (disjoint scope).
 
+## Integration test reference
+
+The global-book integration test (`tests/global_book.rs`) has two layers:
+
+| Layer | Runs on `cargo test` | Network required |
+|-------|---------------------|-----------------|
+| Fixture tests (parse, merge, stream-ID) | Always | No |
+| `global_book_live_rest_merge` (`#[ignore]`) | Only with `--ignored` + env | Yes (Binance REST) |
+
+**Enabling the live test:**
+
+```bash
+cp .env.example .env
+# set RUN_GLOBAL_BOOK_INTEGRATION=1 in .env
+cargo test --test global_book global_book_live_rest_merge -- --ignored
+```
+
+The env guard (`RUN_GLOBAL_BOOK_INTEGRATION`) ensures the test body exits early even if accidentally invoked without the flag, so CI remains network-free by default.
+
 ## Completed milestones
 
 - [x] **Cross-source merge:** [`BookSource`](src/monitor/global_book.rs) → [`GlobalBookHub`](src/monitor/global_book.rs) via [`LimitOrderBook::merge_aggregate`](patches/lob/src/limit_order_book/mod.rs).
