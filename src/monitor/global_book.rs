@@ -236,28 +236,21 @@ impl GlobalBookHub {
             return;
         }
 
-        let merged = if group.len() == 1 {
-            group[0]
-                .handle()
+        // Acquire read handles up-front so guards can borrow from them.
+        let handles: Vec<_> = group.iter().map(|f| f.handle()).collect();
+
+        let merged = if handles.len() == 1 {
+            // Single source: one clone, no merge needed.
+            handles[0]
                 .enter()
-                .map(|guard| guard.clone())
+                .map(|guard| (*guard).clone())
                 .unwrap_or_default()
         } else {
-            let mut snapshots = Vec::with_capacity(group.len());
-            for factory in &group {
-                if let Some(book) = factory.handle().enter() {
-                    snapshots.push(book.clone());
-                }
-            }
-            LimitOrderBook::merge_aggregate(&snapshots)
+            // Multiple sources: hold guards (zero clones), merge by reference.
+            let guards: Vec<_> = handles.iter().filter_map(|h| h.enter()).collect();
+            let refs: Vec<&LimitOrderBook> = guards.iter().map(|g| &**g).collect();
+            LimitOrderBook::merge_aggregate_refs(&refs)
         };
-
-        let mut merged = merged;
-        merged.update_id = group
-            .iter()
-            .filter_map(|fac| fac.handle().enter().map(|g| g.update_id))
-            .max()
-            .unwrap_or(0);
 
         let mut inner = self.inner.lock().expect("hub lock");
         let Some(lane) = inner.merged_by_instrument.get_mut(&key) else {
