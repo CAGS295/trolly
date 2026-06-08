@@ -1,4 +1,4 @@
-use super::{ApiURL, Endpoints};
+use super::super::{ApiURL, Endpoints};
 use crate::monitor::Depth;
 
 #[derive(Clone)]

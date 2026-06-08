@@ -23,20 +23,38 @@ use tracing::{instrument, warn};
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct BookSource {
     pub provider: Provider,
+    /// Original provider label as parsed from CLI (preserved for third-party venues).
+    provider_label: String,
     pub symbol: String,
 }
 
 impl BookSource {
     pub fn new(provider: Provider, symbol: impl Into<String>) -> Self {
+        let label = provider.label().to_owned();
         Self {
             provider,
+            provider_label: label,
+            symbol: symbol.into().trim().to_uppercase(),
+        }
+    }
+
+    /// Build a [`BookSource`] for a third-party venue whose label is not a built-in variant.
+    pub fn other(label: impl Into<String>, symbol: impl Into<String>) -> Self {
+        Self {
+            provider: Provider::Other,
+            provider_label: label.into().to_ascii_lowercase(),
             symbol: symbol.into().trim().to_uppercase(),
         }
     }
 
     /// Unique routing / factory key (`binance:BTCUSDT`, `binance-usd-m:RPI:BTCUSDC`, …).
     pub fn stream_id(&self) -> String {
-        format!("{}:{}", self.provider.label(), self.symbol)
+        format!("{}:{}", self.provider_label, self.symbol)
+    }
+
+    /// The raw provider label string (e.g. `"binance"`, `"kraken"`).
+    pub fn provider_label(&self) -> &str {
+        &self.provider_label
     }
 
     /// Instrument identity for cross-source merge (uppercase symbol only).
@@ -44,18 +62,27 @@ impl BookSource {
         self.symbol.clone()
     }
 
-    /// Parse `provider:SYMBOL` (e.g. `binance:BTCUSDT`, `binance-usd-m:RPI:BTCUSDC`).
+    /// Parse `provider:SYMBOL` (e.g. `binance:BTCUSDT`, `binance-usd-m:RPI:BTCUSDC`, `kraken:BTCUSD`).
+    ///
+    /// Unknown provider labels are accepted and mapped to [`Provider::Other`], enabling
+    /// third-party venues to register via `--sources` without code changes.
     pub fn parse(raw: &str) -> Result<Self, String> {
         let raw = raw.trim();
         let (provider_label, symbol) = raw
             .split_once(':')
             .ok_or_else(|| format!("expected provider:SYMBOL, got {raw:?}"))?;
-        let provider = Provider::from_label(provider_label)
-            .ok_or_else(|| format!("unknown provider {provider_label:?}"))?;
+        let provider_label = provider_label.trim();
+        if provider_label.is_empty() {
+            return Err(format!("missing provider in {raw:?}"));
+        }
         if symbol.trim().is_empty() {
             return Err(format!("missing symbol in {raw:?}"));
         }
-        Ok(Self::new(provider, symbol))
+        let provider = Provider::from_label(provider_label);
+        match provider {
+            Some(p) => Ok(Self::new(p, symbol)),
+            None => Ok(Self::other(provider_label, symbol)),
+        }
     }
 }
 
@@ -68,12 +95,21 @@ impl Provider {
         }
     }
 
+    /// Resolve a well-known label to its enum variant.
+    ///
+    /// Returns [`None`] for unrecognized labels — callers should treat those as
+    /// [`Provider::Other`] with the raw label preserved externally (see [`BookSource::parse`]).
     pub fn from_label(label: &str) -> Option<Self> {
         match label.trim().to_ascii_lowercase().as_str() {
             "binance" => Some(Provider::Binance),
             "binance-usd-m" | "binance_usd_m" | "binanceusdm" => Some(Provider::BinanceUsdM),
             _ => None,
         }
+    }
+
+    /// Returns `true` for well-known built-in providers (not [`Provider::Other`]).
+    pub fn is_builtin(self) -> bool {
+        !matches!(self, Provider::Other)
     }
 }
 
@@ -442,6 +478,62 @@ mod tests {
         assert_eq!(v.len(), 2);
         assert_eq!(v[0].canonical_instrument(), "BTCUSDT");
         assert_eq!(v[1].canonical_instrument(), "BTCUSDT");
+    }
+
+    #[test]
+    fn parse_third_party_provider_accepted() {
+        let s = BookSource::parse("kraken:BTCUSD").unwrap();
+        assert_eq!(s.provider, Provider::Other);
+        assert_eq!(s.provider_label(), "kraken");
+        assert_eq!(s.symbol, "BTCUSD");
+        assert_eq!(s.stream_id(), "kraken:BTCUSD");
+        assert_eq!(s.canonical_instrument(), "BTCUSD");
+    }
+
+    #[test]
+    fn parse_third_party_preserves_label_case_normalized() {
+        let s = BookSource::parse("Coinbase:ETH-USD").unwrap();
+        assert_eq!(s.provider, Provider::Other);
+        assert_eq!(s.provider_label(), "coinbase");
+        assert_eq!(s.stream_id(), "coinbase:ETH-USD");
+    }
+
+    #[test]
+    fn parse_mixed_sources_with_third_party() {
+        let v =
+            parse_book_sources("binance:BTCUSDT,kraken:BTCUSD,binance-usd-m:BTCUSDT").unwrap();
+        assert_eq!(v.len(), 3);
+        assert_eq!(v[0].provider, Provider::Binance);
+        assert_eq!(v[1].provider, Provider::Other);
+        assert_eq!(v[1].provider_label(), "kraken");
+        assert_eq!(v[2].provider, Provider::BinanceUsdM);
+    }
+
+    #[test]
+    fn parse_empty_provider_label_rejected() {
+        let result = BookSource::parse(":BTCUSDT");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_empty_symbol_rejected() {
+        let result = BookSource::parse("binance:");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn book_source_other_constructor() {
+        let s = BookSource::other("deribit", "BTC-PERPETUAL");
+        assert_eq!(s.provider, Provider::Other);
+        assert_eq!(s.provider_label(), "deribit");
+        assert_eq!(s.stream_id(), "deribit:BTC-PERPETUAL");
+    }
+
+    #[test]
+    fn provider_is_builtin() {
+        assert!(Provider::Binance.is_builtin());
+        assert!(Provider::BinanceUsdM.is_builtin());
+        assert!(!Provider::Other.is_builtin());
     }
 
     #[cfg(any(feature = "codec", feature = "grpc"))]

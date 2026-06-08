@@ -1,0 +1,16 @@
+# Provider scaffold — status
+
+## Done (WP-003)
+- [x] move binance to depth::binance::spot (`src/providers/binance/spot.rs`)
+- [x] move binance-usd-m to depth::binance::usd_m (`src/providers/binance/usd_m.rs`)
+- [x] `BookSource::parse` accepts arbitrary provider labels (maps to `Provider::Other`)
+- [x] third venue can register via `--sources provider:SYMBOL` without code changes
+- [x] `BookSource` preserves original provider label for correct stream routing
+
+## Next (WP-004)
+- [ ] add rpi support — RPI stream routing (`binance-usd-m:RPI:SYMBOL`) end-to-end
+- [ ] RPI overlay stays out of canonical global merge unless explicitly subscribed
+
+## Future
+- [ ] provider registry trait: allow external crates to register Endpoints<Depth> at runtime
+- [ ] kraken / coinbase example provider skeleton

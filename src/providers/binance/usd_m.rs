@@ -1,4 +1,4 @@
-use super::{ApiURL, Endpoints};
+use super::super::{ApiURL, Endpoints};
 use crate::monitor::Depth;
 
 pub const RPI_PREFIX: &str = "RPI:";

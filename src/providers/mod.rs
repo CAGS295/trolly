@@ -1,10 +1,8 @@
 use serde::Deserialize;
 
 mod binance;
-mod binance_usd_m;
 
-pub use binance::Binance;
-pub use binance_usd_m::{BinanceUsdM, RPI_PREFIX};
+pub use binance::{Binance, BinanceUsdM, RPI_PREFIX};
 
 /// A [Provider] must implement this trait for [net] to know where to pull the data from.
 pub trait Endpoints<Monitorable> {
