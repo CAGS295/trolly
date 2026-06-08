@@ -4,9 +4,10 @@ Project journal for shipped work. Active backlog lives in [`WORKPLAN.md`](WORKPL
 
 ## WIP
 
-- Add more exchange providers beyond Binance spot + USDM.
+- RPI overlay routing and TUI delta tab (WP-004).
 
 ## change log
++ Provider expansion scaffold: binance split into `providers/binance/{spot,usd_m}`; arbitrary `--sources provider:SYMBOL` labels parse via `Provider::Other`.
 + Hot-path allocation: `merge_aggregate_refs` avoids full-book clones on multi-source `refresh_merged_for`; criterion bench added.
 + CLI cleanup: wire `Hook::new`/`register` in book server; replace `long_about` TODO with project description.
 + Integration test hygiene: document live global-book test flow (`.env.example` → `.env`, `RUN_GLOBAL_BOOK_INTEGRATION=1`); fixture tests always run, live test opt-in via env.
