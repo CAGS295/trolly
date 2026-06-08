@@ -552,4 +552,77 @@ mod tests {
             .expect("lock")
             .contains_key("BTCUSDT"));
     }
+
+    #[test]
+    fn rpi_stream_does_not_pollute_canonical_merge() {
+        let hub = GlobalBookHub::new();
+
+        let (mut w_std, r_std) = left_right::new::<LimitOrderBook, Operations>();
+        w_std.publish();
+        hub.register_factory(
+            "binance-usd-m:BTCUSDT".into(),
+            r_std.factory(),
+            "BTCUSDT",
+        );
+
+        let (mut w_rpi, r_rpi) = left_right::new::<LimitOrderBook, Operations>();
+        w_rpi.publish();
+        hub.register_factory(
+            "binance-usd-m:RPI:BTCUSDT".into(),
+            r_rpi.factory(),
+            "RPI:BTCUSDT",
+        );
+
+        assert!(
+            hub.merged_factory_for("BTCUSDT").is_some(),
+            "canonical BTCUSDT merged lane should exist"
+        );
+        assert!(
+            hub.merged_factory_for("RPI:BTCUSDT").is_some(),
+            "RPI:BTCUSDT should have its own merged lane"
+        );
+
+        let inner = hub.inner.lock().expect("hub lock");
+        let btc_sources = inner
+            .sources_by_instrument
+            .get("BTCUSDT")
+            .cloned()
+            .unwrap_or_default();
+        assert!(
+            !btc_sources.iter().any(|s| s.contains("RPI")),
+            "BTCUSDT merged lane must not include RPI stream: {btc_sources:?}"
+        );
+        let rpi_sources = inner
+            .sources_by_instrument
+            .get("RPI:BTCUSDT")
+            .cloned()
+            .unwrap_or_default();
+        assert!(
+            rpi_sources.iter().all(|s| s.contains("RPI")),
+            "RPI:BTCUSDT merged lane should only contain RPI streams: {rpi_sources:?}"
+        );
+    }
+
+    #[test]
+    fn rpi_and_standard_coexist_with_separate_factories() {
+        let hub = GlobalBookHub::new();
+
+        let (mut w1, r1) = left_right::new::<LimitOrderBook, Operations>();
+        w1.publish();
+        hub.register_factory("binance-usd-m:BTCUSDT".into(), r1.factory(), "BTCUSDT");
+
+        let (mut w2, r2) = left_right::new::<LimitOrderBook, Operations>();
+        w2.publish();
+        hub.register_factory(
+            "binance-usd-m:RPI:BTCUSDT".into(),
+            r2.factory(),
+            "RPI:BTCUSDT",
+        );
+
+        let factories = hub.per_source_factories();
+        let keys: Vec<&str> = factories.iter().map(|(k, _)| k.as_str()).collect();
+        assert!(keys.contains(&"binance-usd-m:BTCUSDT"));
+        assert!(keys.contains(&"binance-usd-m:RPI:BTCUSDT"));
+        assert_eq!(factories.len(), 2);
+    }
 }

@@ -7,9 +7,11 @@
 - [x] third venue can register via `--sources provider:SYMBOL` without code changes
 - [x] `BookSource` preserves original provider label for correct stream routing
 
-## Next (WP-004)
-- [ ] add rpi support — RPI stream routing (`binance-usd-m:RPI:SYMBOL`) end-to-end
-- [ ] RPI overlay stays out of canonical global merge unless explicitly subscribed
+## Done (WP-004)
+- [x] add rpi support — RPI stream routing (`binance-usd-m:RPI:SYMBOL`) end-to-end
+- [x] RPI overlay stays out of canonical global merge unless explicitly subscribed
+- [x] TUI Δ tab shows `@depth − @rpiDepth` per price without polluting canonical merge
+- [x] RPI subscription behavior documented in WORKPLAN.md
 
 ## Future
 - [ ] provider registry trait: allow external crates to register Endpoints<Depth> at runtime

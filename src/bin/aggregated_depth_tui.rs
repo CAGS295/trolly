@@ -825,3 +825,146 @@ fn ui(
 
     f.render_widget(chart, chunks[2]);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn canonical_from_stream_id_standard() {
+        assert_eq!(canonical_from_stream_id("binance:BTCUSDT"), "BTCUSDT");
+        assert_eq!(canonical_from_stream_id("binance-usd-m:BTCUSDT"), "BTCUSDT");
+    }
+
+    #[test]
+    fn canonical_from_stream_id_rpi_preserves_prefix() {
+        assert_eq!(
+            canonical_from_stream_id("binance-usd-m:RPI:BTCUSDT"),
+            "RPI:BTCUSDT"
+        );
+    }
+
+    #[test]
+    fn canonical_from_stream_id_unknown_provider() {
+        assert_eq!(canonical_from_stream_id("kraken:BTCUSD"), "KRAKEN:BTCUSD");
+    }
+
+    #[test]
+    fn usdm_std_stream_id_format() {
+        assert_eq!(usdm_std_stream_id("BTCUSDT"), "binance-usd-m:BTCUSDT");
+    }
+
+    #[test]
+    fn usdm_rpi_stream_id_format() {
+        assert_eq!(usdm_rpi_stream_id("BTCUSDT"), "binance-usd-m:RPI:BTCUSDT");
+    }
+
+    #[test]
+    fn tab_strip_includes_delta_tab_per_canonical() {
+        let streams = vec![
+            "binance-usd-m:BTCUSDT".to_string(),
+            "binance-usd-m:RPI:BTCUSDT".to_string(),
+        ];
+        let (labels, kinds) = tab_strip(&streams);
+        assert!(labels.iter().any(|l| l.starts_with("Δ·")), "missing Δ tab in {labels:?}");
+        let delta_idx = labels.iter().position(|l| l.starts_with("Δ·")).unwrap();
+        assert!(matches!(kinds[delta_idx], TabKind::Diff(_)));
+    }
+
+    #[test]
+    fn tab_strip_rpi_gets_own_canonical_group() {
+        let streams = vec![
+            "binance-usd-m:BTCUSDT".to_string(),
+            "binance-usd-m:RPI:BTCUSDT".to_string(),
+        ];
+        let (labels, _) = tab_strip(&streams);
+        let merged_labels: Vec<_> = labels.iter().filter(|l| l.starts_with("MERGED·")).collect();
+        assert_eq!(merged_labels.len(), 2, "RPI and standard get separate MERGED tabs: {labels:?}");
+        assert!(merged_labels.iter().any(|l| l.contains("BTCUSDT") && !l.contains("RPI")));
+        assert!(merged_labels.iter().any(|l| l.contains("RPI:BTCUSDT")));
+    }
+
+    #[test]
+    fn diff_qty_levels_computes_per_price_delta() {
+        let left = vec![("100.0".into(), "1.0".into()), ("101.0".into(), "2.0".into())];
+        let right = vec![("100.0".into(), "3.0".into()), ("101.0".into(), "2.0".into())];
+        let result = diff_qty_levels(&left, &right, true);
+        assert_eq!(result.len(), 1, "only non-zero delta should remain");
+        assert_eq!(result[0].0, "100.0");
+        let delta: f64 = result[0].1.parse().unwrap();
+        assert!((delta - 2.0).abs() < 1e-9, "delta should be 3.0 - 1.0 = 2.0, got {delta}");
+    }
+
+    #[test]
+    fn diff_qty_levels_includes_zero_when_not_omitted() {
+        let left = vec![("100.0".into(), "5.0".into())];
+        let right = vec![("100.0".into(), "5.0".into())];
+        let with_zero = diff_qty_levels(&left, &right, false);
+        assert_eq!(with_zero.len(), 1);
+        let delta: f64 = with_zero[0].1.parse().unwrap();
+        assert!(delta.abs() < 1e-12);
+    }
+
+    #[test]
+    fn diff_qty_levels_union_of_prices() {
+        let left = vec![("100.0".into(), "1.0".into())];
+        let right = vec![("101.0".into(), "2.0".into())];
+        let result = diff_qty_levels(&left, &right, false);
+        assert_eq!(result.len(), 2);
+        let prices: Vec<&str> = result.iter().map(|(p, _)| p.as_str()).collect();
+        assert!(prices.contains(&"100.0"));
+        assert!(prices.contains(&"101.0"));
+    }
+
+    #[test]
+    fn hub_has_rpi_depth_pair_requires_both_streams() {
+        let factories: HashMap<String, ReadHandleFactory<LimitOrderBook>> = HashMap::new();
+        assert!(!hub_has_rpi_depth_pair(&factories, "BTCUSDT"));
+    }
+
+    #[test]
+    fn view_for_tab_diff_returns_diff_variant() {
+        let kinds = vec![
+            TabKind::MergedCanon("BTCUSDT".into()),
+            TabKind::Sym("binance-usd-m:BTCUSDT".into()),
+            TabKind::Diff("BTCUSDT".into()),
+        ];
+        let view = view_for_tab(2, &kinds);
+        assert!(matches!(view, View::Diff(ref s) if s == "BTCUSDT"));
+    }
+
+    #[test]
+    fn rpi_canonical_instrument_differs_from_standard() {
+        let std = BookSource::parse("binance-usd-m:BTCUSDT").unwrap();
+        let rpi = BookSource::parse("binance-usd-m:RPI:BTCUSDT").unwrap();
+        assert_ne!(
+            std.canonical_instrument(),
+            rpi.canonical_instrument(),
+            "RPI must not share canonical instrument with standard"
+        );
+        assert_eq!(std.canonical_instrument(), "BTCUSDT");
+        assert_eq!(rpi.canonical_instrument(), "RPI:BTCUSDT");
+    }
+
+    #[test]
+    fn rpi_does_not_appear_in_standard_canonical_tab_strip() {
+        let streams = vec![
+            "binance-usd-m:BTCUSDT".to_string(),
+            "binance-usd-m:RPI:BTCUSDT".to_string(),
+        ];
+        let (labels, kinds) = tab_strip(&streams);
+
+        let btc_merged_idx = labels
+            .iter()
+            .position(|l| l == "MERGED·BTCUSDT")
+            .expect("should have MERGED·BTCUSDT");
+        let rpi_merged_idx = labels
+            .iter()
+            .position(|l| l == "MERGED·RPI:BTCUSDT")
+            .expect("should have MERGED·RPI:BTCUSDT");
+
+        assert_ne!(btc_merged_idx, rpi_merged_idx);
+        assert!(matches!(&kinds[btc_merged_idx], TabKind::MergedCanon(s) if s == "BTCUSDT"));
+        assert!(matches!(&kinds[rpi_merged_idx], TabKind::MergedCanon(s) if s == "RPI:BTCUSDT"));
+    }
+}
