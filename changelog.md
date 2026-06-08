@@ -4,10 +4,11 @@ Project journal for shipped work. Active backlog lives in [`WORKPLAN.md`](WORKPL
 
 ## WIP
 
-- optimize allocations (incremental merge; reduce clone on hot path further)
 - Add more exchange providers beyond Binance spot + USDM.
 
 ## change log
++ Hot-path allocation: `merge_aggregate_refs` avoids full-book clones on multi-source `refresh_merged_for`; criterion bench added.
++ CLI cleanup: wire `Hook::new`/`register` in book server; replace `long_about` TODO with project description.
 + Integration test hygiene: document live global-book test flow (`.env.example` → `.env`, `RUN_GLOBAL_BOOK_INTEGRATION=1`); fixture tests always run, live test opt-in via env.
 + Wire global book into depth monitor (`--output global --sources`).
 + Prometheus `/metrics` on book server; dynamic book registry for late-registered merged instruments.
