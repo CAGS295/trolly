@@ -224,21 +224,17 @@ impl GlobalBookHub {
                 .map(|guard| guard.clone())
                 .unwrap_or_default()
         } else {
-            let mut snapshots = Vec::with_capacity(group.len());
+            let mut merged = LimitOrderBook::new();
+            let mut max_update_id = 0u64;
             for factory in &group {
                 if let Some(book) = factory.handle().enter() {
-                    snapshots.push(book.clone());
+                    max_update_id = max_update_id.max(book.update_id);
+                    LimitOrderBook::merge_into_aggregate(&mut merged, &book);
                 }
             }
-            LimitOrderBook::merge_aggregate(&snapshots)
+            merged.update_id = max_update_id;
+            merged
         };
-
-        let mut merged = merged;
-        merged.update_id = group
-            .iter()
-            .filter_map(|fac| fac.handle().enter().map(|g| g.update_id))
-            .max()
-            .unwrap_or(0);
 
         let mut inner = self.inner.lock().expect("hub lock");
         let Some(lane) = inner.merged_by_instrument.get_mut(&key) else {
