@@ -3,7 +3,11 @@ use clap::{Parser, Subcommand};
 #[derive(Parser)]
 #[clap(
     about = "Toy streamer client for crypto applications.",
-    long_about = "TODO discribe the main goals"
+    long_about = "Trolly is a streaming limit order book (LOB) monitor for cryptocurrency \
+                  exchanges. It connects to exchange WebSocket feeds, maintains real-time \
+                  order book state with a lock-free concurrent data structure, and serves \
+                  snapshots over gRPC and HTTP. The primary goal is to provide a command to \
+                  build and expose a global order book for one or more trading pairs."
 )]
 pub struct Cli {
     #[clap(subcommand)]
