@@ -24,7 +24,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 
 ### WP-001 — Hot-path allocation optimization
 
-- status: in_progress
+- status: done
 - repos: trolly, patches/lob
 - depends_on: []
 - scope: src/monitor/global_book.rs, patches/lob/src/limit_order_book/mod.rs, benches/
@@ -36,7 +36,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 
 ### WP-002 — Integration test hygiene
 
-- status: in_progress
+- status: done
 - repos: trolly
 - depends_on: []
 - scope: .env.example, tests/global_book.rs, WORKPLAN.md, changelog.md, README.md
@@ -48,7 +48,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 
 ### WP-003 — Provider expansion scaffold
 
-- status: in_progress
+- status: done
 - repos: trolly
 - depends_on: []
 - scope: src/providers/, src/monitor/mod.rs, src/providers/.todo
@@ -60,7 +60,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 
 ### WP-004 — Intra-provider overlays (Binance RPI)
 
-- status: todo
+- status: in_progress
 - repos: trolly
 - depends_on: [WP-003]
 - scope: src/providers/binance_usd_m.rs, src/bin/aggregated_depth_tui.rs, src/monitor/global_book.rs
@@ -73,7 +73,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 
 ### WP-005 — Cleanup
 
-- status: todo
+- status: in_progress
 - repos: trolly
 - depends_on: []
 - scope: src/servers/mod.rs, src/cli/mod.rs

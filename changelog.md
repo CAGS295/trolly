@@ -4,10 +4,11 @@ Project journal for shipped work. Active backlog lives in [`WORKPLAN.md`](WORKPL
 
 ## WIP
 
-- optimize allocations (incremental merge; reduce clone on hot path further)
-- Add more exchange providers beyond Binance spot + USDM.
+- Add more exchange providers beyond Binance spot + USDM (RPI overlays: WP-004).
 
 ## change log
++ WP-001: incremental merge on global book refresh hot path (merge_aggregate_from / merge_aggregate_refs in patches/lob).
++ WP-003: provider scaffold — depth::binance::spot layout, registry, Custom provider labels.
 + Document global book live REST integration test flow (`.env.example`, README, `tests/global_book.rs`).
 + Wire global book into depth monitor (`--output global --sources`).
 + Prometheus `/metrics` on book server; dynamic book registry for late-registered merged instruments.
