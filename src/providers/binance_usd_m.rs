@@ -12,10 +12,14 @@ impl ApiURL for BinanceUsdM {
 }
 
 fn strip_rpi(symbol: &str) -> (&str, bool) {
-    match symbol.strip_prefix(RPI_PREFIX) {
-        Some(raw) => (raw, true),
-        None => (symbol, false),
+    if let Some(raw) = symbol.strip_prefix(RPI_PREFIX) {
+        return (raw, true);
     }
+    const LOWER: &str = "rpi:";
+    if symbol.len() > LOWER.len() && symbol[..LOWER.len()].eq_ignore_ascii_case(LOWER) {
+        return (&symbol[LOWER.len()..], true);
+    }
+    (symbol, false)
 }
 
 impl Endpoints<Depth> for BinanceUsdM {
@@ -144,5 +148,15 @@ mod test {
         let (raw, is_rpi) = strip_rpi("BTCUSDT");
         assert_eq!(raw, "BTCUSDT");
         assert!(!is_rpi);
+    }
+
+    #[test]
+    fn strip_rpi_lowercase_prefix() {
+        let (raw, is_rpi) = strip_rpi("rpi:BTCUSDT");
+        assert_eq!(raw, "BTCUSDT");
+        assert!(is_rpi);
+        let msgs = BinanceUsdM.ws_subscriptions(["rpi:BTCUSDT"].iter());
+        assert_eq!(msgs.len(), 2);
+        assert!(msgs[1].contains("rpiDepth@500ms"));
     }
 }

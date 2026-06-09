@@ -115,3 +115,16 @@ fn book_source_stream_ids_are_unique_per_venue() {
     assert_eq!(a.canonical_instrument(), b.canonical_instrument());
     assert_ne!(a.stream_id(), b.stream_id());
 }
+
+#[test]
+fn rpi_source_stays_out_of_base_canonical_merge() {
+    let sources =
+        parse_book_sources("binance-usd-m:BTCUSDT,binance-usd-m:RPI:BTCUSDT").expect("parse");
+    assert_eq!(sources.len(), 2);
+    assert_eq!(sources[0].canonical_instrument(), "BTCUSDT");
+    assert_eq!(sources[1].canonical_instrument(), "RPI:BTCUSDT");
+    assert_eq!(sources[0].base_instrument(), "BTCUSDT");
+    assert_eq!(sources[1].base_instrument(), "BTCUSDT");
+    assert!(sources[1].is_rpi_overlay());
+    assert_ne!(sources[0].canonical_instrument(), sources[1].canonical_instrument());
+}

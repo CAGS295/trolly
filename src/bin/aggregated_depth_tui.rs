@@ -86,6 +86,15 @@ fn canonical_from_stream_id(stream_id: &str) -> String {
     stream_id.to_uppercase()
 }
 
+/// Tab grouping key: provider prefix and optional `RPI:` overlay stripped so `@depth` and
+/// `@rpiDepth` legs share one `MERGED·BASE` / `Δ·BASE` strip without merging books in the hub.
+fn tab_group_instrument(stream_id: &str) -> String {
+    let sym = canonical_from_stream_id(stream_id);
+    sym.strip_prefix(RPI_PREFIX)
+        .map(str::to_string)
+        .unwrap_or(sym)
+}
+
 /// Parse [`lob::LimitOrderBook`]'s `Display` output (`price:qty` tuples) into ladder rows.
 fn parse_book_display(s: &str) -> Option<(u64, Vec<(String, String)>, Vec<(String, String)>)> {
     let s = s.trim();
@@ -451,12 +460,12 @@ enum TabKind {
     Diff(String),
 }
 
-/// First-seen order of [`canonical_from_stream_id`] over subscribed stream ids.
-fn canonical_first_seen(stream_order: &[String]) -> Vec<String> {
+/// First-seen order of [`tab_group_instrument`] over subscribed stream ids.
+fn tab_groups_first_seen(stream_order: &[String]) -> Vec<String> {
     let mut out = Vec::new();
     let mut seen = HashSet::new();
     for s in stream_order {
-        let c = canonical_from_stream_id(s);
+        let c = tab_group_instrument(s);
         if seen.insert(c.clone()) {
             out.push(c);
         }
@@ -467,11 +476,11 @@ fn canonical_first_seen(stream_order: &[String]) -> Vec<String> {
 fn tab_strip(stream_order: &[String]) -> (Vec<String>, Vec<TabKind>) {
     let mut labels = Vec::new();
     let mut kinds = Vec::new();
-    for c in canonical_first_seen(stream_order) {
+    for c in tab_groups_first_seen(stream_order) {
         labels.push(format!("MERGED·{c}"));
         kinds.push(TabKind::MergedCanon(c.clone()));
         for s in stream_order {
-            if canonical_from_stream_id(s) == c {
+            if tab_group_instrument(s) == c {
                 labels.push(s.clone());
                 kinds.push(TabKind::Sym(s.clone()));
             }
@@ -499,7 +508,7 @@ enum View {
 }
 
 fn diff_tab_title_to_canonical(view_title: &str) -> String {
-    canonical_from_stream_id(
+    tab_group_instrument(
         view_title
             .strip_prefix("Δ·")
             .or_else(|| view_title.strip_prefix("Δ "))
@@ -824,4 +833,60 @@ fn ui(
         .style(Style::default().bg(Color::Reset));
 
     f.render_widget(chart, chunks[2]);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tab_group_strips_rpi_prefix_for_overlay_streams() {
+        assert_eq!(tab_group_instrument("binance-usd-m:RPI:BTCUSDT"), "BTCUSDT");
+        assert_eq!(tab_group_instrument("binance-usd-m:BTCUSDT"), "BTCUSDT");
+        assert_eq!(tab_group_instrument("binance:BTCUSDT"), "BTCUSDT");
+    }
+
+    #[test]
+    fn tab_strip_groups_rpi_with_base_instrument() {
+        let order = vec![
+            "binance-usd-m:BTCUSDT".into(),
+            "binance-usd-m:RPI:BTCUSDT".into(),
+        ];
+        let (labels, kinds) = tab_strip(&order);
+        assert_eq!(labels.len(), 4, "labels: {labels:?}");
+        assert_eq!(labels[0], "MERGED·BTCUSDT");
+        assert_eq!(labels[1], "binance-usd-m:BTCUSDT");
+        assert_eq!(labels[2], "binance-usd-m:RPI:BTCUSDT");
+        assert_eq!(labels[3], "Δ·BTCUSDT");
+        assert!(matches!(kinds[3], TabKind::Diff(ref s) if s == "BTCUSDT"));
+    }
+
+    #[test]
+    fn tab_strip_keeps_spot_and_usdm_under_same_base() {
+        let order = vec![
+            "binance:BTCUSDT".into(),
+            "binance-usd-m:BTCUSDT".into(),
+            "binance-usd-m:RPI:BTCUSDT".into(),
+        ];
+        let (labels, _) = tab_strip(&order);
+        assert_eq!(labels[0], "MERGED·BTCUSDT");
+        assert!(labels.contains(&"binance-usd-m:RPI:BTCUSDT".to_string()));
+        assert_eq!(labels.last().map(String::as_str), Some("Δ·BTCUSDT"));
+    }
+
+    #[test]
+    fn diff_qty_levels_computes_std_minus_rpi() {
+        let rpi_bids = vec![("50000.0".into(), "1.0".into())];
+        let std_bids = vec![("50000.0".into(), "3.0".into())];
+        let db = diff_qty_levels(&rpi_bids, &std_bids, false);
+        assert_eq!(db.len(), 1);
+        assert_eq!(db[0].0, "50000.0");
+        assert_eq!(db[0].1, "2");
+    }
+
+    #[test]
+    fn usdm_rpi_stream_id_matches_book_source_parse() {
+        let source = BookSource::parse("binance-usd-m:RPI:BTCUSDC").unwrap();
+        assert_eq!(source.stream_id(), usdm_rpi_stream_id("BTCUSDC"));
+    }
 }

@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use crate::{providers::Endpoints, EventHandler};
+use crate::providers::RPI_PREFIX;
 
 use super::{
     order_book::{Operations, OrderBook},
@@ -42,6 +43,19 @@ impl BookSource {
     /// Instrument identity for cross-source merge (uppercase symbol only).
     pub fn canonical_instrument(&self) -> String {
         self.symbol.clone()
+    }
+
+    /// Underlying pair with venue overlay prefixes removed (e.g. `RPI:BTCUSDT` → `BTCUSDT`).
+    pub fn base_instrument(&self) -> String {
+        self.symbol
+            .strip_prefix(RPI_PREFIX)
+            .map(str::to_string)
+            .unwrap_or_else(|| self.symbol.clone())
+    }
+
+    /// Whether this source is an intra-provider overlay (Binance USDM `@rpiDepth`).
+    pub fn is_rpi_overlay(&self) -> bool {
+        self.symbol.starts_with(RPI_PREFIX)
     }
 
     /// Parse `provider:SYMBOL` (e.g. `binance:BTCUSDT`, `binance-usd-m:RPI:BTCUSDC`).
@@ -421,6 +435,63 @@ mod tests {
         let s = BookSource::parse("binance-usd-m:RPI:BTCUSDC").unwrap();
         assert_eq!(s.stream_id(), "binance-usd-m:RPI:BTCUSDC");
         assert_eq!(s.canonical_instrument(), "RPI:BTCUSDC");
+        assert_eq!(s.base_instrument(), "BTCUSDC");
+        assert!(s.is_rpi_overlay());
+    }
+
+    #[test]
+    fn rpi_overlay_excluded_from_base_merged_lane() {
+        let hub = GlobalBookHub::new();
+
+        let std_book: LimitOrderBook = serde_json::from_str(
+            r#"{"lastUpdateId":1,"bids":[["50000.0","1.0"]],"asks":[]}"#,
+        )
+        .unwrap();
+        let rpi_book: LimitOrderBook = serde_json::from_str(
+            r#"{"lastUpdateId":2,"bids":[["49999.0","5.0"]],"asks":[]}"#,
+        )
+        .unwrap();
+
+        let (mut w_std, r_std) = left_right::new::<LimitOrderBook, Operations>();
+        w_std.append(Operations::Initialize(std_book));
+        w_std.publish();
+        hub.register_factory(
+            "binance-usd-m:BTCUSDT".into(),
+            r_std.factory(),
+            "BTCUSDT",
+        );
+
+        let (mut w_rpi, r_rpi) = left_right::new::<LimitOrderBook, Operations>();
+        w_rpi.append(Operations::Initialize(rpi_book));
+        w_rpi.publish();
+        hub.register_factory(
+            "binance-usd-m:RPI:BTCUSDT".into(),
+            r_rpi.factory(),
+            "RPI:BTCUSDT",
+        );
+
+        hub.refresh_merged_for("BTCUSDT");
+        hub.refresh_merged_for("RPI:BTCUSDT");
+
+        let std_handle = hub.merged_factory_for("BTCUSDT").unwrap().handle();
+        let merged_std = std_handle.enter().unwrap();
+        let std_text = format!("{}", *merged_std);
+        assert!(
+            std_text.contains("50000:1"),
+            "merged BTCUSDT should only reflect @depth leg, got {std_text}"
+        );
+        assert!(
+            !std_text.contains("49999:5"),
+            "RPI leg must not pollute BTCUSDT merge: {std_text}"
+        );
+
+        let rpi_handle = hub.merged_factory_for("RPI:BTCUSDT").unwrap().handle();
+        let merged_rpi = rpi_handle.enter().unwrap();
+        let rpi_text = format!("{}", *merged_rpi);
+        assert!(
+            rpi_text.contains("49999:5"),
+            "RPI overlay keeps its own merged lane: {rpi_text}"
+        );
     }
 
     #[test]
