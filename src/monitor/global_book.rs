@@ -50,30 +50,14 @@ impl BookSource {
         let (provider_label, symbol) = raw
             .split_once(':')
             .ok_or_else(|| format!("expected provider:SYMBOL, got {raw:?}"))?;
-        let provider = Provider::from_label(provider_label)
-            .ok_or_else(|| format!("unknown provider {provider_label:?}"))?;
+        if provider_label.trim().is_empty() {
+            return Err(format!("missing provider in {raw:?}"));
+        }
+        let provider = Provider::from_label(provider_label);
         if symbol.trim().is_empty() {
             return Err(format!("missing symbol in {raw:?}"));
         }
         Ok(Self::new(provider, symbol))
-    }
-}
-
-impl Provider {
-    pub fn label(self) -> &'static str {
-        match self {
-            Provider::Binance => "binance",
-            Provider::BinanceUsdM => "binance-usd-m",
-            Provider::Other => "other",
-        }
-    }
-
-    pub fn from_label(label: &str) -> Option<Self> {
-        match label.trim().to_ascii_lowercase().as_str() {
-            "binance" => Some(Provider::Binance),
-            "binance-usd-m" | "binance_usd_m" | "binanceusdm" => Some(Provider::BinanceUsdM),
-            _ => None,
-        }
     }
 }
 
@@ -243,21 +227,17 @@ impl GlobalBookHub {
                 .map(|guard| guard.clone())
                 .unwrap_or_default()
         } else {
-            let mut snapshots = Vec::with_capacity(group.len());
+            let mut merged = LimitOrderBook::new();
+            let mut max_update_id = 0;
             for factory in &group {
                 if let Some(book) = factory.handle().enter() {
-                    snapshots.push(book.clone());
+                    merged.merge_aggregate_from(&book);
+                    max_update_id = max_update_id.max(book.update_id);
                 }
             }
-            LimitOrderBook::merge_aggregate(&snapshots)
+            merged.update_id = max_update_id;
+            merged
         };
-
-        let mut merged = merged;
-        merged.update_id = group
-            .iter()
-            .filter_map(|fac| fac.handle().enter().map(|g| g.update_id))
-            .max()
-            .unwrap_or(0);
 
         let mut inner = self.inner.lock().expect("hub lock");
         let Some(lane) = inner.merged_by_instrument.get_mut(&key) else {
@@ -385,8 +365,10 @@ pub async fn run_global_book_stream(hub: GlobalBookHub, sources: &[BookSource]) 
                             )
                             .await
                         }
-                        Provider::Other => {
-                            warn!("global book: unknown provider");
+                        Provider::Custom(label) => {
+                            warn!(
+                                "global book: provider {label:?} is registered but not wired"
+                            );
                         }
                     }
                 }
@@ -449,6 +431,34 @@ mod tests {
         assert_eq!(v.len(), 2);
         assert_eq!(v[0].canonical_instrument(), "BTCUSDT");
         assert_eq!(v[1].canonical_instrument(), "BTCUSDT");
+    }
+
+    #[test]
+    fn parse_book_source_custom_venue() {
+        let s = BookSource::parse("kraken:BTCUSDT").unwrap();
+        assert_eq!(s.provider, Provider::Custom("kraken".into()));
+        assert_eq!(s.symbol, "BTCUSDT");
+        assert_eq!(s.stream_id(), "kraken:BTCUSDT");
+    }
+
+    #[test]
+    fn parse_book_sources_mixed_known_and_custom() {
+        let v =
+            parse_book_sources("binance:BTCUSDT,kraken:ETHUSDT,binance-usd-m:BTCUSDT").unwrap();
+        assert_eq!(v.len(), 3);
+        assert_eq!(v[0].provider, Provider::Binance);
+        assert_eq!(v[1].provider, Provider::Custom("kraken".into()));
+        assert_eq!(v[2].provider, Provider::BinanceUsdM);
+        assert_eq!(v[0].stream_id(), "binance:BTCUSDT");
+        assert_eq!(v[1].stream_id(), "kraken:ETHUSDT");
+        assert_eq!(v[2].stream_id(), "binance-usd-m:BTCUSDT");
+    }
+
+    #[test]
+    fn depth_layout_binance_spot_label_unchanged() {
+        let s = BookSource::parse("binance:btcusdt").unwrap();
+        assert_eq!(s.provider.label(), "binance");
+        assert_eq!(s.stream_id(), "binance:BTCUSDT");
     }
 
     #[cfg(any(feature = "codec", feature = "grpc"))]

@@ -1,0 +1,16 @@
+# Provider layout (WP-003 scaffold)
+
+## Current layout
+
+- `depth/binance/spot.rs` — Binance spot (`binance:SYMBOL` in `--sources`)
+- `binance_usd_m.rs` — Binance USDM (`binance-usd-m:SYMBOL`; optional `RPI:` prefix)
+
+## Planned (WP-004+)
+
+- move `binance_usd_m.rs` → `depth/binance/usd_m.rs`
+- add RPI overlay routing in global book / TUI
+
+## Third venues
+
+- Register via `--sources` as `venue-label:SYMBOL` → `Provider::Custom`
+- Add `depth/<venue>/` module + wire in `run_global_book_stream` when endpoints exist

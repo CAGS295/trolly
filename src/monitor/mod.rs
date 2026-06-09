@@ -20,12 +20,48 @@ pub enum Monitorables {
     Depth(DepthConfig),
 }
 
-#[derive(Clone, Copy, Debug, ValueEnum, Eq, PartialEq, Hash)]
+/// Book routing identity for `--sources provider:SYMBOL` (includes unknown venues).
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Provider {
     Binance,
     BinanceUsdM,
-    Other,
+    /// Third-party venue registered by label until wired with endpoints.
+    Custom(String),
+}
+
+impl Provider {
+    pub fn label(&self) -> &str {
+        match self {
+            Provider::Binance => "binance",
+            Provider::BinanceUsdM => "binance-usd-m",
+            Provider::Custom(label) => label.as_str(),
+        }
+    }
+
+    pub fn from_label(label: &str) -> Self {
+        match label.trim().to_ascii_lowercase().as_str() {
+            "binance" => Provider::Binance,
+            "binance-usd-m" | "binance_usd_m" | "binanceusdm" => Provider::BinanceUsdM,
+            other => Provider::Custom(other.to_string()),
+        }
+    }
+}
+
+/// CLI-selectable providers for single-venue depth echo / serve.
+#[derive(Clone, Copy, Debug, ValueEnum, Eq, PartialEq, Hash)]
+pub enum SelectableProvider {
+    Binance,
+    BinanceUsdM,
+}
+
+impl From<SelectableProvider> for Provider {
+    fn from(value: SelectableProvider) -> Self {
+        match value {
+            SelectableProvider::Binance => Provider::Binance,
+            SelectableProvider::BinanceUsdM => Provider::BinanceUsdM,
+        }
+    }
 }
 
 pub(crate) trait Monitor {

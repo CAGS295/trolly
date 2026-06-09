@@ -21,7 +21,7 @@ pub enum DepthOutput {
 pub struct DepthConfig {
     #[arg(value_enum)]
     #[arg(short, long)]
-    provider: super::Provider,
+    provider: super::SelectableProvider,
     #[arg(
         short,
         long,
@@ -68,7 +68,7 @@ impl DepthConfig {
 }
 
 /// Run the echo depth pipeline (WebSocket + print); same logic as `monitor depth --output echo`.
-pub async fn stream_depth_echo(provider: super::Provider, symbols: &str) {
+pub async fn stream_depth_echo(provider: super::SelectableProvider, symbols: &str) {
     use crate::connectors::multiplexor::MonitorMultiplexor;
 
     let symbols = symbols.to_uppercase();
@@ -82,7 +82,7 @@ pub async fn stream_depth_echo(provider: super::Provider, symbols: &str) {
     local
         .run_until(async move {
             match provider {
-                super::Provider::Binance => {
+                super::SelectableProvider::Binance => {
                     MonitorMultiplexor::<super::echo_depth::EchoDepth, Depth>::stream::<_, _>(
                         crate::providers::Binance,
                         (),
@@ -90,7 +90,7 @@ pub async fn stream_depth_echo(provider: super::Provider, symbols: &str) {
                     )
                     .await
                 }
-                super::Provider::BinanceUsdM => {
+                super::SelectableProvider::BinanceUsdM => {
                     MonitorMultiplexor::<super::echo_depth::EchoDepth, Depth>::stream::<_, _>(
                         crate::providers::BinanceUsdM,
                         (),
@@ -98,7 +98,6 @@ pub async fn stream_depth_echo(provider: super::Provider, symbols: &str) {
                     )
                     .await
                 }
-                super::Provider::Other => tracing::error!("echo: unknown provider"),
             }
         })
         .await;
@@ -108,7 +107,7 @@ pub async fn stream_depth_echo(provider: super::Provider, symbols: &str) {
 async fn stream_depth_serve(cfg: &DepthConfig) {
     use crate::{
         connectors::multiplexor::MonitorMultiplexor,
-        monitor::{order_book::OrderBook, Provider},
+        monitor::{order_book::OrderBook, SelectableProvider},
     };
 
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
@@ -120,7 +119,7 @@ async fn stream_depth_serve(cfg: &DepthConfig) {
     let syms: Vec<&str> = symbols.split(',').collect();
 
     match cfg.provider {
-        Provider::Binance => {
+        SelectableProvider::Binance => {
             MonitorMultiplexor::<OrderBook, Depth>::stream::<_, _>(
                 crate::providers::Binance,
                 tx,
@@ -128,7 +127,7 @@ async fn stream_depth_serve(cfg: &DepthConfig) {
             )
             .await
         }
-        Provider::BinanceUsdM => {
+        SelectableProvider::BinanceUsdM => {
             MonitorMultiplexor::<OrderBook, Depth>::stream::<_, _>(
                 crate::providers::BinanceUsdM,
                 tx,
@@ -136,7 +135,6 @@ async fn stream_depth_serve(cfg: &DepthConfig) {
             )
             .await
         }
-        super::Provider::Other => tracing::error!("serve: unknown provider"),
     }
 }
 

@@ -129,6 +129,25 @@ src/
 └── lib.rs                  # Library root, re-exports
 ```
 
+## Integration tests
+
+Global book tests live in [`tests/global_book.rs`](tests/global_book.rs). Fixture tests run on every `cargo test` and use in-memory JSON only — no network access.
+
+The live REST merge test (`global_book_live_rest_merge`) is marked `#[ignore]` so default test runs never call Binance. To opt in:
+
+```bash
+cp .env.example .env
+# Edit .env: set RUN_GLOBAL_BOOK_INTEGRATION=1
+cargo test --test global_book global_book_live_rest_merge -- --ignored --nocapture
+```
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `RUN_GLOBAL_BOOK_INTEGRATION` | `0` | Set to `1` (or `true`) to allow live REST calls in the ignored test |
+| `TROLLY_INTEGRATION_SYMBOL` | `BTCUSDT` | Trading pair for spot + USDM snapshot fetch |
+
+If you run the ignored test without enabling the flag, it prints a skip message and passes without network I/O.
+
 ## Benchmarks
 
 Criterion benchmarks for both serving paths:

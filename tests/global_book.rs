@@ -1,7 +1,18 @@
 //! Global order book: cross-source merge and optional live REST integration.
 //!
-//! Live test loads `.env` (see [`.env.example`](../.env.example)) and hits Binance REST when
-//! `RUN_GLOBAL_BOOK_INTEGRATION=1`.
+//! ## Default test run (no network)
+//!
+//! `cargo test` always runs the fixture tests below and skips the live REST test because it is
+//! marked `#[ignore]`.
+//!
+//! ## Live REST merge test (opt-in)
+//!
+//! 1. Copy [`.env.example`](../.env.example) to `.env` in the repo root.
+//! 2. Set `RUN_GLOBAL_BOOK_INTEGRATION=1` in `.env`.
+//! 3. Run:
+//!    `cargo test --test global_book global_book_live_rest_merge -- --ignored --nocapture`
+//!
+//! Without step 2, the ignored test exits early (no network calls). See README.md for details.
 
 use lob::LimitOrderBook;
 use trolly::monitor::{parse_book_sources, BookSource, Depth, Provider};
@@ -37,6 +48,12 @@ fn merge_aggregate_combines_spot_and_futures_fixture_books() {
     assert!(text.contains("50002"));
 }
 
+fn global_book_live_integration_enabled() -> bool {
+    std::env::var("RUN_GLOBAL_BOOK_INTEGRATION")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+}
+
 async fn fetch_rest_book<E: Endpoints<Depth>>(endpoint: E, symbol: &str) -> LimitOrderBook {
     let url = endpoint.rest_api_url(symbol);
     let response = reqwest::get(url)
@@ -51,15 +68,16 @@ async fn fetch_rest_book<E: Endpoints<Depth>>(endpoint: E, symbol: &str) -> Limi
 }
 
 /// Fetches Binance spot + USDM REST snapshots and merges them (no WebSocket).
+///
+/// Ignored by default; enable via `.env` (see module docs and `.env.example`).
 #[tokio::test]
-#[ignore = "live Binance REST; set RUN_GLOBAL_BOOK_INTEGRATION=1 in .env"]
+#[ignore = "live Binance REST; copy .env.example → .env and set RUN_GLOBAL_BOOK_INTEGRATION=1"]
 async fn global_book_live_rest_merge() {
     dotenvy::dotenv().ok();
-    if !std::env::var("RUN_GLOBAL_BOOK_INTEGRATION")
-        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-        .unwrap_or(false)
-    {
-        eprintln!("skip: RUN_GLOBAL_BOOK_INTEGRATION not enabled");
+    if !global_book_live_integration_enabled() {
+        eprintln!(
+            "skip: RUN_GLOBAL_BOOK_INTEGRATION not enabled (copy .env.example → .env and set to 1)"
+        );
         return;
     }
 
@@ -69,10 +87,12 @@ async fn global_book_live_rest_merge() {
 
     let mut books = Vec::with_capacity(sources.len());
     for source in &sources {
-        let book = match source.provider {
+        let book = match &source.provider {
             Provider::Binance => fetch_rest_book(Binance, &source.symbol).await,
             Provider::BinanceUsdM => fetch_rest_book(BinanceUsdM, &source.symbol).await,
-            Provider::Other => panic!("unexpected provider"),
+            Provider::Custom(label) => {
+                panic!("unexpected custom provider {label:?} in integration test")
+            }
             _ => panic!("unexpected provider variant"),
         };
         assert!(book.update_id > 0, "empty book from {}", source.stream_id());
