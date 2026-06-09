@@ -3,7 +3,9 @@ use clap::{Parser, Subcommand};
 #[derive(Parser)]
 #[clap(
     about = "Toy streamer client for crypto applications.",
-    long_about = "TODO discribe the main goals"
+    long_about = "Streaming limit order book monitor for cryptocurrency exchanges. \
+Connects to exchange WebSocket feeds, maintains real-time order book state with a \
+lock-free concurrent data structure, and serves snapshots over gRPC and HTTP."
 )]
 pub struct Cli {
     #[clap(subcommand)]
