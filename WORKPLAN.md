@@ -70,6 +70,9 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
   - `cargo test --features tui` passes when TUI is touched
   - RPI subscription behavior documented in this file
 - notes: see `src/providers/.todo` — `add rpi support`. RPI stays optional.
+  - **Subscription:** add `binance-usd-m:RPI:SYMBOL` to `--sources` (comma-separated with standard legs). Example: `binance-usd-m:BTCUSDT,binance-usd-m:RPI:BTCUSDT`. The provider strips `RPI:` for REST snapshot and subscribes to `@rpiDepth@500ms` (with `SET_PROPERTY combined` when any RPI leg is present). WebSocket routing keys updates as `RPI:SYMBOL` via [`depth_parse`](src/monitor/depth_parse.rs).
+  - **Global merge:** [`BookSource::canonical_instrument`](src/monitor/global_book.rs) keeps `RPI:SYMBOL` as a separate merge bucket, so `@rpiDepth` never folds into the canonical `SYMBOL` book unless you subscribe both under the same symbol name.
+  - **TUI Δ tab:** groups by base instrument (`BTCUSDT`); shows `@depth − @rpiDepth` per price when both `binance-usd-m:SYMBOL` and `binance-usd-m:RPI:SYMBOL` are in the hub. The diff is computed in the TUI only and does not alter merged books.
 
 ### WP-005 — Cleanup
 

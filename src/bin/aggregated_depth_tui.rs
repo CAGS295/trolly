@@ -76,14 +76,9 @@ fn main() -> color_eyre::Result<()> {
     Ok(())
 }
 
-/// Instrument key for cross-source merge (strip known provider prefix from stream id).
-fn canonical_from_stream_id(stream_id: &str) -> String {
-    for prefix in ["binance-usd-m:", "binance:"] {
-        if let Some(sym) = stream_id.strip_prefix(prefix) {
-            return sym.to_uppercase();
-        }
-    }
-    stream_id.to_uppercase()
+/// Base instrument for merge / Δ tabs (provider + optional `RPI:` stripped).
+fn merge_canonical_from_stream_id(stream_id: &str) -> String {
+    BookSource::base_from_stream_id(stream_id)
 }
 
 /// Parse [`lob::LimitOrderBook`]'s `Display` output (`price:qty` tuples) into ladder rows.
@@ -451,12 +446,12 @@ enum TabKind {
     Diff(String),
 }
 
-/// First-seen order of [`canonical_from_stream_id`] over subscribed stream ids.
-fn canonical_first_seen(stream_order: &[String]) -> Vec<String> {
+/// First-seen order of [`merge_canonical_from_stream_id`] over subscribed stream ids.
+fn merge_canonical_first_seen(stream_order: &[String]) -> Vec<String> {
     let mut out = Vec::new();
     let mut seen = HashSet::new();
     for s in stream_order {
-        let c = canonical_from_stream_id(s);
+        let c = merge_canonical_from_stream_id(s);
         if seen.insert(c.clone()) {
             out.push(c);
         }
@@ -467,11 +462,11 @@ fn canonical_first_seen(stream_order: &[String]) -> Vec<String> {
 fn tab_strip(stream_order: &[String]) -> (Vec<String>, Vec<TabKind>) {
     let mut labels = Vec::new();
     let mut kinds = Vec::new();
-    for c in canonical_first_seen(stream_order) {
+    for c in merge_canonical_first_seen(stream_order) {
         labels.push(format!("MERGED·{c}"));
         kinds.push(TabKind::MergedCanon(c.clone()));
         for s in stream_order {
-            if canonical_from_stream_id(s) == c {
+            if merge_canonical_from_stream_id(s) == c {
                 labels.push(s.clone());
                 kinds.push(TabKind::Sym(s.clone()));
             }
@@ -499,12 +494,13 @@ enum View {
 }
 
 fn diff_tab_title_to_canonical(view_title: &str) -> String {
-    canonical_from_stream_id(
-        view_title
-            .strip_prefix("Δ·")
-            .or_else(|| view_title.strip_prefix("Δ "))
-            .unwrap_or(view_title),
-    )
+    let raw = view_title
+        .strip_prefix("Δ·")
+        .or_else(|| view_title.strip_prefix("Δ "))
+        .unwrap_or(view_title);
+    raw.strip_prefix(RPI_PREFIX)
+        .unwrap_or(raw)
+        .to_uppercase()
 }
 
 fn run_tui(
@@ -824,4 +820,69 @@ fn ui(
         .style(Style::default().bg(Color::Reset));
 
     f.render_widget(chart, chunks[2]);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn merge_canonical_strips_rpi_overlay() {
+        assert_eq!(
+            merge_canonical_from_stream_id("binance-usd-m:RPI:BTCUSDT"),
+            "BTCUSDT"
+        );
+        assert_eq!(
+            merge_canonical_from_stream_id("binance-usd-m:BTCUSDT"),
+            "BTCUSDT"
+        );
+        assert_eq!(merge_canonical_from_stream_id("binance:BTCUSDT"), "BTCUSDT");
+    }
+
+    #[test]
+    fn tab_strip_groups_rpi_stream_with_base_instrument() {
+        let order = vec![
+            "binance:BTCUSDT".into(),
+            "binance-usd-m:BTCUSDT".into(),
+            "binance-usd-m:RPI:BTCUSDT".into(),
+        ];
+        let (labels, kinds) = tab_strip(&order);
+        assert_eq!(labels.len(), 5);
+        assert_eq!(labels[0], "MERGED·BTCUSDT");
+        assert!(labels.contains(&"binance-usd-m:RPI:BTCUSDT".to_string()));
+        assert!(labels.contains(&"Δ·BTCUSDT".to_string()));
+        assert!(!labels.iter().any(|l| l.starts_with("MERGED·RPI:")));
+        assert!(matches!(kinds.last(), Some(TabKind::Diff(s)) if s == "BTCUSDT"));
+    }
+
+    #[test]
+    fn diff_qty_levels_std_minus_rpi() {
+        let rpi_bids = vec![("50000".into(), "1.0".into())];
+        let std_bids = vec![("50000".into(), "2.0".into())];
+        let d = diff_qty_levels(&rpi_bids, &std_bids, false);
+        assert_eq!(d.len(), 1);
+        assert_eq!(d[0].0, "50000");
+        assert_eq!(d[0].1.parse::<f64>().unwrap(), 1.0);
+    }
+
+    #[test]
+    fn hub_has_rpi_depth_pair_requires_both_legs() {
+        enum TestOp {}
+        impl left_right::Absorb<TestOp> for LimitOrderBook {
+            fn absorb_first(&mut self, _: &mut TestOp, _: &Self) {}
+            fn sync_with(&mut self, first: &Self) {
+                *self = first.clone();
+            }
+        }
+
+        let mut m = HashMap::new();
+        let (mut w, r) = left_right::new::<LimitOrderBook, TestOp>();
+        w.publish();
+        m.insert("binance-usd-m:BTCUSDT".into(), r.factory());
+        assert!(!hub_has_rpi_depth_pair(&m, "BTCUSDT"));
+        let (mut w2, r2) = left_right::new::<LimitOrderBook, TestOp>();
+        w2.publish();
+        m.insert("binance-usd-m:RPI:BTCUSDT".into(), r2.factory());
+        assert!(hub_has_rpi_depth_pair(&m, "BTCUSDT"));
+    }
 }

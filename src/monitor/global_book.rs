@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use crate::{providers::Endpoints, EventHandler};
+use crate::{providers::Endpoints, providers::RPI_PREFIX, EventHandler};
 
 use super::{
     order_book::{Operations, OrderBook},
@@ -39,9 +39,36 @@ impl BookSource {
         format!("{}:{}", self.provider.label(), self.symbol)
     }
 
-    /// Instrument identity for cross-source merge (uppercase symbol only).
+    /// Instrument identity for cross-source merge (uppercase symbol as subscribed).
+    ///
+    /// RPI overlays use a distinct key (`RPI:BTCUSDT`) so `@rpiDepth` never merges into the
+    /// canonical `BTCUSDT` book unless you deliberately subscribe under the same symbol name.
     pub fn canonical_instrument(&self) -> String {
         self.symbol.clone()
+    }
+
+    /// Base instrument with venue overlay prefixes stripped (e.g. `RPI:BTCUSDT` → `BTCUSDT`).
+    pub fn base_instrument(&self) -> String {
+        self.symbol
+            .strip_prefix(RPI_PREFIX)
+            .unwrap_or(&self.symbol)
+            .to_string()
+    }
+
+    /// Whether this source is a Binance-USDM RPI overlay (`RPI:…` symbol).
+    pub fn is_rpi_overlay(&self) -> bool {
+        self.symbol.starts_with(RPI_PREFIX)
+    }
+
+    /// Base instrument from a [`BookSource::stream_id`] (`provider:SYMBOL`, including `RPI:`).
+    pub fn base_from_stream_id(stream_id: &str) -> String {
+        let sym = stream_id
+            .split_once(':')
+            .map(|(_, s)| s)
+            .unwrap_or(stream_id);
+        sym.strip_prefix(RPI_PREFIX)
+            .unwrap_or(sym)
+            .to_uppercase()
     }
 
     /// Parse `provider:SYMBOL` (e.g. `binance:BTCUSDT`, `binance-usd-m:RPI:BTCUSDC`).
@@ -423,6 +450,32 @@ mod tests {
         let s = BookSource::parse("binance-usd-m:RPI:BTCUSDC").unwrap();
         assert_eq!(s.stream_id(), "binance-usd-m:RPI:BTCUSDC");
         assert_eq!(s.canonical_instrument(), "RPI:BTCUSDC");
+        assert_eq!(s.base_instrument(), "BTCUSDC");
+        assert!(s.is_rpi_overlay());
+    }
+
+    #[test]
+    fn rpi_overlay_merge_key_isolated_from_standard() {
+        let std = BookSource::parse("binance-usd-m:BTCUSDT").unwrap();
+        let rpi = BookSource::parse("binance-usd-m:RPI:BTCUSDT").unwrap();
+        assert_eq!(std.base_instrument(), "BTCUSDT");
+        assert_eq!(rpi.base_instrument(), "BTCUSDT");
+        assert_ne!(std.canonical_instrument(), rpi.canonical_instrument());
+        assert!(!std.is_rpi_overlay());
+        assert!(rpi.is_rpi_overlay());
+    }
+
+    #[test]
+    fn base_from_stream_id_strips_provider_and_rpi() {
+        assert_eq!(
+            BookSource::base_from_stream_id("binance-usd-m:RPI:BTCUSDT"),
+            "BTCUSDT"
+        );
+        assert_eq!(
+            BookSource::base_from_stream_id("binance-usd-m:BTCUSDT"),
+            "BTCUSDT"
+        );
+        assert_eq!(BookSource::base_from_stream_id("binance:BTCUSDT"), "BTCUSDT");
     }
 
     #[test]
