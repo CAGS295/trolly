@@ -129,6 +129,27 @@ src/
 └── lib.rs                  # Library root, re-exports
 ```
 
+## Testing
+
+Default `cargo test` runs offline fixture tests only. The global book integration test
+(`global_book_live_rest_merge`) is `#[ignore]` and does not hit the network unless you opt in.
+
+**Global book fixture tests (always run, no network):**
+
+```bash
+cargo test --test global_book
+```
+
+**Live Binance REST merge test (requires network and Binance API access):**
+
+```bash
+cp .env.example .env
+# edit .env: RUN_GLOBAL_BOOK_INTEGRATION=1
+cargo test --test global_book global_book_live_rest_merge -- --ignored --nocapture
+```
+
+Optional: set `TROLLY_INTEGRATION_SYMBOL` in `.env` (default `BTCUSDT`). See [`.env.example`](.env.example).
+
 ## Benchmarks
 
 Criterion benchmarks for both serving paths:

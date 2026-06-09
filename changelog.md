@@ -7,6 +7,7 @@ Project journal for shipped work. Active backlog lives in [`WORKPLAN.md`](WORKPL
 - Add more exchange providers beyond Binance spot + USDM (scaffold in place; wire additional venues).
 
 ## change log
++ WP-002: document global book integration test flow; `.env.example`, README Testing section, one-shot dotenv load in `tests/global_book.rs`.
 + WP-001: incremental merge on global book refresh hot path (`merge_into_aggregate` / `merge_aggregate_refs`).
 + WP-003: provider layout `depth::binance::spot`; `Provider::Registered` for third-venue `--sources` parsing.
 + WP-005: Hook dead_code fix; CLI `long_about` documents project goals.

@@ -1,11 +1,35 @@
 //! Global order book: cross-source merge and optional live REST integration.
 //!
-//! Live test loads `.env` (see [`.env.example`](../.env.example)) and hits Binance REST when
-//! `RUN_GLOBAL_BOOK_INTEGRATION=1`.
+//! # Running tests
+//!
+//! **Default (no network):** `cargo test --test global_book` runs fixture-only tests.
+//!
+//! **Live REST merge:** copy [`.env.example`](../.env.example) to `.env`, set
+//! `RUN_GLOBAL_BOOK_INTEGRATION=1`, then:
+//!
+//! ```bash
+//! cargo test --test global_book global_book_live_rest_merge -- --ignored --nocapture
+//! ```
 
 use lob::LimitOrderBook;
+use std::sync::Once;
 use trolly::monitor::{parse_book_sources, BookSource, Depth, Provider};
 use trolly::providers::{Binance, BinanceUsdM, Endpoints};
+
+static LOAD_DOTENV: Once = Once::new();
+
+fn load_integration_env() {
+    LOAD_DOTENV.call_once(|| {
+        dotenvy::dotenv().ok();
+    });
+}
+
+fn global_book_integration_enabled() -> bool {
+    load_integration_env();
+    std::env::var("RUN_GLOBAL_BOOK_INTEGRATION")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+}
 
 #[test]
 fn parse_cross_source_spot_and_usdm() {
@@ -52,14 +76,10 @@ async fn fetch_rest_book<E: Endpoints<Depth>>(endpoint: E, symbol: &str) -> Limi
 
 /// Fetches Binance spot + USDM REST snapshots and merges them (no WebSocket).
 #[tokio::test]
-#[ignore = "live Binance REST; set RUN_GLOBAL_BOOK_INTEGRATION=1 in .env"]
+#[ignore = "live Binance REST; set RUN_GLOBAL_BOOK_INTEGRATION=1 in .env (see .env.example)"]
 async fn global_book_live_rest_merge() {
-    dotenvy::dotenv().ok();
-    if !std::env::var("RUN_GLOBAL_BOOK_INTEGRATION")
-        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-        .unwrap_or(false)
-    {
-        eprintln!("skip: RUN_GLOBAL_BOOK_INTEGRATION not enabled");
+    if !global_book_integration_enabled() {
+        eprintln!("skip: RUN_GLOBAL_BOOK_INTEGRATION not enabled (see .env.example)");
         return;
     }
 

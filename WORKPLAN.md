@@ -45,6 +45,10 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
   - `cargo test --test global_book global_book_live_rest_merge -- --ignored` passes when env enabled
   - default `cargo test` still skips live network; fixture tests always run
 - notes: complements WP-001; safe to run in parallel (disjoint scope).
+  - **Flow:** `cp .env.example .env` → set `RUN_GLOBAL_BOOK_INTEGRATION=1` →
+    `cargo test --test global_book global_book_live_rest_merge -- --ignored --nocapture`.
+  - Default `cargo test --test global_book` runs three fixture tests; live test stays ignored.
+  - Live test loads `.env` via `dotenvy` and no-ops when the flag is unset (safe `--ignored` runs).
 
 ### WP-003 — Provider expansion scaffold
 
