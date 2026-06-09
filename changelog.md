@@ -4,9 +4,11 @@ Project journal for shipped work. Active backlog lives in [`WORKPLAN.md`](WORKPL
 
 ## WIP
 
-- Add more exchange providers beyond Binance spot + USDM (RPI overlays: WP-004).
+- Add more exchange providers beyond Binance spot + USDM (custom venue wiring via `Provider::Custom`).
 
 ## change log
++ WP-004: Binance RPI overlay routing, TUI Δ tab grouping, merge isolation for RPI streams.
++ WP-005: Wire Hook registry into production server startup; replace CLI long_about placeholder.
 + WP-001: incremental merge on global book refresh hot path (merge_aggregate_from / merge_aggregate_refs in patches/lob).
 + WP-003: provider scaffold — depth::binance::spot layout, registry, Custom provider labels.
 + Document global book live REST integration test flow (`.env.example`, README, `tests/global_book.rs`).
