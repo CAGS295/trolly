@@ -98,7 +98,9 @@ pub async fn stream_depth_echo(provider: super::Provider, symbols: &str) {
                     )
                     .await
                 }
-                super::Provider::Other => tracing::error!("echo: unknown provider"),
+                super::Provider::Registered(label) => {
+                    tracing::error!(provider = %label, "echo: provider not wired yet");
+                }
             }
         })
         .await;
@@ -119,7 +121,7 @@ async fn stream_depth_serve(cfg: &DepthConfig) {
     let symbols = cfg.symbols.to_uppercase();
     let syms: Vec<&str> = symbols.split(',').collect();
 
-    match cfg.provider {
+    match &cfg.provider {
         Provider::Binance => {
             MonitorMultiplexor::<OrderBook, Depth>::stream::<_, _>(
                 crate::providers::Binance,
@@ -136,7 +138,9 @@ async fn stream_depth_serve(cfg: &DepthConfig) {
             )
             .await
         }
-        super::Provider::Other => tracing::error!("serve: unknown provider"),
+        Provider::Registered(label) => {
+            tracing::error!(provider = %label, "serve: provider not wired yet");
+        }
     }
 }
 
@@ -155,7 +159,7 @@ impl super::Monitor for DepthConfig {
         }
 
         match self.output {
-            DepthOutput::Echo => stream_depth_echo(self.provider, &self.symbols).await,
+            DepthOutput::Echo => stream_depth_echo(self.provider.clone(), &self.symbols).await,
             DepthOutput::Serve => {
                 let local = tokio::task::LocalSet::new();
                 local.run_until(stream_depth_serve(self)).await;

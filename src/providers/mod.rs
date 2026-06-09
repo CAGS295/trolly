@@ -1,10 +1,12 @@
 use serde::Deserialize;
 
-mod binance;
 mod binance_usd_m;
+pub mod depth;
 
-pub use binance::Binance;
+pub use depth::binance::spot::Binance;
 pub use binance_usd_m::{BinanceUsdM, RPI_PREFIX};
+
+use crate::monitor::Provider;
 
 /// A [Provider] must implement this trait for [net] to know where to pull the data from.
 pub trait Endpoints<Monitorable> {
@@ -16,6 +18,11 @@ pub trait Endpoints<Monitorable> {
 trait ApiURL {
     const STREAM: &'static str;
     const REST: &'static str;
+}
+
+/// Whether `label` from `--sources provider:SYMBOL` has a wired depth implementation.
+pub fn is_registered_depth_label(label: &str) -> bool {
+    Provider::from_label(label).is_known()
 }
 
 #[derive(Deserialize, PartialEq, Debug)]
@@ -39,5 +46,12 @@ mod test {
             },
             expected
         );
+    }
+
+    #[test]
+    fn depth_registry_knows_binance_venues() {
+        assert!(super::is_registered_depth_label("binance"));
+        assert!(super::is_registered_depth_label("binance-usd-m"));
+        assert!(!super::is_registered_depth_label("coinbase"));
     }
 }

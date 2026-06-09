@@ -72,7 +72,7 @@ async fn global_book_live_rest_merge() {
         let book = match source.provider {
             Provider::Binance => fetch_rest_book(Binance, &source.symbol).await,
             Provider::BinanceUsdM => fetch_rest_book(BinanceUsdM, &source.symbol).await,
-            Provider::Other => panic!("unexpected provider"),
+            Provider::Registered(_) => panic!("unexpected provider"),
             _ => panic!("unexpected provider variant"),
         };
         assert!(book.update_id > 0, "empty book from {}", source.stream_id());

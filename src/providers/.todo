@@ -1,0 +1,23 @@
+# Provider layout (depth)
+
+Target module tree for depth venues:
+
+```
+providers::depth
+├── binance
+│   ├── spot      ← Binance spot (`--sources binance:SYMBOL`)
+│   └── usd_m     ← move from `binance_usd_m.rs` (WP follow-up)
+└── <venue>/…     ← register new labels in `Provider::from_label` + wire in `run_global_book_stream`
+```
+
+## Done (WP-003)
+
+- [x] move binance to `depth::binance::spot`
+- [x] accept arbitrary `--sources provider:SYMBOL` labels via `Provider::Registered`
+- [x] keep `binance` / `binance-usd-m` parsing and streaming unchanged
+
+## Next
+
+- [ ] move `binance_usd_m.rs` to `depth::binance::usd_m`
+- [ ] add rpi support (WP-004)
+- [ ] wire third venue: implement `Endpoints<Depth>`, add to `run_global_book_stream` match

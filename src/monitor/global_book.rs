@@ -50,30 +50,11 @@ impl BookSource {
         let (provider_label, symbol) = raw
             .split_once(':')
             .ok_or_else(|| format!("expected provider:SYMBOL, got {raw:?}"))?;
-        let provider = Provider::from_label(provider_label)
-            .ok_or_else(|| format!("unknown provider {provider_label:?}"))?;
+        let provider = Provider::from_label(provider_label);
         if symbol.trim().is_empty() {
             return Err(format!("missing symbol in {raw:?}"));
         }
         Ok(Self::new(provider, symbol))
-    }
-}
-
-impl Provider {
-    pub fn label(self) -> &'static str {
-        match self {
-            Provider::Binance => "binance",
-            Provider::BinanceUsdM => "binance-usd-m",
-            Provider::Other => "other",
-        }
-    }
-
-    pub fn from_label(label: &str) -> Option<Self> {
-        match label.trim().to_ascii_lowercase().as_str() {
-            "binance" => Some(Provider::Binance),
-            "binance-usd-m" | "binance_usd_m" | "binanceusdm" => Some(Provider::BinanceUsdM),
-            _ => None,
-        }
     }
 }
 
@@ -385,8 +366,11 @@ pub async fn run_global_book_stream(hub: GlobalBookHub, sources: &[BookSource]) 
                             )
                             .await
                         }
-                        Provider::Other => {
-                            warn!("global book: unknown provider");
+                        Provider::Registered(label) => {
+                            warn!(
+                                provider = %label,
+                                "global book: provider registered in --sources but not wired yet"
+                            );
                         }
                     }
                 }
@@ -449,6 +433,32 @@ mod tests {
         assert_eq!(v.len(), 2);
         assert_eq!(v[0].canonical_instrument(), "BTCUSDT");
         assert_eq!(v[1].canonical_instrument(), "BTCUSDT");
+    }
+
+    #[test]
+    fn parse_book_sources_three_venues_including_unwired() {
+        let v = parse_book_sources("binance:BTCUSDT,binance-usd-m:ETHUSDT,coinbase:BTCUSDT")
+            .unwrap();
+        assert_eq!(v.len(), 3);
+        assert_eq!(v[0].provider, Provider::Binance);
+        assert_eq!(v[0].stream_id(), "binance:BTCUSDT");
+        assert_eq!(v[1].provider, Provider::BinanceUsdM);
+        assert_eq!(v[1].stream_id(), "binance-usd-m:ETHUSDT");
+        assert_eq!(
+            v[2].provider,
+            Provider::Registered("coinbase".into())
+        );
+        assert_eq!(v[2].stream_id(), "coinbase:BTCUSDT");
+        assert!(!v[2].provider.is_known());
+    }
+
+    #[test]
+    fn parse_book_sources_binance_usd_m_label_aliases() {
+        for label in ["binance-usd-m", "binance_usd_m", "binanceusdm"] {
+            let v = parse_book_sources(&format!("{label}:BTCUSDT")).unwrap();
+            assert_eq!(v[0].provider, Provider::BinanceUsdM);
+            assert_eq!(v[0].stream_id(), "binance-usd-m:BTCUSDT");
+        }
     }
 
     #[cfg(any(feature = "codec", feature = "grpc"))]
