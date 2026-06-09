@@ -9,7 +9,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: never
+- last_run: 2026-06-09T16:24:42Z
 - max_parallel: 3
 
 ## Orchestrator notes
@@ -36,7 +36,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 
 ### WP-002 — Integration test hygiene
 
-- status: in_progress
+- status: done
 - repos: trolly
 - depends_on: []
 - scope: .env.example, tests/global_book.rs, WORKPLAN.md, changelog.md, README.md
@@ -64,7 +64,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 
 ### WP-004 — Intra-provider overlays (Binance RPI)
 
-- status: in_progress
+- status: done
 - repos: trolly
 - depends_on: [WP-003]
 - scope: src/providers/binance_usd_m.rs, src/bin/aggregated_depth_tui.rs, src/monitor/global_book.rs
@@ -82,7 +82,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 
 ### WP-005 — Cleanup
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: []
 - scope: src/servers/mod.rs, src/cli/mod.rs
