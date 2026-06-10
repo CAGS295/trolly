@@ -24,7 +24,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 
 ### WP-001 — Hot-path allocation optimization
 
-- status: in_progress
+- status: done
 - repos: trolly, patches/lob
 - depends_on: []
 - scope: src/monitor/global_book.rs, patches/lob/src/limit_order_book/mod.rs, benches/
