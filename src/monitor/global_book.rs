@@ -23,6 +23,8 @@ use tracing::{instrument, warn};
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct BookSource {
     pub provider: Provider,
+    /// CLI label from `--sources` (`binance`, `binance-usd-m`, registered extensions, …).
+    pub provider_label: String,
     pub symbol: String,
 }
 
@@ -30,13 +32,14 @@ impl BookSource {
     pub fn new(provider: Provider, symbol: impl Into<String>) -> Self {
         Self {
             provider,
+            provider_label: provider.label().into(),
             symbol: symbol.into().trim().to_uppercase(),
         }
     }
 
     /// Unique routing / factory key (`binance:BTCUSDT`, `binance-usd-m:RPI:BTCUSDC`, …).
     pub fn stream_id(&self) -> String {
-        format!("{}:{}", self.provider.label(), self.symbol)
+        format!("{}:{}", self.provider_label, self.symbol)
     }
 
     /// Instrument identity for cross-source merge (uppercase symbol only).
@@ -50,35 +53,23 @@ impl BookSource {
         let (provider_label, symbol) = raw
             .split_once(':')
             .ok_or_else(|| format!("expected provider:SYMBOL, got {raw:?}"))?;
-        let provider = Provider::from_label(provider_label)
+        let normalized_label = crate::providers::normalize_label(provider_label);
+        let provider = crate::providers::resolve_provider_label(provider_label)
             .ok_or_else(|| format!("unknown provider {provider_label:?}"))?;
         if symbol.trim().is_empty() {
             return Err(format!("missing symbol in {raw:?}"));
         }
-        Ok(Self::new(provider, symbol))
-    }
-}
-
-impl Provider {
-    pub fn label(self) -> &'static str {
-        match self {
-            Provider::Binance => "binance",
-            Provider::BinanceUsdM => "binance-usd-m",
-            Provider::Other => "other",
-        }
-    }
-
-    pub fn from_label(label: &str) -> Option<Self> {
-        match label.trim().to_ascii_lowercase().as_str() {
-            "binance" => Some(Provider::Binance),
-            "binance-usd-m" | "binance_usd_m" | "binanceusdm" => Some(Provider::BinanceUsdM),
-            _ => None,
-        }
+        Ok(Self {
+            provider,
+            provider_label: normalized_label,
+            symbol: symbol.trim().to_uppercase(),
+        })
     }
 }
 
 /// Parse a comma-separated list of `provider:SYMBOL` entries.
 pub fn parse_book_sources(list: &str) -> Result<Vec<BookSource>, String> {
+    crate::providers::init_providers();
     let mut out = Vec::new();
     for part in list.split(',').map(str::trim).filter(|s| !s.is_empty()) {
         out.push(BookSource::parse(part)?);
@@ -353,10 +344,10 @@ pub async fn run_global_book_stream(hub: GlobalBookHub, sources: &[BookSource]) 
     use futures_util::future::join_all;
     use std::collections::HashMap;
 
-    let mut by_provider: HashMap<Provider, Vec<String>> = HashMap::new();
+    let mut by_venue: HashMap<(Provider, String), Vec<String>> = HashMap::new();
     for s in sources {
-        by_provider
-            .entry(s.provider.clone())
+        by_venue
+            .entry((s.provider, s.provider_label.clone()))
             .or_default()
             .push(s.symbol.clone());
     }
@@ -364,7 +355,7 @@ pub async fn run_global_book_stream(hub: GlobalBookHub, sources: &[BookSource]) 
     let local = tokio::task::LocalSet::new();
     local
         .run_until(async move {
-            let tasks = by_provider.into_iter().map(|(provider, symbols)| {
+            let tasks = by_venue.into_iter().map(|((provider, provider_label), symbols)| {
                 let hub = hub.clone();
                 async move {
                     let syms: Vec<&str> = symbols.iter().map(String::as_str).collect();
@@ -386,7 +377,9 @@ pub async fn run_global_book_stream(hub: GlobalBookHub, sources: &[BookSource]) 
                             .await
                         }
                         Provider::Other => {
-                            warn!("global book: unknown provider");
+                            warn!(
+                                "global book: extension provider {provider_label} is registered but endpoints are not wired yet"
+                            );
                         }
                     }
                 }
@@ -447,8 +440,38 @@ mod tests {
     fn parse_book_sources_list() {
         let v = parse_book_sources("binance:BTCUSDT,binance-usd-m:BTCUSDT").unwrap();
         assert_eq!(v.len(), 2);
+        assert_eq!(v[0].provider_label, "binance");
+        assert_eq!(v[1].provider_label, "binance-usd-m");
         assert_eq!(v[0].canonical_instrument(), "BTCUSDT");
         assert_eq!(v[1].canonical_instrument(), "BTCUSDT");
+    }
+
+    #[test]
+    fn parse_book_sources_stub_extension() {
+        let v = parse_book_sources("stub:BTCUSDT").unwrap();
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].provider, Provider::Other);
+        assert_eq!(v[0].provider_label, "stub");
+        assert_eq!(v[0].stream_id(), "stub:BTCUSDT");
+    }
+
+    #[test]
+    fn parse_book_sources_mixed_builtin_and_extension() {
+        let v =
+            parse_book_sources("binance:BTCUSDT,binance-usd-m:ETHUSDT,stub:BTCUSDT").unwrap();
+        assert_eq!(v.len(), 3);
+        assert_eq!(v[0].provider, Provider::Binance);
+        assert_eq!(v[1].provider, Provider::BinanceUsdM);
+        assert_eq!(v[2].provider, Provider::Other);
+        assert_eq!(v[2].provider_label, "stub");
+    }
+
+    #[test]
+    fn parse_book_sources_registered_runtime_label() {
+        crate::providers::register_provider_label("coinbase").expect("register");
+        let v = parse_book_sources("coinbase:BTCUSDT").unwrap();
+        assert_eq!(v[0].provider, Provider::Other);
+        assert_eq!(v[0].provider_label, "coinbase");
     }
 
     #[cfg(any(feature = "codec", feature = "grpc"))]

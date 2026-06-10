@@ -28,6 +28,21 @@ pub enum Provider {
     Other,
 }
 
+impl Provider {
+    /// Resolve a built-in venue label (`binance`, `binance-usd-m`, …).
+    pub fn from_builtin_label(label: &str) -> Option<Self> {
+        match label.trim().to_ascii_lowercase().as_str() {
+            "binance" => Some(Provider::Binance),
+            "binance-usd-m" | "binance_usd_m" | "binanceusdm" => Some(Provider::BinanceUsdM),
+            _ => None,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        crate::providers::builtin_label(self)
+    }
+}
+
 pub(crate) trait Monitor {
     async fn monitor(&self);
 }

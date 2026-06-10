@@ -1,10 +1,11 @@
 use serde::Deserialize;
 
-mod binance;
-mod binance_usd_m;
+pub mod depth;
 
-pub use binance::Binance;
-pub use binance_usd_m::{BinanceUsdM, RPI_PREFIX};
+pub use depth::{
+    builtin_label, init_builtin_extensions, normalize_label, register_provider_label,
+    resolve_provider_label, Binance, BinanceUsdM, RPI_PREFIX, STUB_PROVIDER_LABEL,
+};
 
 /// A [Provider] must implement this trait for [net] to know where to pull the data from.
 pub trait Endpoints<Monitorable> {
@@ -22,6 +23,11 @@ trait ApiURL {
 pub struct NullResponse {
     id: u64,
     pub result: Option<String>,
+}
+
+/// Register built-in extension labels (e.g. scaffold `stub`).
+pub fn init_providers() {
+    init_builtin_extensions();
 }
 
 #[cfg(test)]
