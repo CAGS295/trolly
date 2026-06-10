@@ -24,7 +24,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 
 ### WP-001 — Hot-path allocation optimization
 
-- status: todo
+- status: in_progress
 - repos: trolly, patches/lob
 - depends_on: []
 - scope: src/monitor/global_book.rs, patches/lob/src/limit_order_book/mod.rs, benches/
@@ -48,7 +48,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 
 ### WP-003 — Provider expansion scaffold
 
-- status: todo
+- status: in_progress
 - repos: trolly
 - depends_on: []
 - scope: src/providers/, src/monitor/mod.rs, src/providers/.todo
@@ -73,7 +73,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 
 ### WP-005 — Cleanup
 
-- status: todo
+- status: in_progress
 - repos: trolly
 - depends_on: []
 - scope: src/servers/mod.rs, src/cli/mod.rs
