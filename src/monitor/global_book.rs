@@ -227,28 +227,23 @@ impl GlobalBookHub {
             return;
         }
 
-        let merged = if group.len() == 1 {
-            group[0]
-                .handle()
-                .enter()
-                .map(|guard| guard.clone())
-                .unwrap_or_default()
-        } else {
-            let mut snapshots = Vec::with_capacity(group.len());
-            for factory in &group {
-                if let Some(book) = factory.handle().enter() {
-                    snapshots.push(book.clone());
-                }
-            }
-            LimitOrderBook::merge_aggregate(&snapshots)
-        };
-
-        let mut merged = merged;
-        merged.update_id = group
+        let handles: Vec<_> = group.iter().map(|factory| factory.handle()).collect();
+        let guards: Vec<_> = handles
             .iter()
-            .filter_map(|fac| fac.handle().enter().map(|g| g.update_id))
-            .max()
-            .unwrap_or(0);
+            .filter_map(|handle| handle.enter())
+            .collect();
+        if guards.is_empty() {
+            return;
+        }
+
+        let update_id = guards.iter().map(|g| g.update_id).max().unwrap_or(0);
+        let merged = if guards.len() == 1 {
+            guards[0].clone()
+        } else {
+            LimitOrderBook::merge_aggregate(guards.iter().map(|g| &**g))
+        };
+        let mut merged = merged;
+        merged.update_id = update_id;
 
         let mut inner = self.inner.lock().expect("hub lock");
         let Some(lane) = inner.merged_by_instrument.get_mut(&key) else {
@@ -472,6 +467,42 @@ mod tests {
         let v = parse_book_sources("coinbase:BTCUSDT").unwrap();
         assert_eq!(v[0].provider, Provider::Other);
         assert_eq!(v[0].provider_label, "coinbase");
+    }
+
+    #[test]
+    fn refresh_merged_for_aggregates_multiple_sources() {
+        let hub = GlobalBookHub::new();
+        let spot: LimitOrderBook = serde_json::from_str(
+            r#"{"lastUpdateId":1,"bids":[["50000.0","1.0"]],"asks":[["50001.0","2.0"]]}"#,
+        )
+        .unwrap();
+        let usdm: LimitOrderBook = serde_json::from_str(
+            r#"{"lastUpdateId":2,"bids":[["50000.0","0.5"]],"asks":[["50002.0","1.0"]]}"#,
+        )
+        .unwrap();
+
+        let (mut w1, r1) = left_right::new::<LimitOrderBook, Operations>();
+        w1.append(Operations::Initialize(spot));
+        w1.publish();
+        hub.register_factory("binance:BTCUSDT".into(), r1.factory(), "BTCUSDT");
+
+        let (mut w2, r2) = left_right::new::<LimitOrderBook, Operations>();
+        w2.append(Operations::Initialize(usdm));
+        w2.publish();
+        hub.register_factory("binance-usd-m:BTCUSDT".into(), r2.factory(), "BTCUSDT");
+
+        hub.refresh_merged_for("BTCUSDT");
+
+        let merged_factory = hub
+            .merged_factory_for("BTCUSDT")
+            .expect("merged factory");
+        let merged_handle = merged_factory.handle();
+        let guard = merged_handle.enter().expect("merged read");
+        assert_eq!(guard.update_id, 2);
+        let text = format!("{}", &*guard);
+        assert!(text.contains("50000:1.5"), "{text}");
+        assert!(text.contains("50001"));
+        assert!(text.contains("50002"));
     }
 
     #[cfg(any(feature = "codec", feature = "grpc"))]

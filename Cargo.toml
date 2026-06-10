@@ -68,6 +68,10 @@ harness = false
 name = "depth_monitor_scale"
 harness = false
 
+[[bench]]
+name = "merge_refresh"
+harness = false
+
 [[bin]]
 name = "depth_monitor"
 
