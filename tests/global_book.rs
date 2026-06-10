@@ -1,7 +1,11 @@
 //! Global order book: cross-source merge and optional live REST integration.
 //!
-//! Live test loads `.env` (see [`.env.example`](../.env.example)) and hits Binance REST when
-//! `RUN_GLOBAL_BOOK_INTEGRATION=1`.
+//! **Fixture tests** (`parse_cross_source_spot_and_usdm`, `merge_aggregate_combines_spot_and_futures_fixture_books`,
+//! `book_source_stream_ids_are_unique_per_venue`) run on every `cargo test --test global_book`.
+//!
+//! **Live test** (`global_book_live_rest_merge`) is `#[ignore]` by default. Opt in via `.env` (see
+//! [`.env.example`](../.env.example)) or shell: set `RUN_GLOBAL_BOOK_INTEGRATION=1`, then run
+//! `cargo test --test global_book global_book_live_rest_merge -- --ignored`. See README.md Testing section.
 
 use lob::LimitOrderBook;
 use trolly::monitor::{parse_book_sources, BookSource, Depth, Provider};

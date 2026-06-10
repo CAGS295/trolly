@@ -138,6 +138,36 @@ cargo bench --bench depth_monitor         # gRPC round-trip
 cargo bench --bench depth_monitor_scale   # HTTP codec round-trip
 ```
 
+## Testing
+
+Default `cargo test` runs fixture-based unit tests and **skips** live network calls. The global book integration test (`tests/global_book.rs`) fetches Binance spot and USDM REST snapshots and merges them; it is marked `#[ignore]` so it never runs unless you opt in.
+
+### Global book integration test (opt-in)
+
+1. Copy the example env file:
+
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Enable the live test in `.env`:
+
+   ```bash
+   RUN_GLOBAL_BOOK_INTEGRATION=1
+   ```
+
+   Optional: change `TROLLY_INTEGRATION_SYMBOL` (default `BTCUSDT`).
+
+3. Run only the ignored live test:
+
+   ```bash
+   cargo test --test global_book global_book_live_rest_merge -- --ignored
+   ```
+
+   `dotenvy` loads `.env` from the repo root when the test runs. You can also export `RUN_GLOBAL_BOOK_INTEGRATION=1` in your shell instead of editing `.env`.
+
+Fixture tests in the same file (`parse_cross_source_spot_and_usdm`, `merge_aggregate_combines_spot_and_futures_fixture_books`, `book_source_stream_ids_are_unique_per_venue`) always run with plain `cargo test --test global_book` or `cargo test`.
+
 ## License
 
 [GPL-3.0](LICENSE)

@@ -9,7 +9,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: never
+- last_run: 2026-06-10T14:15:00Z
 - max_parallel: 3
 
 ## Orchestrator notes
@@ -32,11 +32,11 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
   - `git submodule update --init patches/lob && cargo test` passes
   - merge semantics unchanged (`tests/global_book.rs`, `patches/lob` merge tests)
   - fewer full-book clones on `GlobalBookHub::refresh_merged_for` hot path
-- notes: `refresh_merged_for` currently clones every source book before `merge_aggregate`.
+- notes: Multi-source `refresh_merged_for` holds read guards and passes `&LimitOrderBook` into `merge_aggregate`; single-source path still clones once for `MergedOp::Replace`.
 
 ### WP-002 — Integration test hygiene
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: []
 - scope: .env.example, tests/global_book.rs, WORKPLAN.md, changelog.md, README.md
@@ -44,11 +44,11 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
   - documented flow: copy `.env.example` → `.env`, set `RUN_GLOBAL_BOOK_INTEGRATION=1`, run live test
   - `cargo test --test global_book global_book_live_rest_merge -- --ignored` passes when env enabled
   - default `cargo test` still skips live network; fixture tests always run
-- notes: complements WP-001; safe to run in parallel (disjoint scope). Opt-in flow — `cp .env.example .env`, set `RUN_GLOBAL_BOOK_INTEGRATION=1`, then `cargo test --test global_book global_book_live_rest_merge -- --ignored`; default `cargo test` skips the ignored live test and always runs fixture tests in `tests/global_book.rs`.
+- notes: Opt-in flow — `cp .env.example .env`, set `RUN_GLOBAL_BOOK_INTEGRATION=1`, then `cargo test --test global_book global_book_live_rest_merge -- --ignored`. Live test requires Binance REST access (HTTP 451 in geo-blocked CI/automation regions).
 
 ### WP-003 — Provider expansion scaffold
 
-- status: in_progress
+- status: done
 - repos: trolly
 - depends_on: []
 - scope: src/providers/, src/monitor/mod.rs, src/providers/.todo
@@ -56,24 +56,29 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
   - Binance spot refactor toward `depth::binance::spot` (per `.todo`) or documented equivalent layout
   - third venue can register in `--sources provider:SYMBOL` without breaking binance / binance-usd-m
   - `parse_book_sources` unit tests cover new layout; `cargo test` passes
-- notes: see `src/providers/.todo` — `move binance to depth::binance::spot`.
+- notes: Providers under `depth::binance::spot` and `depth::usdm`; extension registry via `register_provider_label`.
 
 ### WP-004 — Intra-provider overlays (Binance RPI)
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-003]
-- scope: src/providers/binance_usd_m.rs, src/bin/aggregated_depth_tui.rs, src/monitor/global_book.rs
+- scope: src/providers/depth/usdm.rs, src/bin/aggregated_depth_tui.rs, src/monitor/global_book.rs
 - acceptance:
   - RPI stream routing (`binance-usd-m:RPI:SYMBOL`) works end-to-end
   - TUI `Δ` tab shows overlay without polluting canonical global merge
   - `cargo test --features tui` passes when TUI is touched
   - RPI subscription behavior documented in this file
-- notes: see `src/providers/.todo` — `add rpi support`. RPI stays optional.
+- notes: |
+  RPI subscription (optional overlay, not merged into canonical instrument):
+  - CLI source: `binance-usd-m:RPI:BTCUSDT` (RPI prefix on symbol after provider label).
+  - WebSocket: `depth::usdm` sends `SET_PROPERTY` with `rpiDepth` before `SUBSCRIBE` to `btcusdt@rpiDepth`.
+  - Stream routing: `BookSource::canonical_instrument` maps `RPI:SYMBOL` to overlay lane; `refresh_merged_for` merges only canonical lanes (`BTCUSDT`), never `RPI:BTCUSDT`.
+  - TUI: `Δ·BTCUSDT` tab groups `binance-usd-m:BTCUSDT`, `binance-usd-m:RPI:BTCUSDT`, and merged view under base instrument.
 
 ### WP-005 — Cleanup
 
-- status: in_progress
+- status: done
 - repos: trolly
 - depends_on: []
 - scope: src/servers/mod.rs, src/cli/mod.rs
@@ -81,7 +86,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
   - no `Hook::new` / `Hook::register` dead_code warning in `src/servers/mod.rs`
   - `long_about` in `src/cli/mod.rs` describes project goals (not a TODO placeholder)
   - `cargo test` passes
-- notes: safe to run in parallel with WP-001 / WP-002 / WP-003 (disjoint scope).
+- notes: `Hook::new` / `hook.register` wired in production server startup; CLI `long_about` describes LOB monitoring and global book goals.
 
 ## Completed milestones
 
