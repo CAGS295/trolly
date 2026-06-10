@@ -76,14 +76,19 @@ fn main() -> color_eyre::Result<()> {
     Ok(())
 }
 
-/// Instrument key for cross-source merge (strip known provider prefix from stream id).
+/// Strip `RPI:` overlay prefix from a subscription symbol (after the provider label).
+fn overlay_base_symbol(symbol: &str) -> &str {
+    symbol.strip_prefix(RPI_PREFIX).unwrap_or(symbol)
+}
+
+/// Instrument key for tab grouping and Δ overlay (provider prefix + optional `RPI:` stripped).
 fn canonical_from_stream_id(stream_id: &str) -> String {
     for prefix in ["binance-usd-m:", "binance:"] {
         if let Some(sym) = stream_id.strip_prefix(prefix) {
-            return sym.to_uppercase();
+            return overlay_base_symbol(sym).to_uppercase();
         }
     }
-    stream_id.to_uppercase()
+    overlay_base_symbol(stream_id).to_uppercase()
 }
 
 /// Parse [`lob::LimitOrderBook`]'s `Display` output (`price:qty` tuples) into ladder rows.
@@ -824,4 +829,51 @@ fn ui(
         .style(Style::default().bg(Color::Reset));
 
     f.render_widget(chart, chunks[2]);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn overlay_base_symbol_strips_rpi_prefix() {
+        assert_eq!(overlay_base_symbol("RPI:BTCUSDT"), "BTCUSDT");
+        assert_eq!(overlay_base_symbol("BTCUSDT"), "BTCUSDT");
+    }
+
+    #[test]
+    fn canonical_from_stream_id_groups_rpi_with_base() {
+        assert_eq!(canonical_from_stream_id("binance-usd-m:BTCUSDT"), "BTCUSDT");
+        assert_eq!(canonical_from_stream_id("binance-usd-m:RPI:BTCUSDT"), "BTCUSDT");
+        assert_eq!(canonical_from_stream_id("binance:BTCUSDT"), "BTCUSDT");
+    }
+
+    #[test]
+    fn tab_strip_groups_rpi_overlay_under_base_instrument() {
+        let order = vec![
+            "binance:BTCUSDT".into(),
+            "binance-usd-m:BTCUSDT".into(),
+            "binance-usd-m:RPI:BTCUSDT".into(),
+        ];
+        let (labels, kinds) = tab_strip(&order);
+
+        let merged_tabs: Vec<_> = labels
+            .iter()
+            .filter(|l| l.starts_with("MERGED·"))
+            .collect();
+        assert_eq!(merged_tabs.len(), 1);
+        assert_eq!(merged_tabs[0], "MERGED·BTCUSDT");
+        assert!(!labels.iter().any(|l| l == "MERGED·RPI:BTCUSDT"));
+
+        assert!(labels.contains(&"binance-usd-m:RPI:BTCUSDT".to_string()));
+        assert_eq!(labels.iter().filter(|l| l.starts_with("Δ·")).count(), 1);
+        assert!(labels.contains(&"Δ·BTCUSDT".to_string()));
+
+        let diff_indices: Vec<usize> = kinds
+            .iter()
+            .enumerate()
+            .filter_map(|(i, k)| matches!(k, TabKind::Diff(s) if s == "BTCUSDT").then_some(i))
+            .collect();
+        assert_eq!(diff_indices.len(), 1);
+    }
 }

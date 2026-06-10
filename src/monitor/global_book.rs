@@ -470,6 +470,57 @@ mod tests {
     }
 
     #[test]
+    fn refresh_merged_for_excludes_rpi_overlay_from_canonical_instrument() {
+        let hub = GlobalBookHub::new();
+        let std: LimitOrderBook = serde_json::from_str(
+            r#"{"lastUpdateId":1,"bids":[["50000.0","1.0"]],"asks":[["50001.0","2.0"]]}"#,
+        )
+        .unwrap();
+        let rpi: LimitOrderBook = serde_json::from_str(
+            r#"{"lastUpdateId":9,"bids":[["49999.0","3.0"]],"asks":[["50003.0","4.0"]]}"#,
+        )
+        .unwrap();
+
+        let (mut w_std, r_std) = left_right::new::<LimitOrderBook, Operations>();
+        w_std.append(Operations::Initialize(std));
+        w_std.publish();
+        hub.register_factory("binance-usd-m:BTCUSDT".into(), r_std.factory(), "BTCUSDT");
+
+        let (mut w_rpi, r_rpi) = left_right::new::<LimitOrderBook, Operations>();
+        w_rpi.append(Operations::Initialize(rpi));
+        w_rpi.publish();
+        hub.register_factory(
+            "binance-usd-m:RPI:BTCUSDT".into(),
+            r_rpi.factory(),
+            "RPI:BTCUSDT",
+        );
+
+        hub.refresh_merged_for("BTCUSDT");
+        hub.refresh_merged_for("RPI:BTCUSDT");
+
+        let canon_handle = hub
+            .merged_factory_for("BTCUSDT")
+            .expect("canonical merged")
+            .handle();
+        let canon = canon_handle.enter().expect("canonical read");
+        let canon_text = format!("{}", &*canon);
+        assert!(canon_text.contains("50000:1"), "{canon_text}");
+        assert!(canon_text.contains("50001:2"), "{canon_text}");
+        assert!(!canon_text.contains("49999"), "{canon_text}");
+        assert!(!canon_text.contains("50003"), "{canon_text}");
+
+        let overlay_handle = hub
+            .merged_factory_for("RPI:BTCUSDT")
+            .expect("overlay merged")
+            .handle();
+        let overlay = overlay_handle.enter().expect("overlay read");
+        let overlay_text = format!("{}", &*overlay);
+        assert!(overlay_text.contains("49999:3"), "{overlay_text}");
+        assert!(overlay_text.contains("50003:4"), "{overlay_text}");
+        assert!(!overlay_text.contains("50000"), "{overlay_text}");
+    }
+
+    #[test]
     fn refresh_merged_for_aggregates_multiple_sources() {
         let hub = GlobalBookHub::new();
         let spot: LimitOrderBook = serde_json::from_str(
