@@ -1,0 +1,33 @@
+pub use crate::ws_adapter::{connect, disconnect};
+use crate::endpoints::Endpoints;
+use std::{fmt::Debug, future::Future};
+pub use tokio_tungstenite::tungstenite::protocol::Message;
+
+pub trait EventHandler<Monitorable> {
+    type Error: Debug;
+    type Context;
+    type Update;
+
+    /// Returning `Ok(None)` is not a fatal failure and the scheduler should skip the message.
+    fn parse_update(value: Message) -> Result<Option<Self::Update>, Self::Error>;
+
+    /// A handler should be identifiable from a `Self::Update`.
+    /// This is necessary to route updates to their handler when processing multiple
+    /// subscriptions from the same source.
+    fn to_id(event: &Self::Update) -> &str;
+
+    /// Handle a parsed update.
+    /// Use the `Result` to break out of the handler loop.
+    fn handle_update(&mut self, event: Self::Update) -> Result<(), Self::Error>;
+
+    /// Build-time context (for example an mpsc sender for read factories, or `()` for echo-only handlers).
+    fn build<En>(
+        provider: En,
+        symbols: &[impl AsRef<str>],
+        ctx: Self::Context,
+    ) -> impl Future<Output = Result<(String, Self), Self::Error>>
+    where
+        En: Endpoints<Monitorable> + Clone + 'static,
+        Self: Sized,
+        Self::Context: Clone + 'static;
+}

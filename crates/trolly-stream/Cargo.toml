@@ -4,3 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+futures-util = "0.3.21"
+http = "1"
+tokio = { version = "1.20.1", features = ["rt", "macros", "rt-multi-thread", "sync", "net", "signal"] }
+tokio-tungstenite = { version = "^0", features = ["native-tls-vendored"] }
+tracing = "0.1.36"
+
+[dev-dependencies]
+tokio = { version = "1.20.1", features = ["rt", "macros", "rt-multi-thread", "sync", "net", "test-util"] }

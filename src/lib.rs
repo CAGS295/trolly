@@ -11,7 +11,7 @@ pub use cli::Cli;
 pub use lob;
 pub use tokio;
 
-pub(crate) use connectors::handler::EventHandler;
+pub(crate) use trolly_stream::EventHandler;
 
 #[cfg(feature = "grpc")]
 pub mod grpc {
