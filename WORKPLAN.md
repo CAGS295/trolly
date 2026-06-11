@@ -138,7 +138,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-008 — Binance spot execution crate (`binance-spot-exec`)
 
-- status: in_progress
+- status: done
 - repos: trolly
 - depends_on: [WP-007]
 - scope: crates/binance-spot-exec/
@@ -152,7 +152,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-009 — Binance USDM execution crate (`binance-usdm-exec`)
 
-- status: in_progress
+- status: done
 - repos: trolly
 - depends_on: [WP-007]
 - scope: crates/binance-usdm-exec/
@@ -164,7 +164,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-010 — Strategy component (`trolly-strategy`)
 
-- status: in_progress
+- status: done
 - repos: trolly
 - depends_on: [WP-007]
 - scope: crates/trolly-strategy/
@@ -178,7 +178,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-011 — Libtorch gym groundwork (`trolly-gym`)
 
-- status: todo
+- status: in_progress
 - repos: trolly
 - depends_on: [WP-007, WP-010]
 - scope: crates/trolly-gym/
