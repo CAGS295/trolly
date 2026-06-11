@@ -8,6 +8,9 @@ binance-spot-exec = { path = "../binance-spot-exec" }
 binance-usdm-exec = { path = "../binance-usdm-exec" }
 trolly-strategy = { path = "../trolly-strategy" }
 
+[dev-dependencies]
+tokio = { version = "1.20.1", features = ["sync"] }
+
 [features]
 default = []
 torch = []
