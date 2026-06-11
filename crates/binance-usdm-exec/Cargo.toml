@@ -4,4 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 trolly-stream = { path = "../trolly-stream" }
+tokio = { version = "1.20.1", features = ["rt", "macros", "sync"] }
+tokio-tungstenite = { version = "^0", features = ["native-tls-vendored"] }
+tracing = "0.1.36"
+
+[dev-dependencies]
+tokio = { version = "1.20.1", features = ["rt", "macros", "sync", "test-util"] }
