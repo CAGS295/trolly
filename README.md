@@ -129,6 +129,35 @@ src/
 └── lib.rs                  # Library root, re-exports
 ```
 
+## Testing
+
+Default `cargo test` runs offline unit and fixture tests only — no live exchange network calls.
+
+Global book cross-source merge has additional tests in `tests/global_book.rs`:
+
+| Test | Network | When it runs |
+|------|---------|--------------|
+| `parse_cross_source_spot_and_usdm`, `merge_aggregate_combines_spot_and_futures_fixture_books`, `book_source_stream_ids_are_unique_per_venue` | No | Every `cargo test` |
+| `global_book_live_rest_merge` | Yes (Binance REST) | Only when opted in (see below) |
+
+The live test is marked `#[ignore]` and also checks `RUN_GLOBAL_BOOK_INTEGRATION` so CI and local default runs stay offline.
+
+To run the live global-book REST merge test locally:
+
+```bash
+cp .env.example .env
+# edit .env: RUN_GLOBAL_BOOK_INTEGRATION=1
+cargo test --test global_book global_book_live_rest_merge -- --ignored --nocapture
+```
+
+Optional: set `TROLLY_INTEGRATION_SYMBOL` in `.env` (default `BTCUSDT`).
+
+Run all global-book tests (fixtures only, live still skipped):
+
+```bash
+cargo test --test global_book
+```
+
 ## Benchmarks
 
 Criterion benchmarks for both serving paths:

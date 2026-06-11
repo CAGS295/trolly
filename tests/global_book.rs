@@ -1,11 +1,34 @@
-//! Global order book: cross-source merge and optional live REST integration.
+//! Global order book integration tests.
 //!
-//! Live test loads `.env` (see [`.env.example`](../.env.example)) and hits Binance REST when
-//! `RUN_GLOBAL_BOOK_INTEGRATION=1`.
+//! ## Offline (always run)
+//!
+//! Fixture-based tests in this file verify cross-source parsing and
+//! [`LimitOrderBook::merge_aggregate`] semantics without network I/O. They run on every
+//! `cargo test` and `cargo test --test global_book`.
+//!
+//! ## Live REST (opt-in)
+//!
+//! `global_book_live_rest_merge` is `#[ignore]` so default test runs never hit Binance.
+//! To run it locally:
+//!
+//! 1. `cp .env.example .env`
+//! 2. Set `RUN_GLOBAL_BOOK_INTEGRATION=1` in `.env`
+//! 3. `cargo test --test global_book global_book_live_rest_merge -- --ignored --nocapture`
+//!
+//! The env gate is a second safeguard: even with `--ignored`, the test no-ops unless
+//! `RUN_GLOBAL_BOOK_INTEGRATION` is `1` or `true`.
 
 use lob::LimitOrderBook;
 use trolly::monitor::{parse_book_sources, BookSource, Depth, Provider};
 use trolly::providers::{Binance, BinanceUsdM, Endpoints};
+
+fn global_book_integration_enabled() -> bool {
+    std::env::var("RUN_GLOBAL_BOOK_INTEGRATION")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+}
+
+// --- offline fixtures (no network) ---
 
 #[test]
 fn parse_cross_source_spot_and_usdm() {
@@ -50,16 +73,17 @@ async fn fetch_rest_book<E: Endpoints<Depth>>(endpoint: E, symbol: &str) -> Limi
         .expect("REST JSON")
 }
 
+// --- live REST (ignored unless explicitly enabled; see module docs) ---
+
 /// Fetches Binance spot + USDM REST snapshots and merges them (no WebSocket).
 #[tokio::test]
-#[ignore = "live Binance REST; set RUN_GLOBAL_BOOK_INTEGRATION=1 in .env"]
+#[ignore = "live Binance REST; copy .env.example to .env and set RUN_GLOBAL_BOOK_INTEGRATION=1"]
 async fn global_book_live_rest_merge() {
     dotenvy::dotenv().ok();
-    if !std::env::var("RUN_GLOBAL_BOOK_INTEGRATION")
-        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-        .unwrap_or(false)
-    {
-        eprintln!("skip: RUN_GLOBAL_BOOK_INTEGRATION not enabled");
+    if !global_book_integration_enabled() {
+        eprintln!(
+            "skip: set RUN_GLOBAL_BOOK_INTEGRATION=1 in .env (see .env.example) to run live REST merge"
+        );
         return;
     }
 

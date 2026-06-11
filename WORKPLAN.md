@@ -65,7 +65,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - documented flow: copy `.env.example` → `.env`, set `RUN_GLOBAL_BOOK_INTEGRATION=1`, run live test
   - `cargo test --test global_book global_book_live_rest_merge -- --ignored` passes when env enabled
   - default `cargo test` still skips live network; fixture tests always run
-- notes: complements WP-001; safe to run in parallel (disjoint scope).
+- notes: complements WP-001; safe to run in parallel (disjoint scope). Live REST test is `#[ignore]` + `RUN_GLOBAL_BOOK_INTEGRATION` in `.env` (see `.env.example`, `README.md` Testing); fixture tests in `tests/global_book.rs` always run offline.
 
 ### WP-003 — Provider expansion scaffold
 
@@ -91,6 +91,11 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - `cargo test --features tui` passes when TUI is touched
   - RPI subscription behavior documented in this file
 - notes: see `src/providers/.todo` — `add rpi support`. RPI stays optional.
+  - **Subscribe:** add `binance-usd-m:RPI:SYMBOL` to `--sources` (symbol uses `RPI:` prefix, e.g. `binance-usd-m:RPI:BTCUSDT`). Standard USDM depth remains `binance-usd-m:BTCUSDT` (`@depth`).
+  - **WebSocket:** first subscription message is `SET_PROPERTY combined=true` when any RPI leg is present; RPI maps to `{symbol}@rpiDepth@500ms`, standard to `{symbol}@depth`. REST snapshots strip the `RPI:` prefix (same underlying contract).
+  - **Routing:** combined-stream envelopes with `rpiDepth` in the stream name get `RPI:` prepended to the update symbol so handlers key as `RPI:SYMBOL`, distinct from `SYMBOL`.
+  - **Global merge:** `RPI:SYMBOL` canonical is separate from `SYMBOL`; RPI depth never folds into cross-source `MERGED·SYMBOL` unless you deliberately use the same symbol name on both legs.
+  - **TUI Δ tab:** requires both `binance-usd-m:SYMBOL` and `binance-usd-m:RPI:SYMBOL` in `--sources`; displays per-price `@depth − @rpiDepth` without writing back to the hub.
 
 ### WP-005 — Cleanup
 
