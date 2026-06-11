@@ -5,3 +5,8 @@ edition = "2021"
 
 [dependencies]
 trolly-stream = { path = "../trolly-stream" }
+tokio = { version = "1.20.1", features = ["rt", "macros", "sync"] }
+tokio-tungstenite = { version = "^0" }
+
+[dev-dependencies]
+tokio = { version = "1.20.1", features = ["rt", "macros", "sync", "test-util"] }
