@@ -150,7 +150,7 @@ impl GlobalBookHub {
         self.publish_serve_instrument(instrument);
     }
 
-    fn refresh_merged_for(&self, instrument: &str) {
+    pub(crate) fn refresh_merged_for(&self, instrument: &str) {
         let key = instrument.to_uppercase();
         let group: Vec<ReadHandleFactory<LimitOrderBook>> = {
             let inner = self.inner.lock().expect("hub lock");
@@ -361,9 +361,88 @@ pub async fn stream_global_depth_serve(_sources: &str, _port: Option<u16>) -> Re
     Err("global serve requires the `grpc` and/or `codec` feature".into())
 }
 
+/// Test / TUI helper: seeded per-source book factory from REST-style JSON.
+#[cfg(any(test, feature = "tui"))]
+pub fn test_book_factory_from_json(lob_json: &str) -> ReadHandleFactory<LimitOrderBook> {
+    use crate::monitor::order_book::Operations;
+
+    let lob: LimitOrderBook = serde_json::from_str(lob_json).expect("fixture book");
+    let (mut w, r) = left_right::new::<LimitOrderBook, Operations>();
+    w.append(Operations::Initialize(lob));
+    w.publish();
+    // Keep the writer alive: dropping it would tear down the read side used by factories.
+    std::mem::forget(w);
+    r.factory()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::monitor::order_book::Operations;
+
+    fn register_test_book(
+        hub: &GlobalBookHub,
+        stream_id: &str,
+        instrument: &str,
+        lob_json: &str,
+    ) {
+        let lob: LimitOrderBook = serde_json::from_str(lob_json).expect("fixture book");
+        let (mut w, r) = left_right::new::<LimitOrderBook, Operations>();
+        w.append(Operations::Initialize(lob));
+        w.publish();
+        hub.register_factory(stream_id.into(), r.factory(), instrument);
+        hub.refresh_merged_for(instrument);
+    }
+
+    fn merged_bid_qty(hub: &GlobalBookHub, instrument: &str) -> Option<f64> {
+        let factory = hub.merged_factory_for(instrument)?;
+        let handle = factory.handle();
+        let guard = handle.enter()?;
+        let text = format!("{}", *guard);
+        let after_bids = text.split(", bids: [").nth(1)?;
+        let level = after_bids.split(']').next()?;
+        let qty = level.split(':').nth(1)?;
+        qty.parse().ok()
+    }
+
+    #[test]
+    fn rpi_and_standard_usdm_use_distinct_canonical_merge_keys() {
+        let std = BookSource::parse("binance-usd-m:BTCUSDT").expect("std source");
+        let rpi = BookSource::parse("binance-usd-m:RPI:BTCUSDT").expect("rpi source");
+        assert_eq!(std.stream_id(), "binance-usd-m:BTCUSDT");
+        assert_eq!(rpi.stream_id(), "binance-usd-m:RPI:BTCUSDT");
+        assert_eq!(std.canonical_instrument(), "BTCUSDT");
+        assert_eq!(rpi.canonical_instrument(), "RPI:BTCUSDT");
+        assert_ne!(std.canonical_instrument(), rpi.canonical_instrument());
+    }
+
+    #[test]
+    fn rpi_per_source_book_does_not_pollute_canonical_btcusdt_merge() {
+        let hub = GlobalBookHub::new();
+        register_test_book(
+            &hub,
+            "binance-usd-m:BTCUSDT",
+            "BTCUSDT",
+            r#"{"lastUpdateId":1,"bids":[["100.0","1.0"]],"asks":[["101.0","1.0"]]}"#,
+        );
+        register_test_book(
+            &hub,
+            "binance-usd-m:RPI:BTCUSDT",
+            "RPI:BTCUSDT",
+            r#"{"lastUpdateId":2,"bids":[["100.0","9.0"]],"asks":[["101.0","9.0"]]}"#,
+        );
+
+        assert_eq!(
+            merged_bid_qty(&hub, "BTCUSDT"),
+            Some(1.0),
+            "canonical BTCUSDT merge must exclude RPI stream size"
+        );
+        assert_eq!(
+            merged_bid_qty(&hub, "RPI:BTCUSDT"),
+            Some(9.0),
+            "RPI stream keeps its own merged lane"
+        );
+    }
 
     #[cfg(any(feature = "codec", feature = "grpc"))]
     #[test]

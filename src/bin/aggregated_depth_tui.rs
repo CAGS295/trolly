@@ -476,8 +476,12 @@ fn tab_strip(stream_order: &[String]) -> (Vec<String>, Vec<TabKind>) {
                 kinds.push(TabKind::Sym(s.clone()));
             }
         }
-        labels.push(format!("Δ·{c}"));
-        kinds.push(TabKind::Diff(c.clone()));
+        // Δ is `@depth − @rpiDepth` for the base symbol only; RPI-prefixed canonical groups
+        // are separate per-source merges and must not get a duplicate/broken Δ tab.
+        if !c.starts_with(RPI_PREFIX) {
+            labels.push(format!("Δ·{c}"));
+            kinds.push(TabKind::Diff(c.clone()));
+        }
     }
     (labels, kinds)
 }
@@ -824,4 +828,77 @@ fn ui(
         .style(Style::default().bg(Color::Reset));
 
     f.render_widget(chart, chunks[2]);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use trolly::monitor::global_book::test_book_factory_from_json;
+
+    fn register_book(
+        stream_id: &str,
+        lob_json: &str,
+    ) -> HashMap<String, ReadHandleFactory<LimitOrderBook>> {
+        HashMap::from([(
+            stream_id.to_string(),
+            test_book_factory_from_json(lob_json),
+        )])
+    }
+
+    #[test]
+    fn diff_qty_levels_computes_right_minus_left() {
+        let left = vec![("100".into(), "2".into())];
+        let right = vec![("100".into(), "5".into())];
+        let d = diff_qty_levels(&left, &right, false);
+        assert_eq!(d, vec![("100".to_string(), "3".to_string())]);
+    }
+
+    #[test]
+    fn std_minus_rpi_snapshot_uses_per_source_factories() {
+        let mut factories = register_book(
+            "binance-usd-m:BTCUSDT",
+            r#"{"lastUpdateId":1,"bids":[["100.0","5.0"]],"asks":[]}"#,
+        );
+        factories.extend(register_book(
+            "binance-usd-m:RPI:BTCUSDT",
+            r#"{"lastUpdateId":2,"bids":[["100.0","2.0"]],"asks":[]}"#,
+        ));
+        let (_, _, bids, _) = try_snapshot_std_book_minus_rpi_stream("BTCUSDT", &factories)
+            .expect("both legs present");
+        assert_eq!(bids.len(), 1);
+        assert_eq!(bids[0].1, "3");
+        assert!(bids[0].0.starts_with("100"));
+    }
+
+    #[test]
+    fn tab_strip_adds_delta_only_for_base_canonical_not_rpi_prefix() {
+        let order = vec![
+            "binance-usd-m:BTCUSDT".into(),
+            "binance-usd-m:RPI:BTCUSDT".into(),
+        ];
+        let (labels, kinds) = tab_strip(&order);
+        let delta_labels: Vec<_> = labels
+            .iter()
+            .filter(|l| l.starts_with("Δ·"))
+            .cloned()
+            .collect();
+        assert_eq!(delta_labels, vec!["Δ·BTCUSDT"]);
+        assert!(kinds.iter().any(|k| matches!(k, TabKind::Diff(s) if s == "BTCUSDT")));
+        assert!(!kinds.iter().any(|k| matches!(k, TabKind::Diff(s) if s == "RPI:BTCUSDT")));
+    }
+
+    #[test]
+    fn hub_has_rpi_depth_pair_requires_both_legs() {
+        let std_only = register_book(
+            "binance-usd-m:BTCUSDT",
+            r#"{"lastUpdateId":1,"bids":[],"asks":[]}"#,
+        );
+        assert!(!hub_has_rpi_depth_pair(&std_only, "BTCUSDT"));
+        let mut both = std_only;
+        both.extend(register_book(
+            "binance-usd-m:RPI:BTCUSDT",
+            r#"{"lastUpdateId":2,"bids":[],"asks":[]}"#,
+        ));
+        assert!(hub_has_rpi_depth_pair(&both, "BTCUSDT"));
+    }
 }

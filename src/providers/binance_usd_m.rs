@@ -145,4 +145,19 @@ mod test {
         assert_eq!(raw, "BTCUSDT");
         assert!(!is_rpi);
     }
+
+    /// Symbols from `binance-usd-m:RPI:SYMBOL` book sources use the `RPI:` prefix on the
+    /// subscription symbol; ws layer maps that to `@rpiDepth@500ms`.
+    #[test]
+    fn subscription_book_source_rpi_symbol() {
+        let symbol = "RPI:BTCUSDC";
+        let msgs = BinanceUsdM.ws_subscriptions(std::iter::once(&symbol));
+        assert_eq!(msgs.len(), 2);
+        assert!(
+            msgs[1].contains("btcusdc@rpiDepth@500ms"),
+            "expected rpiDepth param, got {}",
+            msgs[1]
+        );
+        assert!(!msgs[1].contains("@depth\""));
+    }
 }
