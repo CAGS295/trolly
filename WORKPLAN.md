@@ -12,7 +12,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: 2026-06-07
+- last_run: 2026-06-11
 - max_parallel: 3
 
 ## Orchestrator notes
@@ -57,7 +57,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-002 — Integration test hygiene
 
-- status: todo
+- status: in_progress
 - repos: trolly
 - depends_on: []
 - scope: .env.example, tests/global_book.rs, WORKPLAN.md, changelog.md, README.md
@@ -81,7 +81,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-004 — Intra-provider overlays (Binance RPI)
 
-- status: todo
+- status: in_progress
 - repos: trolly
 - depends_on: [WP-003]
 - scope: src/providers/binance_usd_m.rs, src/bin/aggregated_depth_tui.rs, src/monitor/global_book.rs
@@ -106,7 +106,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-006 — Workspace layout and crate scaffold
 
-- status: todo
+- status: in_progress
 - repos: trolly
 - depends_on: []
 - scope: Cargo.toml, crates/trolly-stream/, crates/binance-spot-exec/, crates/binance-usdm-exec/, crates/trolly-strategy/, crates/trolly-gym/
