@@ -5,9 +5,9 @@ Project journal for shipped work. Active backlog lives in [`WORKPLAN.md`](WORKPL
 ## WIP
 
 - Add more exchange providers beyond Binance spot + USDM (stub scaffold landed; full venues remain).
-- Libtorch gym scaffold (WP-011 in progress).
 
 ## change log
++ WP-011: `trolly-gym` scaffold with stream-fed `Env`, replay buffer, torch feature gate.
 + WP-008: Binance spot user-data stream parsing and trolly-stream ingress.
 + WP-009: Binance USDM user-data execution crate with fixture tests.
 + WP-010: Strategy runtime with synthetic event integration tests.
