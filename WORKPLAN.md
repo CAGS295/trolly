@@ -57,7 +57,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-002 — Integration test hygiene
 
-- status: in_progress
+- status: done
 - repos: trolly
 - depends_on: []
 - scope: .env.example, tests/global_book.rs, WORKPLAN.md, changelog.md, README.md
@@ -81,7 +81,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-004 — Intra-provider overlays (Binance RPI)
 
-- status: in_progress
+- status: done
 - repos: trolly
 - depends_on: [WP-003]
 - scope: src/providers/binance_usd_m.rs, src/bin/aggregated_depth_tui.rs, src/monitor/global_book.rs
@@ -111,7 +111,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-006 — Workspace layout and crate scaffold
 
-- status: in_progress
+- status: done
 - repos: trolly
 - depends_on: []
 - scope: Cargo.toml, crates/trolly-stream/, crates/binance-spot-exec/, crates/binance-usdm-exec/, crates/trolly-strategy/, crates/trolly-gym/
@@ -124,7 +124,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-007 — Injectable multi-symbol stream (`trolly-stream`)
 
-- status: todo
+- status: in_progress
 - repos: trolly
 - depends_on: [WP-006]
 - scope: crates/trolly-stream/, src/connectors/multiplexor.rs, src/connectors/handler.rs, src/net/
