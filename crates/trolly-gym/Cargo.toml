@@ -1,0 +1,13 @@
+[package]
+name = "trolly-gym"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+binance-spot-exec = { path = "../binance-spot-exec" }
+binance-usdm-exec = { path = "../binance-usdm-exec" }
+trolly-strategy = { path = "../trolly-strategy" }
+
+[features]
+default = []
+torch = []
