@@ -5,9 +5,10 @@ Project journal for shipped work. Active backlog lives in [`WORKPLAN.md`](WORKPL
 ## WIP
 
 - Add more exchange providers beyond Binance spot + USDM (stub scaffold landed; full venues remain).
-- Workspace crates: stream ingress refactor (WP-007 in progress), Binance spot/USDM execution, strategy runtime, libtorch gym scaffold (see [`WORKPLAN.md`](WORKPLAN.md) WP-007 … WP-011).
+- Workspace crates: Binance spot/USDM execution and strategy runtime (WP-008–WP-010 in progress), libtorch gym scaffold (WP-011).
 
 ## change log
++ WP-007: extract stream multiplexor into `trolly-stream` with injectable `Message` ingress.
 + WP-004: Binance USDM RPI routing, global merge isolation, TUI Δ tab overlay tests.
 + WP-006: Cargo workspace with five standalone crates under `crates/`.
 + Document global book integration test flow; `#[ignore]` + `RUN_GLOBAL_BOOK_INTEGRATION` gate live REST.
