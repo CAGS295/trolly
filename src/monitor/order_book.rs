@@ -1,4 +1,5 @@
-use crate::{providers::Endpoints, EventHandler};
+use crate::EventHandler;
+use trolly_stream::VenueEndpoints;
 use left_right::{Absorb, ReadHandleFactory, WriteHandle};
 use lob::{DepthUpdate, LimitOrderBook};
 use tokio::sync::mpsc::UnboundedSender;
@@ -95,7 +96,7 @@ impl EventHandler<Depth> for OrderBook {
         sender: Self::Context,
     ) -> Result<(String, Self), Self::Error>
     where
-        En: Endpoints<Depth>,
+        En: VenueEndpoints,
     {
         assert_eq!(symbols.len(), 1);
         let symbol = symbols.first().expect("exactly one");

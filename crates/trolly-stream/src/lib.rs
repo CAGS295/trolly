@@ -1,6 +1,11 @@
-//! Shared stream ingress, routing, and event types (stub).
+//! Shared stream ingress, routing, and websocket adapters.
 
-/// Placeholder until WP-007 extracts the multiplexor and handler.
-pub fn stub() -> &'static str {
-    "trolly-stream"
-}
+mod endpoints;
+mod handler;
+mod multiplexor;
+mod ws_adapter;
+
+pub use endpoints::{StreamEndpoints, VenueEndpoints};
+pub use handler::{EventHandler, Message};
+pub use multiplexor::MonitorMultiplexor;
+pub use ws_adapter::{connect, disconnect};

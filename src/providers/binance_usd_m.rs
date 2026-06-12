@@ -13,8 +13,7 @@
 //! not fold into the canonical `BTCUSDT` merged book unless both are subscribed under the same
 //! symbol name (avoid that for production merge).
 
-use super::{ApiURL, Endpoints};
-use crate::monitor::Depth;
+use super::ApiURL;
 
 pub const RPI_PREFIX: &str = "RPI:";
 
@@ -34,7 +33,7 @@ impl ApiURL for BinanceUsdM {
     const REST: &'static str = "https://fapi.binance.com/fapi/v1";
 }
 
-impl Endpoints<Depth> for BinanceUsdM {
+impl trolly_stream::VenueEndpoints for BinanceUsdM {
     fn websocket_url(&self) -> String {
         format!("{}/stream", Self::STREAM)
     }
@@ -81,7 +80,7 @@ impl Endpoints<Depth> for BinanceUsdM {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::monitor::Depth;
+    use trolly_stream::VenueEndpoints;
 
     #[test]
     fn subscription_standard_only_skips_set_property() {
@@ -126,7 +125,7 @@ mod test {
 
     #[test]
     fn websocket_url() {
-        let url: String = <BinanceUsdM as Endpoints<Depth>>::websocket_url(&BinanceUsdM);
+        let url: String = BinanceUsdM.websocket_url();
         assert_eq!(url, "wss://fstream.binance.com/stream");
     }
 

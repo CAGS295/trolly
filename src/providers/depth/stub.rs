@@ -1,14 +1,10 @@
 //! Scaffold third venue for `--sources stub:SYMBOL` registration (WP-003).
 //! Not wired to a live exchange; endpoints are placeholders for future venues.
 
-use crate::monitor::Depth;
-
-use crate::providers::Endpoints;
-
 #[derive(Clone)]
 pub struct Stub;
 
-impl Endpoints<Depth> for Stub {
+impl trolly_stream::VenueEndpoints for Stub {
     fn websocket_url(&self) -> String {
         "wss://stub.example/ws".into()
     }
@@ -34,6 +30,7 @@ impl Endpoints<Depth> for Stub {
 #[cfg(test)]
 mod test {
     use super::*;
+    use trolly_stream::VenueEndpoints;
 
     #[test]
     fn websocket_url() {

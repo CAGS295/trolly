@@ -1,1 +1,1 @@
-pub(crate) mod ws_adapter;
+pub use trolly_stream::{connect, disconnect};

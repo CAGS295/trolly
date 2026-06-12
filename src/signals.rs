@@ -31,4 +31,8 @@ impl Terminate {
     pub fn is_terminated(&self) -> bool {
         self.0.load(Ordering::Relaxed)
     }
+
+    pub fn flag(&self) -> &Arc<AtomicBool> {
+        &self.0
+    }
 }

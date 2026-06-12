@@ -8,7 +8,8 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use crate::{providers::Endpoints, EventHandler};
+use crate::EventHandler;
+use trolly_stream::VenueEndpoints;
 
 use super::{
     order_book::{Operations, OrderBook},
@@ -238,7 +239,7 @@ impl EventHandler<Depth> for GlobalBookShard {
         (hub, venue): Self::Context,
     ) -> Result<(String, Self), Self::Error>
     where
-        En: Endpoints<Depth>,
+        En: VenueEndpoints,
     {
         assert_eq!(symbols.len(), 1);
         let symbol = symbols.first().expect("one symbol").as_ref().to_string();
@@ -279,7 +280,7 @@ impl EventHandler<Depth> for GlobalBookShard {
 
 /// Run one multiplexed WebSocket per provider, all feeding `hub`.
 pub async fn run_global_book_stream(hub: GlobalBookHub, sources: &[BookSource]) {
-    use crate::connectors::multiplexor::MonitorMultiplexor;
+    use crate::connectors::stream;
     use futures_util::future::join_all;
     use std::collections::HashMap;
 
@@ -300,7 +301,7 @@ pub async fn run_global_book_stream(hub: GlobalBookHub, sources: &[BookSource]) 
                     let syms: Vec<&str> = symbols.iter().map(String::as_str).collect();
                     match provider {
                         Provider::Binance => {
-                            MonitorMultiplexor::<GlobalBookShard, Depth>::stream::<_, _>(
+                            stream::<GlobalBookShard, Depth, _, _>(
                                 crate::providers::Binance,
                                 (hub, Provider::Binance),
                                 &syms,
@@ -308,7 +309,7 @@ pub async fn run_global_book_stream(hub: GlobalBookHub, sources: &[BookSource]) 
                             .await
                         }
                         Provider::BinanceUsdM => {
-                            MonitorMultiplexor::<GlobalBookShard, Depth>::stream::<_, _>(
+                            stream::<GlobalBookShard, Depth, _, _>(
                                 crate::providers::BinanceUsdM,
                                 (hub, Provider::BinanceUsdM),
                                 &syms,
@@ -316,7 +317,7 @@ pub async fn run_global_book_stream(hub: GlobalBookHub, sources: &[BookSource]) 
                             .await
                         }
                         Provider::Stub => {
-                            MonitorMultiplexor::<GlobalBookShard, Depth>::stream::<_, _>(
+                            stream::<GlobalBookShard, Depth, _, _>(
                                 crate::providers::Stub,
                                 (hub, Provider::Stub),
                                 &syms,

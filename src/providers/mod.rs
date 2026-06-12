@@ -7,12 +7,10 @@ pub use depth::Binance;
 pub use depth::Stub;
 pub use binance_usd_m::{BinanceUsdM, RPI_PREFIX};
 
-/// A [Provider] must implement this trait for [net] to know where to pull the data from.
-pub trait Endpoints<Monitorable> {
-    fn websocket_url(&self) -> String;
-    fn ws_subscriptions(&self, symbols: impl Iterator<Item = impl AsRef<str>>) -> Vec<String>;
-    fn rest_api_url(&self, symbol: impl AsRef<str>) -> String;
-}
+/// Marker trait for venue endpoints scoped to a monitor type (e.g. [`crate::monitor::Depth`]).
+pub trait Endpoints<Monitorable>: trolly_stream::VenueEndpoints {}
+
+impl<M, T: trolly_stream::VenueEndpoints + ?Sized> Endpoints<M> for T {}
 
 trait ApiURL {
     const STREAM: &'static str;

@@ -1,9 +1,7 @@
 //! Depth [`crate::EventHandler`] that prints each update to stdout (no REST snapshot, no server).
 
-use crate::{
-    providers::Endpoints,
-    EventHandler,
-};
+use crate::EventHandler;
+use trolly_stream::VenueEndpoints;
 use lob::DepthUpdate;
 use tokio_tungstenite::tungstenite::Message;
 use tracing::{instrument, warn};
@@ -47,7 +45,7 @@ impl EventHandler<Depth> for EchoDepth {
         (): Self::Context,
     ) -> Result<(String, Self), Self::Error>
     where
-        En: Endpoints<Depth>,
+        En: VenueEndpoints,
     {
         assert_eq!(symbols.len(), 1, "echo handler is built per symbol");
         let symbol = symbols

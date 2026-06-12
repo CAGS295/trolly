@@ -1,7 +1,8 @@
 use futures_util::{SinkExt, StreamExt};
 use http::Uri;
 use tokio_tungstenite::tungstenite::Message;
-use trolly::providers::{BinanceUsdM, Endpoints};
+use trolly::providers::BinanceUsdM;
+use trolly::VenueEndpoints;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

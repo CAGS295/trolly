@@ -1,6 +1,4 @@
-use crate::monitor::Depth;
-
-use super::super::super::{ApiURL, Endpoints};
+use super::super::super::ApiURL;
 
 #[derive(Clone)]
 pub struct Binance;
@@ -10,7 +8,7 @@ impl ApiURL for Binance {
     const REST: &'static str = "https://api.binance.com/api/v3";
 }
 
-impl Endpoints<Depth> for Binance {
+impl trolly_stream::VenueEndpoints for Binance {
     fn websocket_url(&self) -> String {
         format!("{}/ws", Self::STREAM)
     }
@@ -36,7 +34,7 @@ impl Endpoints<Depth> for Binance {
 #[cfg(test)]
 mod test {
     use super::Binance;
-    use super::Endpoints;
+    use trolly_stream::VenueEndpoints;
 
     #[test]
     fn subscription_serialization() {

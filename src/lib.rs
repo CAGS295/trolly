@@ -10,8 +10,7 @@ pub mod signals;
 pub use cli::Cli;
 pub use lob;
 pub use tokio;
-
-pub(crate) use connectors::handler::EventHandler;
+pub use trolly_stream::{self, EventHandler, Message, MonitorMultiplexor, StreamEndpoints, VenueEndpoints};
 
 #[cfg(feature = "grpc")]
 pub mod grpc {
