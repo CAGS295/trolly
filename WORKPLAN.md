@@ -7,7 +7,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 - Have a command to build a global order book.
 - Stream-native execution and account bookkeeping (Binance spot + USDM); outbound order placement as follow-on work items (WP-012–WP-015).
 - A strategy layer that consumes multi-symbol stream events and dispatches outbound messages.
-- Groundwork for a libtorch.rs training gym fed by trolly streams.
+- Groundwork for a libtorch.rs training gym fed by trolly streams; toolchain choice deferred to WP-016 analysis.
 
 ## Meta
 
@@ -241,6 +241,40 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - integration with `trolly-strategy` egress and/or `Execute` CLI subcommand stub replaced with a minimal place-order entrypoint
   - mock or recorded HTTP/WS tests (no live keys in CI); `cargo test -p binance-spot-exec` passes
 - notes: WP-008 is ingest-only today. This WP adds outbound execution while keeping account book updates stream-driven.
+
+### WP-016 — RL training and inference toolchain analysis (`trolly-gym`)
+
+- status: todo
+- repos: trolly
+- depends_on: [WP-011]
+- scope: crates/trolly-gym/, docs/ or crates/trolly-gym/docs/
+- acceptance:
+  - written analysis (ADR or design doc in-repo) comparing Rust-native and hybrid ML stacks for **training** and **live inference** on stream-fed RL
+  - evaluate at minimum: `tch`/libtorch.rs (current `torch` feature), Candle, Burn, ONNX Runtime (`ort`), and a Python/PyTorch sidecar or IPC bridge — with notes on GPU/CPU, libtorch install burden, and CI feasibility
+  - map each candidate to `trolly-gym` integration points: [`Env`](crates/trolly-gym/src/env.rs) stepping, [`ObservationWindow`](crates/trolly-gym/src/observation.rs), [`ReplayBuffer`](crates/trolly-gym/src/replay.rs), [`Action`](crates/trolly-gym/src/action.rs) → `trolly-strategy` egress, and stream latency / backpressure constraints
+  - cover RL algorithm families relevant to market making / execution (on-policy e.g. PPO, off-policy e.g. DQN/SAC, offline/batch from replay) and which stacks support them without a full rewrite
+  - separate recommendations for **offline training** (batch replay, checkpoints, experiment tracking) vs **online inference** (sub-ms to low-ms action loop, model hot-swap, deterministic fallbacks)
+  - explicit decision: primary toolchain, optional fallback, and what stays feature-gated in `trolly-gym`; list follow-on implementation WPs (training loop, checkpoint I/O, inference hook) without implementing them here
+  - no new runtime dependency required in default `cargo check --workspace`; analysis-only deliverable linked from [`crates/trolly-gym/README.md`](crates/trolly-gym/README.md)
+- notes: WP-011 landed the scaffold with an optional `torch`/`tch` gate. This WP is research and architecture — pick stacks before committing to a training loop, GPU CI, or production inference path.
+
+### WP-017 — Binance demo integration tests (spot + USDM)
+
+- status: todo
+- repos: trolly
+- depends_on: [WP-002, WP-008, WP-009]
+- scope: .env.example, tests/, crates/binance-spot-exec/, crates/binance-usdm-exec/, README.md
+- acceptance:
+  - extend [`.env.example`](.env.example) with demo credentials and opt-in flags (pattern matches WP-002): at minimum `DEMO_BINANCE_KEY`, `DEMO_BINANCE_SECRET`, `RUN_BINANCE_DEMO_INTEGRATION=0`, optional `TROLLY_DEMO_SYMBOL` (default `BTCUSDT`); document `cp .env.example .env` — this file is the repo env sample (no separate `.env.sample`)
+  - document demo base URLs in README and/or test module docs:
+    - **Spot demo** — [Spot Demo general info](https://developers.binance.com/docs/binance-spot-api-docs/demo-mode/general-info): REST `https://demo-api.binance.com/api`, WS API `wss://demo-ws-api.binance.com/ws-api/v3`, market streams `wss://demo-stream.binance.com/ws` (map from production hosts in [`src/providers/depth/binance/spot.rs`](src/providers/depth/binance/spot.rs) and [`crates/binance-spot-exec`](crates/binance-spot-exec))
+    - **USDM demo** — [Derivatives docs](https://developers.binance.com/docs/derivatives/): REST `https://demo-fapi.binance.com`, market streams `wss://fstream.binancefuture.com` per [USDM general info](https://developers.binance.com/docs/derivatives/usds-margined-futures/general-info); user-data via `POST /fapi/v1/listenKey` on demo REST + private WS per [`crates/binance-usdm-exec`](crates/binance-usdm-exec)
+  - `#[ignore]` integration tests (require `RUN_BINANCE_DEMO_INTEGRATION=1`, `--ignored`, and demo keys in `.env`):
+    - spot: demo REST depth snapshot + signed user-data subscribe on demo WS API; assert parsed `executionReport` / account events when demo account activity exists (or skip with clear message if idle)
+    - USDM: demo REST depth + listenKey lifecycle on `demo-fapi.binance.com` + user-data stream; assert `ORDER_TRADE_UPDATE` / `ACCOUNT_UPDATE` parsing against live demo payloads when available
+  - default `cargo test --workspace` stays offline; demo tests skip cleanly when flag unset or keys missing
+  - optional follow-on (after WP-014 / WP-015): demo order place → user-stream reconcile round-trip for spot and USDM — document as sub-checklist in test module, not blocking this WP
+- notes: uses Binance **demo/testnet** endpoints only — never production keys. Complements WP-002 (public REST merge); this WP adds authenticated streams and venue-specific demo host wiring. Geo/network restrictions may skip in CI; verify on unrestricted egress like WP-002.
 
 ## Completed milestones
 
