@@ -121,7 +121,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-007 — Injectable multi-symbol stream (`trolly-stream`)
 
-- status: in_progress
+- status: done
 - repos: trolly
 - depends_on: [WP-006]
 - scope: crates/trolly-stream/, src/connectors/multiplexor.rs, src/connectors/handler.rs, src/net/
@@ -135,7 +135,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-008 — Binance spot execution crate (`binance-spot-exec`)
 
-- status: todo
+- status: in_progress
 - repos: trolly
 - depends_on: [WP-007]
 - scope: crates/binance-spot-exec/
@@ -149,7 +149,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-009 — Binance USDM execution crate (`binance-usdm-exec`)
 
-- status: todo
+- status: in_progress
 - repos: trolly
 - depends_on: [WP-007]
 - scope: crates/binance-usdm-exec/
@@ -161,7 +161,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-010 — Strategy component (`trolly-strategy`)
 
-- status: todo
+- status: in_progress
 - repos: trolly
 - depends_on: [WP-007]
 - scope: crates/trolly-strategy/
