@@ -1,11 +1,24 @@
-//! libtorch.rs training gym scaffold over trolly streams (stub).
+//! libtorch.rs training gym scaffold over trolly streams.
+//!
+//! Consumes normalized stream events for observations, steps with discrete
+//! actions dispatched through [`trolly_strategy::StreamEgress`], and records
+//! transitions in a replay ring buffer. Libtorch integration is behind the
+//! `torch` feature flag.
 
-/// Placeholder until WP-011 implements the training gym.
-pub fn stub() -> &'static str {
-    "trolly-gym"
-}
+mod action;
+mod env;
+mod observation;
+mod replay;
 
 #[cfg(feature = "torch")]
+pub mod libtorch;
+
+pub use action::Action;
+pub use env::{Env, EnvConfig, StepResult};
+pub use observation::{features_from_event, FeatureVector, ObservationWindow};
+pub use replay::{FeatureRingBuffer, ReplayBuffer, Transition};
+
+/// Whether the crate was built with libtorch support.
 pub fn torch_enabled() -> bool {
-    true
+    cfg!(feature = "torch")
 }

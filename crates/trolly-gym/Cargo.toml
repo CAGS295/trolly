@@ -6,7 +6,11 @@ edition = "2021"
 [dependencies]
 trolly-strategy = { path = "../trolly-strategy" }
 trolly-stream = { path = "../trolly-stream" }
+tch = { version = "0.16", optional = true }
 
 [features]
 default = []
-torch = []
+torch = ["dep:tch"]
+
+[dev-dependencies]
+trolly-strategy = { path = "../trolly-strategy" }
