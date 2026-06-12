@@ -16,6 +16,14 @@ pub struct MonitorMultiplexor<Handle, Monitorable> {
 }
 
 impl<H, M> MonitorMultiplexor<H, M> {
+    /// Build a multiplexor from pre-built per-id handlers (injectable ingress / tests).
+    pub fn from_writers(writers: HashMap<String, H>) -> Self {
+        Self {
+            writers,
+            _p: PhantomData,
+        }
+    }
+
     async fn build<En>(
         provider: En,
         symbols: &[impl AsRef<str>],
