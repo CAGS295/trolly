@@ -35,7 +35,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 | `trolly-strategy` | Strategy runtime: consume multi-symbol events, hold state, dispatch outbound stream messages | **yes** | Core state-handling unit; depends only on `trolly-stream` |
 | `trolly-gym` | libtorch.rs training gym scaffold: observation windows, replay, inference hook over streams | **yes** | `torch` feature-gated; avoids rebuilding monitor/server on model edits |
 | `trolly` (root) | CLI, depth monitor, global book hub, gRPC/SCALE servers | no (app) | Composes workspace crates; keeps `lob`/server features here for now |
-| `patches/lob` | Order book merge | submodule | unchanged |
+| `patches/lob` | Order book merge | submodule | track `main`; commit lob changes on `main`, then bump the submodule pointer in trolly |
 
 **Dependency DAG:** `trolly-stream` ← `{binance-spot-exec, binance-usdm-exec, trolly-strategy}` ← `trolly-gym` ← `trolly`.
 

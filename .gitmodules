@@ -1,3 +1,4 @@
 [submodule "lob"]
 	path = patches/lob
 	url = https://github.com/CAGS295/lob.git
+	branch = main

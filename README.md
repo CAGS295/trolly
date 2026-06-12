@@ -139,8 +139,13 @@ that is `#[ignore]` so CI and local runs without credentials never hit the netwo
 
 ```bash
 git submodule update --init patches/lob
+cd patches/lob && git checkout main   # stay on branch, not detached HEAD
+cd ../..
 cargo test --test global_book
 ```
+
+`patches/lob` is developed in parallel with trolly. Commit lob changes on **`main`**, then
+record the new tip in trolly (`git add patches/lob && git commit`).
 
 **Live REST merge (opt-in, requires Binance HTTPS):**
 
