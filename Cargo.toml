@@ -59,8 +59,8 @@ crossterm = { version = "0.28", optional = true }
 regex = { version = "1", optional = true }
 prometheus = { version = "0.13", optional = true }
 
-[patch."https://github.com/CAGS295/lob.git"]
-lob = { path = "./patches/lob" }
+#[patch."https://github.com/CAGS295/lob.git"]
+#lob = { path = "./patches/lob" }
 
 [dev-dependencies]
 rand = { version = "*" }
