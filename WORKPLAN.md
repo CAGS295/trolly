@@ -22,6 +22,12 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 - Mark selected items `in_progress` before spawning workers; only the orchestrator sets `done` or `blocked` after acceptance checks.
 - Workers must not change item status; return the structured payload from the automation prompt.
 - On completion: set `last_run`, append a `+` line to [`changelog.md`](changelog.md) **change log**, trim matching **WIP** bullets there.
+- **Patched dependencies** (`patches/lob`, root `[patch]` in [`Cargo.toml`](Cargo.toml)): whenever scope touches a patched crate or submodule:
+  1. **Comment in** — uncomment the `[patch."https://github.com/CAGS295/lob.git"]` block so `lob = { path = "./patches/lob" }` is active before `cargo test` / `cargo check`.
+  2. **Submodule commit** — commit and push lob changes on **`patches/lob` `main`**, then bump the submodule pointer in trolly (`git add patches/lob`).
+  3. **Comment out** — re-comment the `[patch]` block before closing the item (default branch builds against git `lob`; patch-in is for local/submodule development only).
+  4. **Commit in trolly** — include `Cargo.toml` (patch commented out) and `patches/lob` pointer in the same commit or PR as the work item; do not leave submodule bumps or patch toggles unstaged.
+  Orchestrator acceptance: verify `[patch]` is commented out on `main`, submodule pointer matches lob `main` when lob changed, and `git submodule update --init patches/lob && cargo test` passes.
 
 ## Crate architecture
 
@@ -35,7 +41,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 | `trolly-strategy` | Strategy runtime: consume multi-symbol events, hold state, dispatch outbound stream messages | **yes** | Core state-handling unit; depends only on `trolly-stream` |
 | `trolly-gym` | libtorch.rs training gym scaffold: observation windows, replay, inference hook over streams | **yes** | `torch` feature-gated; avoids rebuilding monitor/server on model edits |
 | `trolly` (root) | CLI, depth monitor, global book hub, gRPC/SCALE servers | no (app) | Composes workspace crates; keeps `lob`/server features here for now |
-| `patches/lob` | Order book merge | submodule | track `main`; commit lob changes on `main`, then bump the submodule pointer in trolly |
+| `patches/lob` | Order book merge | submodule | track `main`; **patch in** `[patch]` for dev/tests, **patch out** + commit pointer on ship (see Orchestrator notes) |
 
 **Dependency DAG:** `trolly-stream` ← `{binance-spot-exec, binance-usdm-exec, trolly-strategy}` ← `trolly-gym` ← `trolly`.
 
