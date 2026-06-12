@@ -76,14 +76,21 @@ fn main() -> color_eyre::Result<()> {
     Ok(())
 }
 
-/// Instrument key for cross-source merge (strip known provider prefix from stream id).
+/// Display / tab-group instrument (strip provider prefix and optional `RPI:` overlay prefix).
+///
+/// Differs from [`BookSource::canonical_instrument`]: the hub keeps RPI on a separate merge
+/// bucket (`RPI:BTCUSDT`) so `@rpiDepth` never pollutes the cross-source `BTCUSDT` merge, while
+/// the TUI groups `@depth` and `@rpiDepth` legs under one `Δ·BTCUSDT` tab.
 fn canonical_from_stream_id(stream_id: &str) -> String {
-    for prefix in ["binance-usd-m:", "binance:"] {
-        if let Some(sym) = stream_id.strip_prefix(prefix) {
-            return sym.to_uppercase();
-        }
+    let sym = ["binance-usd-m:", "binance:", "stub:"]
+        .iter()
+        .find_map(|prefix| stream_id.strip_prefix(prefix))
+        .unwrap_or(stream_id);
+    if let Some(raw) = sym.strip_prefix(RPI_PREFIX) {
+        raw.to_uppercase()
+    } else {
+        sym.to_uppercase()
     }
-    stream_id.to_uppercase()
 }
 
 /// Parse [`lob::LimitOrderBook`]'s `Display` output (`price:qty` tuples) into ladder rows.
@@ -363,9 +370,18 @@ fn hub_has_rpi_depth_pair(
     factories_by_symbol: &HashMap<String, ReadHandleFactory<LimitOrderBook>>,
     instrument: &str,
 ) -> bool {
+    rpi_depth_pair_in_keys(factories_by_symbol.keys().map(String::as_str), instrument)
+}
+
+fn rpi_depth_pair_in_keys<'a>(
+    keys: impl IntoIterator<Item = &'a str>,
+    instrument: &str,
+) -> bool {
     let base = instrument.to_uppercase();
-    hub_has_symbol(factories_by_symbol, &usdm_std_stream_id(&base))
-        && hub_has_symbol(factories_by_symbol, &usdm_rpi_stream_id(&base))
+    let std_key = usdm_std_stream_id(&base);
+    let rpi_key = usdm_rpi_stream_id(&base);
+    let keys: HashSet<String> = keys.into_iter().map(str::to_ascii_uppercase).collect();
+    keys.contains(&std_key.to_ascii_uppercase()) && keys.contains(&rpi_key.to_ascii_uppercase())
 }
 
 const BOOK_ENTER_RETRIES: u32 = 48;
@@ -824,4 +840,66 @@ fn ui(
         .style(Style::default().bg(Color::Reset));
 
     f.render_widget(chart, chunks[2]);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn canonical_from_stream_id_strips_provider_and_rpi_prefix() {
+        assert_eq!(
+            canonical_from_stream_id("binance-usd-m:RPI:BTCUSDT"),
+            "BTCUSDT"
+        );
+        assert_eq!(canonical_from_stream_id("binance-usd-m:BTCUSDT"), "BTCUSDT");
+        assert_eq!(canonical_from_stream_id("binance:ETHUSDT"), "ETHUSDT");
+    }
+
+    #[test]
+    fn tab_strip_groups_rpi_with_standard_under_same_instrument() {
+        let order = vec![
+            "binance-usd-m:BTCUSDT".into(),
+            "binance-usd-m:RPI:BTCUSDT".into(),
+        ];
+        let (labels, kinds) = tab_strip(&order);
+        assert_eq!(
+            labels,
+            vec![
+                "MERGED·BTCUSDT".to_string(),
+                "binance-usd-m:BTCUSDT".to_string(),
+                "binance-usd-m:RPI:BTCUSDT".to_string(),
+                "Δ·BTCUSDT".to_string(),
+            ]
+        );
+        assert!(matches!(kinds[3], TabKind::Diff(ref s) if s == "BTCUSDT"));
+    }
+
+    #[test]
+    fn rpi_depth_pair_in_keys_requires_both_legs() {
+        assert!(!rpi_depth_pair_in_keys(["binance-usd-m:BTCUSDT"], "BTCUSDT"));
+        assert!(rpi_depth_pair_in_keys(
+            ["binance-usd-m:BTCUSDT", "binance-usd-m:RPI:BTCUSDT"],
+            "BTCUSDT"
+        ));
+    }
+
+    #[test]
+    fn diff_qty_levels_std_minus_rpi_per_price() {
+        let rpi = vec![("100".into(), "1".into())];
+        let std = vec![("100".into(), "3".into())];
+        let db = diff_qty_levels(&rpi, &std, false);
+        assert_eq!(db.len(), 1);
+        assert_eq!(db[0].1.parse::<f64>().unwrap(), 2.0);
+    }
+
+    #[test]
+    fn diff_qty_levels_keeps_zero_delta_when_requested() {
+        let left = vec![("100".into(), "1".into())];
+        let right = vec![("100".into(), "1".into())];
+        let with_zero = diff_qty_levels(&left, &right, false);
+        assert_eq!(with_zero.len(), 1);
+        assert_eq!(with_zero[0].1.parse::<f64>().unwrap(), 0.0);
+        assert!(diff_qty_levels(&left, &right, true).is_empty());
+    }
 }

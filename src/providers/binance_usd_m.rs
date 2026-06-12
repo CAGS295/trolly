@@ -1,7 +1,30 @@
+//! Binance USDM (USD-M futures) depth endpoints.
+//!
+//! ## RPI overlay streams (optional)
+//!
+//! Subscribe with an `RPI:` symbol prefix (CLI / `--sources`: `binance-usd-m:RPI:BTCUSDT`) to
+//! open the `@rpiDepth@500ms` combined stream instead of `@depth`. The provider sends
+//! `SET_PROPERTY combined=true` before `SUBSCRIBE` when any symbol in the batch uses RPI.
+//!
+//! REST snapshots always use the bare symbol (`BTCUSDT`); RPI is WebSocket-only. Parsed
+//! `@rpiDepth` envelopes get [`crate::providers::RPI_PREFIX`] prepended to the update symbol so
+//! multiplex routing keeps `@depth` and `@rpiDepth` on separate handlers
+//! (`BTCUSDT` vs `RPI:BTCUSDT`). Global merge keys follow the subscription symbol, so RPI does
+//! not fold into the canonical `BTCUSDT` merged book unless both are subscribed under the same
+//! symbol name (avoid that for production merge).
+
 use super::{ApiURL, Endpoints};
 use crate::monitor::Depth;
 
 pub const RPI_PREFIX: &str = "RPI:";
+
+/// Strip optional [`RPI_PREFIX`] from a subscription symbol; returns `(bare_symbol, is_rpi)`.
+pub fn strip_rpi(symbol: &str) -> (&str, bool) {
+    match symbol.strip_prefix(RPI_PREFIX) {
+        Some(raw) => (raw, true),
+        None => (symbol, false),
+    }
+}
 
 #[derive(Clone)]
 pub struct BinanceUsdM;
@@ -9,13 +32,6 @@ pub struct BinanceUsdM;
 impl ApiURL for BinanceUsdM {
     const STREAM: &'static str = "wss://fstream.binance.com";
     const REST: &'static str = "https://fapi.binance.com/fapi/v1";
-}
-
-fn strip_rpi(symbol: &str) -> (&str, bool) {
-    match symbol.strip_prefix(RPI_PREFIX) {
-        Some(raw) => (raw, true),
-        None => (symbol, false),
-    }
 }
 
 impl Endpoints<Depth> for BinanceUsdM {

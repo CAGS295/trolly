@@ -381,4 +381,61 @@ mod tests {
             .expect("lock")
             .contains_key("BTCUSDT"));
     }
+
+    #[test]
+    fn rpi_stream_does_not_pollute_standard_merge_bucket() {
+        use lob::PriceAndQuantity;
+
+        let hub = GlobalBookHub::new();
+
+        let mut std_book = LimitOrderBook::new();
+        std_book.add_bid(PriceAndQuantity(50_000.0, 2.0));
+        std_book.update_id = 10;
+        let (mut std_w, std_r) = left_right::new::<LimitOrderBook, Operations>();
+        std_w.append(Operations::Initialize(std_book));
+        std_w.publish();
+        hub.register_factory(
+            "binance-usd-m:BTCUSDT".into(),
+            std_r.factory(),
+            "BTCUSDT",
+        );
+
+        let mut rpi_book = LimitOrderBook::new();
+        rpi_book.add_bid(PriceAndQuantity(49_000.0, 9.0));
+        rpi_book.update_id = 20;
+        let (mut rpi_w, rpi_r) = left_right::new::<LimitOrderBook, Operations>();
+        rpi_w.append(Operations::Initialize(rpi_book));
+        rpi_w.publish();
+        hub.register_factory(
+            "binance-usd-m:RPI:BTCUSDT".into(),
+            rpi_r.factory(),
+            "RPI:BTCUSDT",
+        );
+
+        hub.refresh_merged_for("BTCUSDT");
+        hub.refresh_merged_for("RPI:BTCUSDT");
+
+        let merged_std = hub
+            .merged_factory_for("BTCUSDT")
+            .unwrap()
+            .handle()
+            .enter()
+            .unwrap()
+            .clone();
+        let merged_rpi = hub
+            .merged_factory_for("RPI:BTCUSDT")
+            .unwrap()
+            .handle()
+            .enter()
+            .unwrap()
+            .clone();
+
+        assert_eq!(merged_std.update_id, 10);
+        assert_eq!(merged_rpi.update_id, 20);
+        let std_text = format!("{merged_std}");
+        let rpi_text = format!("{merged_rpi}");
+        assert!(std_text.contains("50000:2"), "{std_text}");
+        assert!(rpi_text.contains("49000:9"), "{rpi_text}");
+        assert!(!std_text.contains("49000:9"), "RPI book leaked into BTCUSDT merge");
+    }
 }
