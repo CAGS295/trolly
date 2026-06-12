@@ -57,7 +57,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-002 — Integration test hygiene
 
-- status: in_progress
+- status: done
 - repos: trolly
 - depends_on: []
 - scope: .env.example, tests/global_book.rs, WORKPLAN.md, changelog.md, README.md
@@ -82,7 +82,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-004 — Intra-provider overlays (Binance RPI)
 
-- status: in_progress
+- status: done
 - repos: trolly
 - depends_on: [WP-003]
 - scope: src/providers/binance_usd_m.rs, src/bin/aggregated_depth_tui.rs, src/monitor/global_book.rs
@@ -91,7 +91,8 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - TUI `Δ` tab shows overlay without polluting canonical global merge
   - `cargo test --features tui` passes when TUI is touched
   - RPI subscription behavior documented in this file
-- notes: see `src/providers/.todo` — `add rpi support`. RPI stays optional.
+- notes: |
+    RPI stays optional. **Subscription:** prefix symbol with `RPI:` (`binance-usd-m:RPI:BTCUSDT`); WebSocket maps to `{symbol}@rpiDepth@500ms` on combined stream; `SET_PROPERTY combined=true` sent before `SUBSCRIBE` when batch includes RPI. **REST:** bare symbol only. **Routing:** `rpiDepth` envelopes get `RPI:` prepended (`RPI:BTCUSDT`), separate from standard `@depth`. **Global merge:** RPI uses merge key `RPI:BTCUSDT`, not cross-source `BTCUSDT`. **TUI Δ tab:** groups `@depth` and `@rpiDepth` under bare instrument; shows `@depth − @rpiDepth` per price when both legs are in `--sources`.
 
 ### WP-005 — Cleanup
 
@@ -107,7 +108,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-006 — Workspace layout and crate scaffold
 
-- status: in_progress
+- status: done
 - repos: trolly
 - depends_on: []
 - scope: Cargo.toml, crates/trolly-stream/, crates/binance-spot-exec/, crates/binance-usdm-exec/, crates/trolly-strategy/, crates/trolly-gym/
@@ -120,7 +121,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-007 — Injectable multi-symbol stream (`trolly-stream`)
 
-- status: todo
+- status: in_progress
 - repos: trolly
 - depends_on: [WP-006]
 - scope: crates/trolly-stream/, src/connectors/multiplexor.rs, src/connectors/handler.rs, src/net/

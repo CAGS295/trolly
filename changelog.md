@@ -8,6 +8,8 @@ Project journal for shipped work. Active backlog lives in [`WORKPLAN.md`](WORKPL
 - Workspace crates: stream ingress refactor, Binance spot/USDM execution, strategy runtime, libtorch gym scaffold (see [`WORKPLAN.md`](WORKPLAN.md) WP-006 … WP-011).
 
 ## change log
++ Binance USDM RPI overlay: end-to-end routing, TUI Δ tab (`@depth − @rpiDepth`), global merge isolation.
++ Cargo workspace scaffold: `trolly-stream`, `binance-spot-exec`, `binance-usdm-exec`, `trolly-strategy`, `trolly-gym` stub crates.
 + Document global-book integration test flow: offline fixtures by default, opt-in live REST via `.env` + `--ignored`.
 + Reduce full-book clones on global book merge hot path via `merge_aggregate_absorb`.
 + Refactor Binance spot to `depth::binance::spot`; add `stub` provider scaffold for `--sources`.
