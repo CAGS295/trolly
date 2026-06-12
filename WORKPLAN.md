@@ -5,7 +5,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 ## Goals
 
 - Have a command to build a global order book.
-- Stream-native execution and account bookkeeping (Binance spot + USDM, no REST).
+- Stream-native execution and account bookkeeping (Binance spot + USDM); outbound order placement as follow-on work items (WP-012–WP-015).
 - A strategy layer that consumes multi-symbol stream events and dispatches outbound messages.
 - Groundwork for a libtorch.rs training gym fed by trolly streams.
 
@@ -186,6 +186,61 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - one offline smoke test with mock observations (no GPU required in CI)
   - README section in crate documents build (`--features torch`) and dependency on libtorch
 - notes: training loop and model checkpoints out of scope; this WP is layout + stream integration hooks only.
+
+### WP-012 — USDM position bookkeeping (`binance-usdm-exec`)
+
+- status: todo
+- repos: trolly
+- depends_on: [WP-009]
+- scope: crates/binance-usdm-exec/
+- acceptance:
+  - `ACCOUNT_UPDATE` position rows persisted in account-wide state (not only per-symbol handler side effects)
+  - `SymbolBookkeeping.positions` reflects latest `PositionChange` per `(symbol, position_side)` with clear zero/close semantics
+  - balance rows from the same event remain routable to `__account__` without duplicating position state
+  - fixture tests cover multi-leg `ACCOUNT_UPDATE` (LONG/SHORT/BOTH) and position flatten
+  - `cargo test -p binance-usdm-exec` passes
+- notes: WP-009 parses and routes positions; this WP completes durable bookkeeping and query API for strategy / CLI consumers.
+
+### WP-013 — USDM margin-call handling (`binance-usdm-exec`)
+
+- status: todo
+- repos: trolly
+- depends_on: [WP-012]
+- scope: crates/binance-usdm-exec/
+- acceptance:
+  - `MARGIN_CALL` events applied to account state (cross wallet balance + affected positions snapshot)
+  - margin-call updates forwarded on the same outbound channel as other `UsdmExecUpdate` variants
+  - `__account__` handler records latest margin-call payload (timestamp + positions) for strategy inspection
+  - fixture test for `MARGIN_CALL` parse → route → state; `cargo test -p binance-usdm-exec` passes
+- notes: parsing exists today; this WP adds persistence, lifecycle (supersede on newer call), and documented semantics for downstream alerts.
+
+### WP-014 — USDM order placement (`binance-usdm-exec`)
+
+- status: todo
+- repos: trolly
+- depends_on: [WP-013]
+- scope: crates/binance-usdm-exec/, crates/trolly-strategy/
+- acceptance:
+  - signed outbound order API (REST `POST /fapi/v1/order` or Binance WebSocket trading API — pick one, document in crate README)
+  - request builder covers market/limit basics: symbol, side, quantity, price (limit), `positionSide` where required
+  - placement errors surfaced as typed results; no silent fallback
+  - integration with `trolly-strategy` egress: strategy can dispatch a normalized place-order command consumed by USDM exec
+  - mock or recorded HTTP/WS tests (no live keys in CI); `cargo test -p binance-usdm-exec` passes
+- notes: extends WP-009 beyond stream-native bookkeeping. Listen-key create/keepalive may live here or in a small helper module; document caller responsibilities.
+
+### WP-015 — Spot order execution (`binance-spot-exec`)
+
+- status: todo
+- repos: trolly
+- depends_on: [WP-008]
+- scope: crates/binance-spot-exec/, crates/trolly-strategy/, src/cli/mod.rs
+- acceptance:
+  - signed outbound order API (REST `POST /api/v3/order` or Binance WebSocket trading API — pick one, document in crate README)
+  - request builder covers market/limit basics: symbol, side, quantity, price (limit), time-in-force
+  - fills and rejects still reconciled via existing user-data `executionReport` path (no duplicate state machines)
+  - integration with `trolly-strategy` egress and/or `Execute` CLI subcommand stub replaced with a minimal place-order entrypoint
+  - mock or recorded HTTP/WS tests (no live keys in CI); `cargo test -p binance-spot-exec` passes
+- notes: WP-008 is ingest-only today. This WP adds outbound execution while keeping account book updates stream-driven.
 
 ## Completed milestones
 
