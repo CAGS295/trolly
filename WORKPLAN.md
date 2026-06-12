@@ -175,7 +175,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-011 — Libtorch gym groundwork (`trolly-gym`)
 
-- status: in_progress
+- status: done
 - repos: trolly
 - depends_on: [WP-007, WP-010]
 - scope: crates/trolly-gym/
