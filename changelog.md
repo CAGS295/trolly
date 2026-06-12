@@ -8,6 +8,7 @@ Project journal for shipped work. Active backlog lives in [`WORKPLAN.md`](WORKPL
 - Workspace crates: stream ingress refactor, Binance spot/USDM execution, strategy runtime, libtorch gym scaffold (see [`WORKPLAN.md`](WORKPLAN.md) WP-006 … WP-011).
 
 ## change log
++ Document global-book integration test flow: offline fixtures by default, opt-in live REST via `.env` + `--ignored`.
 + Reduce full-book clones on global book merge hot path via `merge_aggregate_absorb`.
 + Refactor Binance spot to `depth::binance::spot`; add `stub` provider scaffold for `--sources`.
 + Fix Hook dead_code warnings; replace CLI `long_about` TODO with project goals.

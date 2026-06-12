@@ -129,6 +129,30 @@ src/
 └── lib.rs                  # Library root, re-exports
 ```
 
+## Testing
+
+Default `cargo test` is offline: unit and fixture tests only. The global order book integration
+test in [`tests/global_book.rs`](tests/global_book.rs) includes a live Binance REST merge check
+that is `#[ignore]` so CI and local runs without credentials never hit the network.
+
+**Fixture tests (always run):**
+
+```bash
+git submodule update --init patches/lob
+cargo test --test global_book
+```
+
+**Live REST merge (opt-in, requires Binance HTTPS):**
+
+```bash
+cp .env.example .env
+# edit .env: RUN_GLOBAL_BOOK_INTEGRATION=1
+cargo test --test global_book global_book_live_rest_merge -- --ignored
+```
+
+Optional: set `TROLLY_INTEGRATION_SYMBOL` in `.env` (default `BTCUSDT`). If the flag is missing or
+`0`, the live test skips even when invoked with `--ignored`.
+
 ## Benchmarks
 
 Criterion benchmarks for both serving paths:

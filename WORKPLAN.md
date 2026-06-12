@@ -66,6 +66,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - `cargo test --test global_book global_book_live_rest_merge -- --ignored` passes when env enabled
   - default `cargo test` still skips live network; fixture tests always run
 - notes: complements WP-001; safe to run in parallel (disjoint scope).
+- worker (2026-06-12): documented offline vs live flow in README, `.env.example`, and `tests/global_book.rs` module docs. Default `cargo test --test global_book` runs 3 fixture tests and ignores live REST; live test requires `cp .env.example .env`, `RUN_GLOBAL_BOOK_INTEGRATION=1`, and `--ignored`. Automation VM got HTTP 451 from Binance (geo/network); verify live pass on unrestricted egress.
 
 ### WP-003 — Provider expansion scaffold
 
