@@ -1,0 +1,12 @@
+[package]
+name = "trolly-gym"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+trolly-strategy = { path = "../trolly-strategy" }
+trolly-stream = { path = "../trolly-stream" }
+
+[features]
+default = []
+torch = []

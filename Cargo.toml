@@ -1,9 +1,24 @@
+[workspace]
+members = [
+    "crates/trolly-stream",
+    "crates/binance-spot-exec",
+    "crates/binance-usdm-exec",
+    "crates/trolly-strategy",
+    "crates/trolly-gym",
+]
+resolver = "2"
+
 [package]
 name = "trolly"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+trolly-stream = { path = "crates/trolly-stream" }
+binance-spot-exec = { path = "crates/binance-spot-exec" }
+binance-usdm-exec = { path = "crates/binance-usdm-exec" }
+trolly-strategy = { path = "crates/trolly-strategy" }
+trolly-gym = { path = "crates/trolly-gym" }
 axum = { version = "^0.7", features = ["macros"] }
 color-eyre = { version = "0.6.2", default-features = false }
 clap = { version = "4.2.1", features = ["derive"] }
