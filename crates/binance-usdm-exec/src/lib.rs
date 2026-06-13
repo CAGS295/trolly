@@ -1,9 +1,7 @@
 //! Binance USDM execution and account bookkeeping over user-data streams.
 //!
-//! Parses `ORDER_TRADE_UPDATE`, `ACCOUNT_UPDATE`, `MARGIN_CALL`, and related private
-//! stream events, maintains per-symbol order/position state plus account-wide balances
-//! and positions, and fans updates into [`trolly_stream::MonitorMultiplexor`] ingress
-//! alongside other stream handlers.
+//! See [`README.md`](../README.md) for WebSocket subscription setup, multiplexor routing,
+//! and REST order placement.
 //!
 //! ## `MARGIN_CALL` lifecycle
 //!
@@ -14,14 +12,28 @@
 //! from state but are still forwarded on the outbound channel when received.
 
 mod account;
+mod auth;
+mod egress;
 mod endpoints;
 mod handler;
 mod ingress;
+mod order;
 mod parse;
 mod types;
 
 pub use account::{is_position_closed, UsdmAccountBookkeeping};
-pub use endpoints::UsdmUserDataStream;
+pub use auth::{current_timestamp_ms, sign_hmac_sha256_hex, signed_params_payload};
+pub use egress::{
+    EgressError, UsdmOrderEgress, UsdmOrderEgressDirect, place_order_from_outbound,
+    run_order_executor,
+};
+pub use endpoints::{ApiCredentials, UsdmUserDataStream};
+pub use order::{
+    BinanceApiErrorBody, HttpResponse, NativeTlsTransport, OrderBuilderError, OrderSide,
+    OrderTransport, OrderType, PlaceOrderError, PlaceOrderRequest, PlaceOrderResponse,
+    PositionSide, REST_BASE_URL, TimeInForce, UsdmOrderClient, build_order_params,
+    build_signed_form_params, parse_place_order_response,
+};
 pub use handler::{UsdmExecContext, UsdmExecHandler, ACCOUNT_ROUTING_ID};
 pub use ingress::{build_multiplexor, build_multiplexor_with_context, ingest_user_data};
 pub use parse::{parse_user_events, ParseError};

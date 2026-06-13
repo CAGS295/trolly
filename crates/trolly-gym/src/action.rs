@@ -23,6 +23,7 @@ impl Action {
                 qty: qty.into(),
                 price: price.map(str::to_string),
                 time_in_force: None,
+                position_side: None,
             },
             Self::Sell => OutboundMessage::OrderRequest {
                 symbol: symbol.into(),
@@ -30,6 +31,7 @@ impl Action {
                 qty: qty.into(),
                 price: price.map(str::to_string),
                 time_in_force: None,
+                position_side: None,
             },
         }
     }
