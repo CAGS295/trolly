@@ -72,3 +72,13 @@ let symbols = exec_subscription_symbols(&["BTCUSDT", "ETHUSDT"]);
 ```
 
 One WebSocket connection receives all account events; the multiplexor fans execution reports to per-symbol handlers and account events to the `__account__` handler.
+
+## Demo / testnet (WP-017)
+
+| Host | URL |
+|------|-----|
+| REST depth | `https://demo-api.binance.com/api` |
+| WebSocket API (user-data) | `wss://demo-ws-api.binance.com/ws-api/v3` |
+| Market streams | `wss://demo-stream.binance.com/ws` |
+
+Use [`BinanceSpotUserStream::demo`](src/endpoints.rs) and [`spot_depth_rest_url`](src/endpoints.rs) with [`SPOT_DEMO_REST_BASE_URL`](src/endpoints.rs). Opt-in integration tests live in [`tests/binance_demo.rs`](../../tests/binance_demo.rs).

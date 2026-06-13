@@ -17,6 +17,7 @@ mod egress;
 mod endpoints;
 mod handler;
 mod ingress;
+mod listen_key;
 mod order;
 mod parse;
 mod types;
@@ -27,7 +28,12 @@ pub use egress::{
     EgressError, UsdmOrderEgress, UsdmOrderEgressDirect, place_order_from_outbound,
     run_order_executor,
 };
-pub use endpoints::{ApiCredentials, UsdmUserDataStream};
+pub use endpoints::{
+    ApiCredentials, UsdmUserDataStream, USDM_DEMO_MARKET_STREAM_URL, USDM_DEMO_REST_BASE_URL,
+    USDM_DEMO_WS_PRIVATE_BASE, USDM_PROD_WS_PRIVATE_BASE, USDM_REST_BASE_URL,
+    usdm_depth_rest_url,
+};
+pub use listen_key::{ListenKeyClient, ListenKeyError};
 pub use order::{
     BinanceApiErrorBody, HttpResponse, NativeTlsTransport, OrderBuilderError, OrderSide,
     OrderTransport, OrderType, PlaceOrderError, PlaceOrderRequest, PlaceOrderResponse,

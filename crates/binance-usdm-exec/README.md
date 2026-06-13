@@ -64,3 +64,13 @@ wss://fstream.binance.com/private/ws?listenKey=<key>&events=ORDER_TRADE_UPDATE/A
 | `ACCOUNT_UPDATE`, `MARGIN_CALL` | `__account__` |
 
 Pass trading symbols plus the account route when building handlers. One websocket connection receives all account events; the multiplexor fans order updates to per-symbol handlers and account events to the `__account__` handler.
+
+## Demo / testnet (WP-017)
+
+| Host | URL |
+|------|-----|
+| REST (`listenKey`, depth) | `https://demo-fapi.binance.com` |
+| Private user-data WS | `wss://fstream.binancefuture.com/private/ws/<listenKey>` |
+| Market streams | `wss://fstream.binancefuture.com` |
+
+Use [`UsdmUserDataStream::demo`](src/endpoints.rs), [`ListenKeyClient::demo`](src/listen_key.rs), and [`usdm_depth_rest_url`](src/endpoints.rs). Opt-in integration tests live in [`tests/binance_demo.rs`](../../tests/binance_demo.rs).

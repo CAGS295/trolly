@@ -21,8 +21,35 @@
 //! Fan execution events into a shared [`trolly_stream::MonitorMultiplexor`] via
 //! [`crate::ingress::ingest_user_data`] so USDM updates route alongside spot depth
 //! and execution handlers on the same ingress API.
+//!
+//! ## Demo / testnet hosts
+//!
+//! - REST: `https://demo-fapi.binance.com` ([USDM demo](https://developers.binance.com/docs/derivatives/))
+//! - Private user-data WS: `wss://fstream.binancefuture.com/private/ws/<listenKey>`
+//! - Market streams: `wss://fstream.binancefuture.com`
 
 use trolly_stream::VenueEndpoints;
+
+/// Production USDM REST host (`/fapi/v1/...`).
+pub const USDM_REST_BASE_URL: &str = "https://fapi.binance.com";
+
+/// USDM **demo** hosts.
+pub const USDM_DEMO_REST_BASE_URL: &str = "https://demo-fapi.binance.com";
+pub const USDM_DEMO_WS_PRIVATE_BASE: &str = "wss://fstream.binancefuture.com/private/ws";
+pub const USDM_DEMO_MARKET_STREAM_URL: &str = "wss://fstream.binancefuture.com";
+
+/// Production private user-data websocket base (`.../private/ws`).
+pub const USDM_PROD_WS_PRIVATE_BASE: &str = "wss://fstream.binance.com/private/ws";
+
+/// REST depth snapshot URL for USDM (production or demo base).
+pub fn usdm_depth_rest_url(base: &str, symbol: impl AsRef<str>, limit: u32) -> String {
+    format!(
+        "{}/fapi/v1/depth?symbol={}&limit={}",
+        base.trim_end_matches('/'),
+        symbol.as_ref().to_uppercase(),
+        limit
+    )
+}
 
 /// API credentials for signed REST order placement.
 #[derive(Clone, Debug)]
@@ -37,6 +64,7 @@ pub struct UsdmUserDataStream {
     pub listen_key: String,
     /// When set, appended as `events=` query filter (slash-separated event names).
     pub events_filter: Option<String>,
+    ws_private_base: &'static str,
 }
 
 impl UsdmUserDataStream {
@@ -44,6 +72,16 @@ impl UsdmUserDataStream {
         Self {
             listen_key: listen_key.into(),
             events_filter: None,
+            ws_private_base: USDM_PROD_WS_PRIVATE_BASE,
+        }
+    }
+
+    /// Demo/testnet private user-data stream (`wss://fstream.binancefuture.com/private/ws/...`).
+    pub fn demo(listen_key: impl Into<String>) -> Self {
+        Self {
+            listen_key: listen_key.into(),
+            events_filter: None,
+            ws_private_base: USDM_DEMO_WS_PRIVATE_BASE,
         }
     }
 
@@ -51,20 +89,21 @@ impl UsdmUserDataStream {
         self.events_filter = Some(events.into());
         self
     }
+
+    fn private_ws_url(&self) -> String {
+        match &self.events_filter {
+            Some(events) => format!(
+                "{}?listenKey={}&events={}",
+                self.ws_private_base, self.listen_key, events
+            ),
+            None => format!("{}/{}", self.ws_private_base, self.listen_key),
+        }
+    }
 }
 
 impl VenueEndpoints for UsdmUserDataStream {
     fn websocket_url(&self) -> String {
-        match &self.events_filter {
-            Some(events) => format!(
-                "wss://fstream.binance.com/private/ws?listenKey={}&events={}",
-                self.listen_key, events
-            ),
-            None => format!(
-                "wss://fstream.binance.com/private/ws/{}",
-                self.listen_key
-            ),
-        }
+        self.private_ws_url()
     }
 
     fn ws_subscriptions(&self, _symbols: impl Iterator<Item = impl AsRef<str>>) -> Vec<String> {
@@ -72,9 +111,13 @@ impl VenueEndpoints for UsdmUserDataStream {
         Vec::new()
     }
 
-    fn rest_api_url(&self, _symbol: impl AsRef<str>) -> String {
-        // Listen-key REST is caller-owned; order placement uses [`crate::order`].
-        String::new()
+    fn rest_api_url(&self, symbol: impl AsRef<str>) -> String {
+        let base = if self.ws_private_base == USDM_DEMO_WS_PRIVATE_BASE {
+            USDM_DEMO_REST_BASE_URL
+        } else {
+            USDM_REST_BASE_URL
+        };
+        usdm_depth_rest_url(base, symbol, 100)
     }
 }
 
@@ -93,12 +136,34 @@ mod tests {
     }
 
     #[test]
+    fn demo_websocket_url_listen_key_path() {
+        let ep = UsdmUserDataStream::demo("abc123");
+        assert_eq!(
+            ep.websocket_url(),
+            "wss://fstream.binancefuture.com/private/ws/abc123"
+        );
+        assert!(ep
+            .rest_api_url("btcusdt")
+            .starts_with("https://demo-fapi.binance.com/fapi/v1/depth"));
+    }
+
+    #[test]
     fn websocket_url_with_events_filter() {
         let ep = UsdmUserDataStream::new("abc123")
             .with_events_filter("ORDER_TRADE_UPDATE/ACCOUNT_UPDATE");
         assert_eq!(
             ep.websocket_url(),
             "wss://fstream.binance.com/private/ws?listenKey=abc123&events=ORDER_TRADE_UPDATE/ACCOUNT_UPDATE"
+        );
+    }
+
+    #[test]
+    fn demo_websocket_url_with_events_filter() {
+        let ep = UsdmUserDataStream::demo("abc123")
+            .with_events_filter("ORDER_TRADE_UPDATE/ACCOUNT_UPDATE");
+        assert_eq!(
+            ep.websocket_url(),
+            "wss://fstream.binancefuture.com/private/ws?listenKey=abc123&events=ORDER_TRADE_UPDATE/ACCOUNT_UPDATE"
         );
     }
 
