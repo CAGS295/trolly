@@ -1,21 +1,24 @@
 //! Binance USDM execution and account bookkeeping over user-data streams.
 //!
 //! Parses `ORDER_TRADE_UPDATE`, `ACCOUNT_UPDATE`, and related private stream events,
-//! maintains per-symbol order/position state, and fans updates into
-//! [`trolly_stream::MonitorMultiplexor`] ingress alongside other stream handlers.
+//! maintains per-symbol order/position state plus account-wide balances and positions,
+//! and fans updates into [`trolly_stream::MonitorMultiplexor`] ingress alongside other
+//! stream handlers.
 
+mod account;
 mod endpoints;
 mod handler;
 mod ingress;
 mod parse;
 mod types;
 
+pub use account::{is_position_closed, UsdmAccountBookkeeping};
 pub use endpoints::UsdmUserDataStream;
-pub use handler::{UsdmExecHandler, ACCOUNT_ROUTING_ID};
-pub use ingress::{build_multiplexor, ingest_user_data};
+pub use handler::{UsdmExecContext, UsdmExecHandler, ACCOUNT_ROUTING_ID};
+pub use ingress::{build_multiplexor, build_multiplexor_with_context, ingest_user_data};
 pub use parse::{parse_user_events, ParseError};
 pub use types::{
-    BalanceChange, MarginCall, MarginCallPosition, OrderTradeUpdate, PositionChange,
+    BalanceChange, MarginCall, MarginCallPosition, OrderTradeUpdate, PositionChange, PositionKey,
     SymbolBookkeeping, UsdmExec, UsdmExecUpdate,
 };
 
@@ -26,6 +29,10 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use trolly_stream::{EventHandler, Message, MonitorMultiplexor};
+
+    fn test_ctx() -> UsdmExecContext {
+        UsdmExecContext::new(None)
+    }
 
     #[test]
     fn parse_order_trade_update_fixture() {
@@ -90,12 +97,30 @@ mod tests {
     }
 
     #[test]
+    fn account_bookkeeping_query_api() {
+        let json = include_str!("../tests/fixtures/account_update.json");
+        let ctx = test_ctx();
+        let account = ctx.account.clone();
+        let mut hub = build_multiplexor_with_context(&["BTCUSDT"], ctx);
+
+        ingest_user_data(&mut hub, Message::Text(json.into()));
+
+        let book = account.lock().unwrap();
+        let long = book.position("BTCUSDT", "LONG").unwrap();
+        assert_eq!(long.position_amount, "20");
+        let short = book.position("BTCUSDT", "SHORT").unwrap();
+        assert_eq!(short.position_amount, "-10");
+        assert_eq!(book.balance("USDT").unwrap().wallet_balance, "122624.12345678");
+        assert_eq!(book.positions_for_symbol("BTCUSDT").count(), 2);
+    }
+
+    #[test]
     fn handler_tracks_open_and_closed_orders() {
         let new_json = include_str!("../tests/fixtures/order_trade_update.json");
         let filled_json = include_str!("../tests/fixtures/order_trade_update_filled.json");
 
         let recorded = Arc::new(Mutex::new(Vec::new()));
-        let mut handler = UsdmExecHandler::with_recorder("BTCUSDT", recorded);
+        let mut handler = UsdmExecHandler::with_recorder("BTCUSDT", recorded, test_ctx());
 
         let new_msg = UsdmExecHandler::parse_update(Message::Text(new_json.into()))
             .unwrap()
@@ -126,7 +151,7 @@ mod tests {
 
         let mut hub = MonitorMultiplexor::from_writers(HashMap::from([(
             "BTCUSDT".into(),
-            UsdmExecHandler::with_recorder("BTCUSDT", recorded.clone()),
+            UsdmExecHandler::with_recorder("BTCUSDT", recorded.clone(), test_ctx()),
         )]));
 
         hub.ingest_message(Message::Text(json.into()));

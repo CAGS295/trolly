@@ -83,11 +83,45 @@ pub struct MarginCallPosition {
     pub maintenance_margin_required: String,
 }
 
+/// Composite key for a futures position leg (`symbol` + hedge-mode side).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PositionKey {
+    pub symbol: String,
+    pub position_side: String,
+}
+
+impl PositionKey {
+    pub fn new(symbol: impl Into<String>, position_side: impl Into<String>) -> Self {
+        Self {
+            symbol: symbol.into(),
+            position_side: position_side.into(),
+        }
+    }
+}
+
+impl From<&PositionChange> for PositionKey {
+    fn from(position: &PositionChange) -> Self {
+        Self::new(&position.symbol, &position.position_side)
+    }
+}
+
 /// Per-symbol execution and position bookkeeping state.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct SymbolBookkeeping {
     pub open_orders: HashMap<i64, OrderTradeUpdate>,
-    pub positions: HashMap<String, PositionChange>,
+    /// Latest position per `(symbol, position_side)`; closed legs are removed.
+    pub positions: HashMap<PositionKey, PositionChange>,
+}
+
+impl SymbolBookkeeping {
+    pub fn apply_position(&mut self, position: &PositionChange) {
+        let key = PositionKey::from(position);
+        if crate::account::is_position_closed(&position.position_amount) {
+            self.positions.remove(&key);
+        } else {
+            self.positions.insert(key, position.clone());
+        }
+    }
 }
 
 impl UsdmExecUpdate {
