@@ -111,6 +111,8 @@ pub struct SymbolBookkeeping {
     pub open_orders: HashMap<i64, OrderTradeUpdate>,
     /// Latest position per `(symbol, position_side)`; closed legs are removed.
     pub positions: HashMap<PositionKey, PositionChange>,
+    /// Latest `MARGIN_CALL` payload on the [`crate::handler::ACCOUNT_ROUTING_ID`] handler.
+    pub latest_margin_call: Option<MarginCall>,
 }
 
 impl SymbolBookkeeping {

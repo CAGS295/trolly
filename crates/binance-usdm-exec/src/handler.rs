@@ -119,7 +119,21 @@ impl UsdmExecHandler {
                     .expect("account lock poisoned")
                     .apply_balance(balance);
             }
-            UsdmExecUpdate::ListenKeyExpired | UsdmExecUpdate::MarginCall(_) => {}
+            UsdmExecUpdate::MarginCall(call) => {
+                if !self.account_events_only {
+                    return Ok(());
+                }
+                let applied = self
+                    .ctx
+                    .account
+                    .lock()
+                    .expect("account lock poisoned")
+                    .apply_margin_call(call);
+                if applied {
+                    self.state.latest_margin_call = Some(call.clone());
+                }
+            }
+            UsdmExecUpdate::ListenKeyExpired => {}
         }
 
         if let Some(tx) = &self.ctx.outbound {

@@ -235,4 +235,92 @@ mod tests {
         assert!(account_handler.state().positions.is_empty());
         assert_eq!(shared_account.lock().unwrap().positions.len(), 2);
     }
+
+    #[test]
+    fn ingest_margin_call_routes_to_account_and_updates_state() {
+        let margin_json = include_str!("../tests/fixtures/margin_call.json");
+        let btc_rec = Arc::new(Mutex::new(Vec::new()));
+        let account_rec = Arc::new(Mutex::new(Vec::new()));
+        let ctx = test_context();
+        let shared_account = ctx.account.clone();
+
+        let mut hub = MonitorMultiplexor::from_writers(HashMap::from([
+            (
+                "ETHUSDT".into(),
+                UsdmExecHandler::with_recorder("ETHUSDT", btc_rec.clone(), ctx.clone()),
+            ),
+            (
+                crate::handler::ACCOUNT_ROUTING_ID.into(),
+                UsdmExecHandler::with_recorder(
+                    crate::handler::ACCOUNT_ROUTING_ID,
+                    account_rec.clone(),
+                    ctx,
+                ),
+            ),
+        ]));
+
+        ingest_user_data(&mut hub, Message::Text(margin_json.into()));
+
+        assert!(btc_rec.lock().unwrap().is_empty());
+        assert_eq!(account_rec.lock().unwrap().len(), 1);
+        assert!(matches!(
+            account_rec.lock().unwrap()[0],
+            UsdmExecUpdate::MarginCall(_)
+        ));
+
+        let account = shared_account.lock().unwrap();
+        let call = account.margin_call().unwrap();
+        assert_eq!(call.event_time, 1587727187525);
+        assert_eq!(call.cross_wallet_balance, "3.16812045");
+        assert_eq!(call.positions.len(), 1);
+        assert_eq!(call.positions[0].symbol, "ETHUSDT");
+        assert_eq!(call.positions[0].position_side, "LONG");
+
+        let account_handler = hub
+            .writers
+            .get(crate::handler::ACCOUNT_ROUTING_ID)
+            .unwrap();
+        let handler_call = account_handler
+            .state()
+            .latest_margin_call
+            .as_ref()
+            .unwrap();
+        assert_eq!(handler_call.event_time, call.event_time);
+        assert_eq!(handler_call.positions, call.positions);
+    }
+
+    #[test]
+    fn ingest_margin_call_supersedes_on_newer_event_time() {
+        let older_json = include_str!("../tests/fixtures/margin_call.json");
+        let newer_json = include_str!("../tests/fixtures/margin_call_newer.json");
+        let stale_json = include_str!("../tests/fixtures/margin_call_older.json");
+        let ctx = test_context();
+        let shared_account = ctx.account.clone();
+
+        let mut hub = build_multiplexor_with_context(&["ETHUSDT"], ctx);
+
+        ingest_user_data(&mut hub, Message::Text(older_json.into()));
+        ingest_user_data(&mut hub, Message::Text(newer_json.into()));
+        ingest_user_data(&mut hub, Message::Text(stale_json.into()));
+
+        let account = shared_account.lock().unwrap();
+        let call = account.margin_call().unwrap();
+        assert_eq!(call.event_time, 1587727188000);
+        assert_eq!(call.cross_wallet_balance, "2.50000000");
+        assert_eq!(call.positions[0].symbol, "BTCUSDT");
+
+        let account_handler = hub
+            .writers
+            .get(crate::handler::ACCOUNT_ROUTING_ID)
+            .unwrap();
+        assert_eq!(
+            account_handler
+                .state()
+                .latest_margin_call
+                .as_ref()
+                .unwrap()
+                .event_time,
+            1587727188000
+        );
+    }
 }
