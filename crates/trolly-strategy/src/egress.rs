@@ -11,6 +11,8 @@ pub enum OutboundMessage {
         side: String,
         qty: String,
         price: Option<String>,
+        /// Limit order time in force (`GTC`, `IOC`, `FOK`). Defaults to `GTC` when omitted.
+        time_in_force: Option<String>,
     },
     /// Request an additional stream subscription.
     Subscribe { symbol: String, channel: String },
