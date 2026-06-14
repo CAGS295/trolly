@@ -1,5 +1,7 @@
 use clap::{Parser, Subcommand};
 
+mod execute;
+
 #[derive(Parser)]
 #[clap(
     about = "Toy streamer client for crypto applications.",
@@ -18,7 +20,10 @@ pub struct Cli {
 
 impl Cli {
     pub async fn start(&self) {
-        self.command.run().await
+        if let Err(err) = self.command.run().await {
+            tracing::error!(?err, "command failed");
+            std::process::exit(1);
+        }
     }
 }
 
@@ -29,24 +34,28 @@ enum Commands {
         #[clap(subcommand)]
         metric: super::monitor::Monitorables,
     },
-    /// Comming soon
-    Execute,
+    /// Signed spot order placement and related execution commands.
+    Execute {
+        #[clap(subcommand)]
+        command: execute::ExecuteCommands,
+    },
 }
 
 pub trait Run {
-    async fn run(&self);
+    async fn run(&self) -> Result<(), color_eyre::Report>;
 }
 
 impl Run for Commands {
-    async fn run(&self) {
+    async fn run(&self) -> Result<(), color_eyre::Report> {
         match self {
             Self::Monitor {
                 metric: super::monitor::Monitorables::Depth(args),
             } => {
                 use super::monitor::Monitor;
                 args.monitor().await;
+                Ok(())
             }
-            _ => todo!(),
-        };
+            Self::Execute { command } => command.clone().run().await,
+        }
     }
 }

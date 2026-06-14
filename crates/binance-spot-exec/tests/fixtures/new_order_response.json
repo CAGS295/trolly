@@ -1,0 +1,11 @@
+{
+  "symbol": "BTCUSDT",
+  "orderId": 28,
+  "orderListId": -1,
+  "clientOrderId": "testOrder123",
+  "transactTime": 1507725176595,
+  "price": "100.00000000",
+  "origQty": "0.01000000",
+  "executedQty": "0.00000000",
+  "status": "NEW"
+}

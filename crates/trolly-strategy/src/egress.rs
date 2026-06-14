@@ -1,4 +1,8 @@
 //! Outbound messages dispatched back through the stream egress API.
+//!
+//! Venue adapters (e.g. [`binance_spot_exec::SpotOrderEgress`]) implement [`StreamEgress`]
+//! to consume [`OutboundMessage::OrderRequest`] and perform signed placement; fill/reject
+//! reconciliation stays on the user-data stream ingest path.
 
 use trolly_stream::Message;
 
