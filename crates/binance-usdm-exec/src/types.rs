@@ -110,11 +110,28 @@ pub fn apply_position_change(
     }
 }
 
+/// Record the latest margin-call snapshot on account state; supersede when `event_time` is newer.
+pub fn apply_margin_call(account: &mut AccountBookkeeping, call: &MarginCall) {
+    match &account.latest_margin_call {
+        Some(existing) if call.event_time <= existing.event_time => {}
+        _ => account.latest_margin_call = Some(call.clone()),
+    }
+}
+
 /// Account-wide balances and cross-symbol positions (`__account__` handler).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct AccountBookkeeping {
     pub balances: HashMap<String, BalanceChange>,
     pub positions: HashMap<String, PositionChange>,
+    /// Latest `MARGIN_CALL` payload for strategy inspection; replaced by strictly newer calls.
+    pub latest_margin_call: Option<MarginCall>,
+}
+
+impl AccountBookkeeping {
+    /// Most recent margin-call event, if any.
+    pub fn latest_margin_call(&self) -> Option<&MarginCall> {
+        self.latest_margin_call.as_ref()
+    }
 }
 
 /// Per-symbol execution and position bookkeeping state.

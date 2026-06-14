@@ -5,7 +5,8 @@ use trolly_stream::{EventHandler, Message, VenueEndpoints};
 
 use crate::parse::{parse_user_events, ParseError};
 use crate::types::{
-    apply_position_change, AccountBookkeeping, SymbolBookkeeping, UsdmExec, UsdmExecUpdate,
+    apply_margin_call, apply_position_change, AccountBookkeeping, SymbolBookkeeping, UsdmExec,
+    UsdmExecUpdate,
 };
 
 /// Routing key for account-wide events (`ACCOUNT_UPDATE` balances, `MARGIN_CALL`, etc.).
@@ -102,7 +103,13 @@ impl UsdmExecHandler {
                     apply_position_change(&mut self.symbol_state.positions, position);
                 }
             }
-            UsdmExecUpdate::ListenKeyExpired | UsdmExecUpdate::MarginCall(_) => {}
+            UsdmExecUpdate::MarginCall(call) => {
+                if !self.is_account {
+                    return;
+                }
+                apply_margin_call(&mut self.account_state, call);
+            }
+            UsdmExecUpdate::ListenKeyExpired => {}
         }
     }
 

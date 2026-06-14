@@ -238,4 +238,46 @@ mod tests {
         assert_eq!(btc.positions.len(), 1);
         assert!(!btc.positions.contains_key(&position_key("BTCUSDT", "LONG")));
     }
+
+    #[test]
+    fn ingest_margin_call_routes_to_account_state() {
+        let margin_json = include_str!("../tests/fixtures/margin_call.json");
+        let btc_rec = Arc::new(Mutex::new(Vec::new()));
+        let account_rec = Arc::new(Mutex::new(Vec::new()));
+
+        let mut hub = MonitorMultiplexor::from_writers(HashMap::from([
+            (
+                "BTCUSDT".into(),
+                UsdmExecHandler::with_recorder("BTCUSDT", btc_rec.clone()),
+            ),
+            (
+                crate::handler::ACCOUNT_ROUTING_ID.into(),
+                UsdmExecHandler::with_recorder(
+                    crate::handler::ACCOUNT_ROUTING_ID,
+                    account_rec.clone(),
+                ),
+            ),
+        ]));
+
+        ingest_user_data(&mut hub, Message::Text(margin_json.into()));
+
+        assert!(btc_rec.lock().unwrap().is_empty());
+        assert_eq!(account_rec.lock().unwrap().len(), 1);
+        assert!(matches!(
+            account_rec.lock().unwrap()[0],
+            UsdmExecUpdate::MarginCall(_)
+        ));
+
+        let account = hub
+            .writers
+            .get(crate::handler::ACCOUNT_ROUTING_ID)
+            .unwrap()
+            .account_state();
+        let call = account.latest_margin_call().expect("margin call persisted");
+        assert_eq!(call.event_time, 1587727187525);
+        assert_eq!(call.cross_wallet_balance, "3.16812045");
+        assert_eq!(call.positions.len(), 2);
+        assert_eq!(call.positions[0].symbol, "ETHUSDT");
+        assert_eq!(call.positions[1].symbol, "BTCUSDT");
+    }
 }
