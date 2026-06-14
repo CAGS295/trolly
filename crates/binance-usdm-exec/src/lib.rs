@@ -15,8 +15,9 @@ pub use handler::{UsdmExecHandler, ACCOUNT_ROUTING_ID};
 pub use ingress::{build_multiplexor, ingest_user_data};
 pub use parse::{parse_user_events, ParseError};
 pub use types::{
-    BalanceChange, MarginCall, MarginCallPosition, OrderTradeUpdate, PositionChange,
-    SymbolBookkeeping, UsdmExec, UsdmExecUpdate,
+    apply_position_change, is_flat_position, position_key, AccountBookkeeping, BalanceChange,
+    MarginCall, MarginCallPosition, OrderTradeUpdate, PositionChange, SymbolBookkeeping, UsdmExec,
+    UsdmExecUpdate,
 };
 
 #[cfg(test)]
@@ -101,13 +102,59 @@ mod tests {
             .unwrap()
             .unwrap();
         handler.handle_update(new_msg).unwrap();
-        assert_eq!(handler.state().open_orders.len(), 1);
+        assert_eq!(handler.symbol_state().open_orders.len(), 1);
 
         let filled = UsdmExecHandler::parse_update(Message::Text(filled_json.into()))
             .unwrap()
             .unwrap();
         handler.handle_update(filled).unwrap();
-        assert!(handler.state().open_orders.is_empty());
+        assert!(handler.symbol_state().open_orders.is_empty());
+    }
+
+    #[test]
+    fn position_flat_removes_leg_from_symbol_and_account_maps() {
+        use crate::types::{is_flat_position, position_key};
+
+        assert!(is_flat_position("0"));
+        assert!(is_flat_position("0.000"));
+
+        let open_json = include_str!("../tests/fixtures/account_update_multi_leg.json");
+        let flatten_json = include_str!("../tests/fixtures/account_update_flatten.json");
+
+        let mut symbol_handler = UsdmExecHandler::new("BTCUSDT", None);
+        let mut account_handler = UsdmExecHandler::new(ACCOUNT_ROUTING_ID, None);
+
+        for event in parse_user_events(Message::Text(open_json.into())).unwrap() {
+            if let UsdmExecUpdate::PositionChange(ref position) = event {
+                if position.symbol == "BTCUSDT" {
+                    symbol_handler.apply_bookkeeping(&event);
+                }
+                account_handler.apply_bookkeeping(&UsdmExecUpdate::PositionChange(position.clone()));
+            }
+        }
+
+        assert_eq!(symbol_handler.symbol_state().positions.len(), 2);
+
+        let flatten = parse_user_events(Message::Text(flatten_json.into()))
+            .unwrap()
+            .into_iter()
+            .find_map(|e| match e {
+                UsdmExecUpdate::PositionChange(p) => Some(p),
+                _ => None,
+            })
+            .expect("flatten fixture has position row");
+
+        symbol_handler.apply_bookkeeping(&UsdmExecUpdate::PositionChange(flatten.clone()));
+        account_handler.apply_bookkeeping(&UsdmExecUpdate::PositionChange(flatten));
+
+        assert!(!symbol_handler
+            .symbol_state()
+            .positions
+            .contains_key(&position_key("BTCUSDT", "LONG")));
+        assert!(!account_handler
+            .account_state()
+            .positions
+            .contains_key(&position_key("BTCUSDT", "LONG")));
     }
 
     #[test]

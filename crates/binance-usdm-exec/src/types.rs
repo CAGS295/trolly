@@ -83,6 +83,40 @@ pub struct MarginCallPosition {
     pub maintenance_margin_required: String,
 }
 
+/// Composite map key for a position leg: `(symbol, position_side)`.
+pub fn position_key(symbol: &str, position_side: &str) -> String {
+    format!("{symbol}:{position_side}")
+}
+
+/// True when Binance reports a closed/flat leg (`pa` zero).
+pub fn is_flat_position(position_amount: &str) -> bool {
+    position_amount
+        .trim()
+        .parse::<f64>()
+        .map(|amount| amount == 0.0)
+        .unwrap_or(false)
+}
+
+/// Apply a position row to a keyed map, removing flat legs.
+pub fn apply_position_change(
+    positions: &mut HashMap<String, PositionChange>,
+    position: &PositionChange,
+) {
+    let key = position_key(&position.symbol, &position.position_side);
+    if is_flat_position(&position.position_amount) {
+        positions.remove(&key);
+    } else {
+        positions.insert(key, position.clone());
+    }
+}
+
+/// Account-wide balances and cross-symbol positions (`__account__` handler).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct AccountBookkeeping {
+    pub balances: HashMap<String, BalanceChange>,
+    pub positions: HashMap<String, PositionChange>,
+}
+
 /// Per-symbol execution and position bookkeeping state.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct SymbolBookkeeping {
