@@ -3,14 +3,27 @@
 //! Parses `ORDER_TRADE_UPDATE`, `ACCOUNT_UPDATE`, and related private stream events,
 //! maintains per-symbol order/position state, and fans updates into
 //! [`trolly_stream::MonitorMultiplexor`] ingress alongside other stream handlers.
+//!
+//! See [`README.md`](../README.md) for outbound order placement and listen-key setup.
 
+mod auth;
+mod egress;
 mod endpoints;
 mod handler;
 mod ingress;
+mod listen_key;
+mod order;
 mod parse;
 mod types;
 
-pub use endpoints::UsdmUserDataStream;
+pub use auth::{current_timestamp_ms, sign_hmac_sha256_hex, sign_params, signed_params_payload};
+pub use egress::UsdmOrderEgress;
+pub use endpoints::{ApiCredentials, UsdmUserDataStream};
+pub use listen_key::{ListenKeyClient, ListenKeyError, ListenKeyResponse, LISTEN_KEY_PATH};
+pub use order::{
+    NewOrderRequest, NewOrderResponse, OrderSide, OrderType, PositionSide, TimeInForce,
+    UsdmOrderClient, UsdmOrderError, DEFAULT_REST_BASE, DEMO_REST_BASE, ORDER_PATH,
+};
 pub use handler::{UsdmExecHandler, ACCOUNT_ROUTING_ID};
 pub use ingress::{build_multiplexor, ingest_user_data};
 pub use parse::{parse_user_events, ParseError};

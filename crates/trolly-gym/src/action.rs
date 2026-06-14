@@ -22,12 +22,14 @@ impl Action {
                 side: "BUY".into(),
                 qty: qty.into(),
                 price: price.map(str::to_string),
+                position_side: None,
             },
             Self::Sell => OutboundMessage::OrderRequest {
                 symbol: symbol.into(),
                 side: "SELL".into(),
                 qty: qty.into(),
                 price: price.map(str::to_string),
+                position_side: None,
             },
         }
     }
