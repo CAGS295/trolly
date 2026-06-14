@@ -13,7 +13,7 @@ pub fn current_timestamp_ms() -> u64 {
         .as_millis() as u64
 }
 
-/// HMAC-SHA256 hex signature for Binance WebSocket API signed params.
+/// HMAC-SHA256 hex signature for Binance signed REST params.
 pub fn sign_hmac_sha256_hex(secret_key: &str, payload: &str) -> String {
     let mut mac = HmacSha256::new_from_slice(secret_key.as_bytes()).expect("HMAC key length");
     mac.update(payload.as_bytes());
@@ -26,14 +26,6 @@ pub fn signed_params_payload(params: &BTreeMap<String, String>) -> String {
         .map(|(key, value)| format!("{key}={value}"))
         .collect::<Vec<_>>()
         .join("&")
-}
-
-pub fn build_subscribe_signature_params(api_key: &str, secret_key: &str) -> BTreeMap<String, String> {
-    let timestamp = current_timestamp_ms().to_string();
-    let mut params = BTreeMap::new();
-    params.insert("apiKey".into(), api_key.into());
-    params.insert("timestamp".into(), timestamp);
-    sign_params(secret_key, params)
 }
 
 /// Append `timestamp` and HMAC-SHA256 `signature` to signed REST request params.

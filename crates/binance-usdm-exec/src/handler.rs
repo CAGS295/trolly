@@ -4,7 +4,10 @@ use tokio::sync::mpsc::UnboundedSender;
 use trolly_stream::{EventHandler, Message, VenueEndpoints};
 
 use crate::parse::{parse_user_events, ParseError};
-use crate::types::{SymbolBookkeeping, UsdmExec, UsdmExecUpdate};
+use crate::types::{
+    apply_margin_call, apply_position_change, AccountBookkeeping, SymbolBookkeeping, UsdmExec,
+    UsdmExecUpdate,
+};
 
 /// Routing key for account-wide events (`ACCOUNT_UPDATE` balances, `MARGIN_CALL`, etc.).
 pub const ACCOUNT_ROUTING_ID: &str = "__account__";
@@ -13,7 +16,9 @@ pub const ACCOUNT_ROUTING_ID: &str = "__account__";
 #[derive(Debug)]
 pub struct UsdmExecHandler {
     routing_id: String,
-    state: SymbolBookkeeping,
+    is_account: bool,
+    symbol_state: SymbolBookkeeping,
+    account_state: AccountBookkeeping,
     outbound: Option<UnboundedSender<UsdmExecUpdate>>,
     /// Test hook: record every handled update.
     recorded: Option<Arc<Mutex<Vec<UsdmExecUpdate>>>>,
@@ -24,9 +29,13 @@ impl UsdmExecHandler {
         routing_id: impl Into<String>,
         outbound: Option<UnboundedSender<UsdmExecUpdate>>,
     ) -> Self {
+        let routing_id = routing_id.into();
+        let is_account = routing_id == ACCOUNT_ROUTING_ID;
         Self {
-            routing_id: routing_id.into(),
-            state: SymbolBookkeeping::default(),
+            routing_id,
+            is_account,
+            symbol_state: SymbolBookkeeping::default(),
+            account_state: AccountBookkeeping::default(),
             outbound,
             recorded: None,
         }
@@ -36,9 +45,13 @@ impl UsdmExecHandler {
         routing_id: impl Into<String>,
         recorded: Arc<Mutex<Vec<UsdmExecUpdate>>>,
     ) -> Self {
+        let routing_id = routing_id.into();
+        let is_account = routing_id == ACCOUNT_ROUTING_ID;
         Self {
-            routing_id: routing_id.into(),
-            state: SymbolBookkeeping::default(),
+            routing_id,
+            is_account,
+            symbol_state: SymbolBookkeeping::default(),
+            account_state: AccountBookkeeping::default(),
             outbound: None,
             recorded: Some(recorded),
         }
@@ -48,30 +61,60 @@ impl UsdmExecHandler {
         &self.routing_id
     }
 
-    pub fn state(&self) -> &SymbolBookkeeping {
-        &self.state
+    pub fn is_account(&self) -> bool {
+        self.is_account
     }
 
-    fn apply(&mut self, update: UsdmExecUpdate) -> Result<(), ParseError> {
-        match &update {
+    pub fn symbol_state(&self) -> &SymbolBookkeeping {
+        &self.symbol_state
+    }
+
+    pub fn account_state(&self) -> &AccountBookkeeping {
+        &self.account_state
+    }
+
+    /// Apply balance/position bookkeeping without forwarding or recording.
+    pub fn apply_bookkeeping(&mut self, update: &UsdmExecUpdate) {
+        match update {
             UsdmExecUpdate::OrderTrade(order) => {
+                if self.is_account {
+                    return;
+                }
                 if order.order_status == "NEW" || order.order_status == "PARTIALLY_FILLED" {
-                    self.state
+                    self.symbol_state
                         .open_orders
                         .insert(order.order_id, order.clone());
                 } else {
-                    self.state.open_orders.remove(&order.order_id);
+                    self.symbol_state.open_orders.remove(&order.order_id);
                 }
             }
-            UsdmExecUpdate::PositionChange(position) => {
-                self.state
-                    .positions
-                    .insert(position.position_side.clone(), position.clone());
+            UsdmExecUpdate::BalanceChange(balance) => {
+                if !self.is_account {
+                    return;
+                }
+                self.account_state
+                    .balances
+                    .insert(balance.asset.clone(), balance.clone());
             }
-            UsdmExecUpdate::BalanceChange(_)
-            | UsdmExecUpdate::ListenKeyExpired
-            | UsdmExecUpdate::MarginCall(_) => {}
+            UsdmExecUpdate::PositionChange(position) => {
+                if self.is_account {
+                    apply_position_change(&mut self.account_state.positions, position);
+                } else {
+                    apply_position_change(&mut self.symbol_state.positions, position);
+                }
+            }
+            UsdmExecUpdate::MarginCall(call) => {
+                if !self.is_account {
+                    return;
+                }
+                apply_margin_call(&mut self.account_state, call);
+            }
+            UsdmExecUpdate::ListenKeyExpired => {}
         }
+    }
+
+    fn apply(&mut self, update: UsdmExecUpdate) -> Result<(), ParseError> {
+        self.apply_bookkeeping(&update);
 
         if let Some(tx) = &self.outbound {
             let _ = tx.send(update.clone());

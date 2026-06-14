@@ -1,4 +1,8 @@
 //! Outbound messages dispatched back through the stream egress API.
+//!
+//! Venue adapters (e.g. [`binance_spot_exec::SpotOrderEgress`]) implement [`StreamEgress`]
+//! to consume [`OutboundMessage::OrderRequest`] and perform signed placement; fill/reject
+//! reconciliation stays on the user-data stream ingest path.
 
 use trolly_stream::Message;
 
@@ -11,6 +15,8 @@ pub enum OutboundMessage {
         side: String,
         qty: String,
         price: Option<String>,
+        /// Hedge-mode position leg (`LONG`, `SHORT`, `BOTH`). Omit for one-way mode defaults.
+        position_side: Option<String>,
     },
     /// Request an additional stream subscription.
     Subscribe { symbol: String, channel: String },
