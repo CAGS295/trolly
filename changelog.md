@@ -7,7 +7,9 @@ Project journal for shipped work. Active backlog lives in [`WORKPLAN.md`](WORKPL
 - Add more exchange providers beyond Binance spot + USDM (stub scaffold landed; full venues remain).
 
 ## change log
-+ `trolly-gym`: stream-fed `Env`, observation windows, replay buffer stub, `torch` feature gate.
++ `binance-usdm-exec`: account-wide position map keyed by symbol+side; flatten semantics; multi-leg fixtures.
++ `binance-spot-exec`: REST order placement, strategy egress adapter, `execute place-order` CLI.
++ `trolly-gym`: RL toolchain analysis ADR (`docs/toolchain-analysis.md`).
 + `binance-spot-exec`: spot user-data stream parsing, account book, trolly-stream ingress.
 + `binance-usdm-exec`: USDM user-data stream parsing, order/position tracking, trolly-stream ingress.
 + `trolly-strategy`: strategy runtime, normalized events, recording test double, synthetic integration tests.
