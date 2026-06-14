@@ -18,11 +18,15 @@ mod types;
 
 pub use auth::{current_timestamp_ms, sign_hmac_sha256_hex, sign_params, signed_params_payload};
 pub use egress::UsdmOrderEgress;
-pub use endpoints::{ApiCredentials, UsdmUserDataStream};
+pub use endpoints::{
+    ApiCredentials, UsdmUserDataStream, DEMO_PRIVATE_WS_BASE, DEMO_WS_STREAM_BASE,
+    PRODUCTION_PRIVATE_WS_BASE,
+};
 pub use listen_key::{ListenKeyClient, ListenKeyError, ListenKeyResponse, LISTEN_KEY_PATH};
 pub use order::{
     NewOrderRequest, NewOrderResponse, OrderSide, OrderType, PositionSide, TimeInForce,
     UsdmOrderClient, UsdmOrderError, DEFAULT_REST_BASE, DEMO_REST_BASE, ORDER_PATH,
+    demo_depth_rest_url,
 };
 pub use handler::{UsdmExecHandler, ACCOUNT_ROUTING_ID};
 pub use ingress::{build_multiplexor, ingest_user_data};

@@ -12,6 +12,16 @@ We use **REST `POST /api/v3/order`** rather than the Binance WebSocket trading A
 
 Production base URL: `https://api.binance.com`. Demo: `https://demo-api.binance.com` (`SpotOrderClient::demo` / `--demo` on the CLI).
 
+Demo hosts for integration tests (WP-017):
+
+| Service | Production | Demo |
+|---------|------------|------|
+| REST | `https://api.binance.com` | `https://demo-api.binance.com` |
+| WebSocket API (user-data) | `wss://ws-api.binance.com/ws-api/v3` | `wss://demo-ws-api.binance.com/ws-api/v3` |
+| Market streams | `wss://stream.binance.com/ws` | `wss://demo-stream.binance.com/ws` |
+
+Run opt-in live tests: `cargo test --test binance_demo_integration -- --ignored` with `RUN_BINANCE_DEMO_INTEGRATION=1` and demo keys in `.env` (see root [`.env.example`](../../.env.example)).
+
 Alternative considered: WebSocket API `order.place` on `wss://ws-api.binance.com/ws-api/v3` — viable for co-located low-latency strategies; can be added later without changing ingest bookkeeping.
 
 ## Placing orders

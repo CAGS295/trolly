@@ -13,6 +13,13 @@
 //! wss://fstream.binance.com/private/ws/<listenKey>
 //! ```
 //!
+//! Demo / testnet private URL (REST `https://demo-fapi.binance.com`, WS base
+//! `wss://fstream.binancefuture.com` per [USDM general info](https://developers.binance.com/docs/derivatives/usds-margined-futures/general-info)):
+//!
+//! ```text
+//! wss://fstream.binancefuture.com/private/ws/<listenKey>
+//! ```
+//!
 //! Optional event filtering via query string:
 //!
 //! ```text
@@ -24,6 +31,13 @@
 //! and execution handlers on the same ingress API.
 
 use trolly_stream::VenueEndpoints;
+
+/// Production private user-data WebSocket base.
+pub const PRODUCTION_PRIVATE_WS_BASE: &str = "wss://fstream.binance.com/private";
+/// Demo / testnet WebSocket base ([USDM general info](https://developers.binance.com/docs/derivatives/usds-margined-futures/general-info)).
+pub const DEMO_WS_STREAM_BASE: &str = "wss://fstream.binancefuture.com";
+/// Demo / testnet private user-data WebSocket base.
+pub const DEMO_PRIVATE_WS_BASE: &str = "wss://fstream.binancefuture.com/private";
 
 /// API credentials for signed REST (order placement and listen-key lifecycle).
 #[derive(Clone, Debug)]
@@ -38,6 +52,7 @@ pub struct UsdmUserDataStream {
     pub listen_key: String,
     /// When set, appended as `events=` query filter (slash-separated event names).
     pub events_filter: Option<String>,
+    private_ws_base: &'static str,
 }
 
 impl UsdmUserDataStream {
@@ -45,6 +60,16 @@ impl UsdmUserDataStream {
         Self {
             listen_key: listen_key.into(),
             events_filter: None,
+            private_ws_base: PRODUCTION_PRIVATE_WS_BASE,
+        }
+    }
+
+    /// Private user-data stream on the USDM **demo / testnet** host.
+    pub fn demo(listen_key: impl Into<String>) -> Self {
+        Self {
+            listen_key: listen_key.into(),
+            events_filter: None,
+            private_ws_base: DEMO_PRIVATE_WS_BASE,
         }
     }
 
@@ -52,20 +77,18 @@ impl UsdmUserDataStream {
         self.events_filter = Some(events.into());
         self
     }
+
+    fn websocket_url_with_base(&self, base: &str) -> String {
+        match &self.events_filter {
+            Some(events) => format!("{base}/ws?listenKey={}&events={}", self.listen_key, events),
+            None => format!("{base}/ws/{}", self.listen_key),
+        }
+    }
 }
 
 impl VenueEndpoints for UsdmUserDataStream {
     fn websocket_url(&self) -> String {
-        match &self.events_filter {
-            Some(events) => format!(
-                "wss://fstream.binance.com/private/ws?listenKey={}&events={}",
-                self.listen_key, events
-            ),
-            None => format!(
-                "wss://fstream.binance.com/private/ws/{}",
-                self.listen_key
-            ),
-        }
+        self.websocket_url_with_base(self.private_ws_base)
     }
 
     fn ws_subscriptions(&self, _symbols: impl Iterator<Item = impl AsRef<str>>) -> Vec<String> {
@@ -89,6 +112,15 @@ mod tests {
         assert_eq!(
             ep.websocket_url(),
             "wss://fstream.binance.com/private/ws/abc123"
+        );
+    }
+
+    #[test]
+    fn demo_websocket_url_listen_key_path() {
+        let ep = UsdmUserDataStream::demo("abc123");
+        assert_eq!(
+            ep.websocket_url(),
+            "wss://fstream.binancefuture.com/private/ws/abc123"
         );
     }
 

@@ -14,6 +14,15 @@ pub const ORDER_PATH: &str = "/api/v3/order";
 pub const DEFAULT_REST_BASE: &str = "https://api.binance.com";
 pub const DEMO_REST_BASE: &str = "https://demo-api.binance.com";
 
+/// Demo REST depth snapshot URL ([Spot Demo general info](https://developers.binance.com/docs/binance-spot-api-docs/demo-mode/general-info)).
+pub fn demo_depth_rest_url(symbol: impl AsRef<str>) -> String {
+    format!(
+        "{}/api/v3/depth?symbol={}&limit=1000",
+        DEMO_REST_BASE,
+        symbol.as_ref().to_uppercase()
+    )
+}
+
 /// Order side for spot placement.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OrderSide {

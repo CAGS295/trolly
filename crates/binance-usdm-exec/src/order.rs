@@ -14,6 +14,15 @@ pub const ORDER_PATH: &str = "/fapi/v1/order";
 pub const DEFAULT_REST_BASE: &str = "https://fapi.binance.com";
 pub const DEMO_REST_BASE: &str = "https://demo-fapi.binance.com";
 
+/// Demo REST depth snapshot URL ([USDM testnet general info](https://developers.binance.com/docs/derivatives/usds-margined-futures/general-info)).
+pub fn demo_depth_rest_url(symbol: impl AsRef<str>) -> String {
+    format!(
+        "{}/fapi/v1/depth?symbol={}&limit=1000",
+        DEMO_REST_BASE,
+        symbol.as_ref().to_uppercase()
+    )
+}
+
 /// Order side for USDM placement.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OrderSide {

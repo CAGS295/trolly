@@ -12,6 +12,16 @@ We use **REST `POST /fapi/v1/order`** rather than the Binance WebSocket trading 
 
 Production base URL: `https://fapi.binance.com`. Demo: `https://demo-fapi.binance.com` (`UsdmOrderClient::demo`).
 
+Demo / testnet hosts for integration tests (WP-017):
+
+| Service | Production | Demo |
+|---------|------------|------|
+| REST | `https://fapi.binance.com` | `https://demo-fapi.binance.com` |
+| Market streams | `wss://fstream.binance.com` | `wss://fstream.binancefuture.com` |
+| Private user-data | `wss://fstream.binance.com/private/ws/<listenKey>` | `wss://fstream.binancefuture.com/private/ws/<listenKey>` |
+
+Run opt-in live tests: `cargo test --test binance_demo_integration -- --ignored` with `RUN_BINANCE_DEMO_INTEGRATION=1` and demo keys in `.env` (see root [`.env.example`](../../.env.example)).
+
 Alternative considered: WebSocket API order placement on the futures WS API — viable for co-located low-latency strategies; can be added later without changing ingest bookkeeping.
 
 ## Placing orders

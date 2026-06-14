@@ -18,7 +18,9 @@ pub use auth::{
     signed_params_payload,
 };
 pub use egress::SpotOrderEgress;
-pub use endpoints::{ApiCredentials, BinanceSpotUserStream};
+pub use endpoints::{
+    ApiCredentials, BinanceSpotUserStream, DEMO_MARKET_STREAM_URL, DEMO_WS_API_URL,
+};
 pub use events::{
     AssetBalance, BalanceUpdate, EventStreamTerminated, ExecutionReport, ExternalLockUpdate,
     ListStatus, ListStatusOrder, OutboundAccountPosition, SpotUserEvent, ACCOUNT_ROUTE_ID,
@@ -27,7 +29,7 @@ pub use handler::{SpotExecContext, SpotExecHandler};
 pub use ingress::{build_multiplexor, ingest_user_data};
 pub use order::{
     NewOrderRequest, NewOrderResponse, OrderSide, OrderType, SpotOrderClient, SpotOrderError,
-    TimeInForce, DEFAULT_REST_BASE, DEMO_REST_BASE, ORDER_PATH,
+    TimeInForce, DEFAULT_REST_BASE, DEMO_REST_BASE, ORDER_PATH, demo_depth_rest_url,
 };
 pub use parse::{ParseError, parse_user_data_message};
 
