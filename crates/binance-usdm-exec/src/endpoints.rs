@@ -24,6 +24,13 @@
 
 use trolly_stream::VenueEndpoints;
 
+/// API credentials for signed REST order placement.
+#[derive(Clone, Debug)]
+pub struct ApiCredentials {
+    pub api_key: String,
+    pub secret_key: String,
+}
+
 /// Private USDM user-data stream endpoint for a single `listenKey`.
 #[derive(Clone, Debug)]
 pub struct UsdmUserDataStream {
@@ -66,8 +73,7 @@ impl VenueEndpoints for UsdmUserDataStream {
     }
 
     fn rest_api_url(&self, _symbol: impl AsRef<str>) -> String {
-        // REST is intentionally unused in this crate (stream-native execution bookkeeping).
-        String::new()
+        crate::order::DEFAULT_REST_BASE_URL.into()
     }
 }
 

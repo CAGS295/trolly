@@ -1,16 +1,28 @@
-//! Binance USDM execution and account bookkeeping over user-data streams.
+//! Binance USDM execution: signed REST order placement and account bookkeeping over user-data streams.
 //!
 //! Parses `ORDER_TRADE_UPDATE`, `ACCOUNT_UPDATE`, and related private stream events,
 //! maintains per-symbol order/position state, and fans updates into
 //! [`trolly_stream::MonitorMultiplexor`] ingress alongside other stream handlers.
+//!
+//! See [`README.md`](../README.md) for outbound order placement and stream subscription setup.
 
+mod auth;
+mod egress;
 mod endpoints;
 mod handler;
 mod ingress;
+mod order;
 mod parse;
 mod types;
 
-pub use endpoints::UsdmUserDataStream;
+pub use auth::{current_timestamp_ms, sign_hmac_sha256_hex};
+pub use egress::UsdmRestEgress;
+pub use endpoints::{ApiCredentials, UsdmUserDataStream};
+pub use order::{
+    build_signed_order_form, parse_order_side, parse_position_side, OrderError, OrderSide,
+    OrderType, PositionSide, TimeInForce, UsdmOrderClient, UsdmOrderRequest, UsdmOrderResponse,
+    DEFAULT_REST_BASE_URL,
+};
 pub use handler::{UsdmExecHandler, ACCOUNT_ROUTING_ID};
 pub use ingress::{build_multiplexor, ingest_user_data};
 pub use parse::{parse_user_events, ParseError};

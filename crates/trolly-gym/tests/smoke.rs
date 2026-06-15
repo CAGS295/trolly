@@ -60,6 +60,7 @@ fn mock_stream_observations_env_step_and_replay() {
             side: "SELL".into(),
             qty: "0.01".into(),
             price: None,
+            position_side: None,
         }
     );
 

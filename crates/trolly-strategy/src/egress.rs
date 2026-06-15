@@ -11,6 +11,8 @@ pub enum OutboundMessage {
         side: String,
         qty: String,
         price: Option<String>,
+        /// Hedge-mode position leg (`LONG` / `SHORT` / `BOTH`); omit for one-way mode.
+        position_side: Option<String>,
     },
     /// Request an additional stream subscription.
     Subscribe { symbol: String, channel: String },
@@ -25,12 +27,14 @@ impl OutboundMessage {
         side: impl Into<String>,
         qty: impl Into<String>,
         price: Option<String>,
+        position_side: Option<String>,
     ) -> Self {
         Self::OrderRequest {
             symbol: symbol.into(),
             side: side.into(),
             qty: qty.into(),
             price,
+            position_side,
         }
     }
 }

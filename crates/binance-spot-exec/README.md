@@ -31,7 +31,7 @@ let ack = client.place_order(request).await?;
 
 // Strategy egress adapter (fills still arrive on user-data stream):
 let mut egress = SpotRestEgress::new(DEFAULT_REST_BASE_URL, credentials);
-egress.dispatch(OutboundMessage::order_request("BTCUSDT", "BUY", "0.01", Some("100000".into())))?;
+egress.dispatch(OutboundMessage::order_request("BTCUSDT", "BUY", "0.01", Some("100000".into()), None))?;
 ```
 
 Demo/testnet REST base: `https://demo-api.binance.com` (see `.env.example` `DEMO_BINANCE_KEY` / `DEMO_BINANCE_SECRET`).
