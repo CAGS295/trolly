@@ -1,18 +1,25 @@
-//! Binance spot execution and account bookkeeping over user-data streams.
+//! Binance spot execution: signed REST order placement and account bookkeeping over user-data streams.
 //!
 //! See [`README.md`](../README.md) for WebSocket subscription setup and multiplexor routing.
 
 mod account;
 mod auth;
+mod egress;
 mod endpoints;
 mod events;
 mod handler;
 mod ingress;
+mod order;
 mod parse;
 
 pub use account::AccountBook;
 pub use auth::{build_subscribe_signature_params, current_timestamp_ms, sign_hmac_sha256_hex};
+pub use egress::SpotRestEgress;
 pub use endpoints::{ApiCredentials, BinanceSpotUserStream};
+pub use order::{
+    build_signed_order_form, parse_order_side, OrderError, OrderSide, OrderType, SpotOrderClient,
+    SpotOrderRequest, SpotOrderResponse, TimeInForce, DEFAULT_REST_BASE_URL,
+};
 pub use events::{
     AssetBalance, BalanceUpdate, EventStreamTerminated, ExecutionReport, ExternalLockUpdate,
     ListStatus, ListStatusOrder, OutboundAccountPosition, SpotUserEvent, ACCOUNT_ROUTE_ID,

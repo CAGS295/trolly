@@ -10,7 +10,7 @@ pub struct ApiCredentials {
     pub secret_key: String,
 }
 
-/// Binance spot user-data stream endpoints (WebSocket API, no REST trading).
+/// Binance spot user-data stream endpoints and REST base URL metadata.
 #[derive(Clone, Debug)]
 pub struct BinanceSpotUserStream {
     pub credentials: ApiCredentials,
@@ -49,6 +49,6 @@ impl VenueEndpoints for BinanceSpotUserStream {
     }
 
     fn rest_api_url(&self, _symbol: impl AsRef<str>) -> String {
-        String::new()
+        crate::order::DEFAULT_REST_BASE_URL.into()
     }
 }

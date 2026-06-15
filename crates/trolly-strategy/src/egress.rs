@@ -18,6 +18,23 @@ pub enum OutboundMessage {
     Raw(Message),
 }
 
+impl OutboundMessage {
+    /// Normalized spot/futures place-order command consumed by venue egress adapters.
+    pub fn order_request(
+        symbol: impl Into<String>,
+        side: impl Into<String>,
+        qty: impl Into<String>,
+        price: Option<String>,
+    ) -> Self {
+        Self::OrderRequest {
+            symbol: symbol.into(),
+            side: side.into(),
+            qty: qty.into(),
+            price,
+        }
+    }
+}
+
 /// Dispatches outbound stream messages (websocket writes, fan-in queues, etc.).
 pub trait StreamEgress {
     type Error;
