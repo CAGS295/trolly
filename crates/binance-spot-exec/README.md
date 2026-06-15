@@ -36,6 +36,14 @@ egress.dispatch(OutboundMessage::order_request("BTCUSDT", "BUY", "0.01", Some("1
 
 Demo/testnet REST base: `https://demo-api.binance.com` (see `.env.example` `DEMO_BINANCE_KEY` / `DEMO_BINANCE_SECRET`).
 
+| Host | URL |
+|------|-----|
+| REST | `https://demo-api.binance.com/api` |
+| WS API (signed user-data) | `wss://demo-ws-api.binance.com/ws-api/v3` |
+| Market streams | `wss://demo-stream.binance.com/ws` |
+
+Opt-in live checks: [`tests/binance_demo_integration.rs`](../../tests/binance_demo_integration.rs) (`RUN_BINANCE_DEMO_INTEGRATION=1`).
+
 ## Stream subscription (user-data)
 
 1. Connect to the Binance WebSocket API: `wss://ws-api.binance.com:443/ws-api/v3`.

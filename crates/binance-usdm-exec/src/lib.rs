@@ -11,13 +11,18 @@ mod egress;
 mod endpoints;
 mod handler;
 mod ingress;
+mod listen_key;
 mod order;
 mod parse;
 mod types;
 
 pub use auth::{current_timestamp_ms, sign_hmac_sha256_hex};
 pub use egress::UsdmRestEgress;
-pub use endpoints::{ApiCredentials, UsdmUserDataStream};
+pub use endpoints::{
+    demo_depth_rest_url, ApiCredentials, UsdmUserDataStream, DEMO_PRIVATE_WS_BASE,
+    DEMO_REST_BASE_URL, DEMO_STREAM_BASE,
+};
+pub use listen_key::{ListenKeyClient, ListenKeyError};
 pub use order::{
     build_signed_order_form, parse_order_side, parse_position_side, OrderError, OrderSide,
     OrderType, PositionSide, TimeInForce, UsdmOrderClient, UsdmOrderRequest, UsdmOrderResponse,

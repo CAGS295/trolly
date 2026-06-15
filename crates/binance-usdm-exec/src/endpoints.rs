@@ -3,8 +3,8 @@
 //! ## Subscription setup
 //!
 //! Binance USD-M futures execution events are delivered on a **private** user-data
-//! websocket keyed by `listenKey` (created via `POST /fapi/v1/listenKey`). This crate
-//! does not call REST trading or listen-key endpoints; callers supply an active key.
+//! websocket keyed by `listenKey` (created via `POST /fapi/v1/listenKey`). Use
+//! [`crate::listen_key::ListenKeyClient`] for listen-key lifecycle on demo or production REST.
 //!
 //! Recommended private URL (2026 endpoint layout):
 //!
@@ -24,6 +24,22 @@
 
 use trolly_stream::VenueEndpoints;
 
+/// Binance USDM demo REST host.
+pub const DEMO_REST_BASE_URL: &str = "https://demo-fapi.binance.com";
+/// Binance USDM demo private user-data WebSocket base.
+pub const DEMO_PRIVATE_WS_BASE: &str = "wss://fstream.binancefuture.com/private";
+/// Binance USDM demo public market streams host.
+pub const DEMO_STREAM_BASE: &str = "wss://fstream.binancefuture.com";
+
+/// Demo REST depth snapshot URL for a symbol.
+pub fn demo_depth_rest_url(symbol: impl AsRef<str>) -> String {
+    format!(
+        "{}/fapi/v1/depth?symbol={}&limit=1000",
+        DEMO_REST_BASE_URL.trim_end_matches('/'),
+        symbol.as_ref().to_uppercase()
+    )
+}
+
 /// API credentials for signed REST order placement.
 #[derive(Clone, Debug)]
 pub struct ApiCredentials {
@@ -37,14 +53,32 @@ pub struct UsdmUserDataStream {
     pub listen_key: String,
     /// When set, appended as `events=` query filter (slash-separated event names).
     pub events_filter: Option<String>,
+    private_ws_base: String,
 }
 
 impl UsdmUserDataStream {
+    pub const PRIVATE_WS_BASE: &'static str = "wss://fstream.binance.com/private";
+
     pub fn new(listen_key: impl Into<String>) -> Self {
         Self {
             listen_key: listen_key.into(),
             events_filter: None,
+            private_ws_base: Self::PRIVATE_WS_BASE.into(),
         }
+    }
+
+    /// User-data stream on Binance USDM **demo** private WebSocket hosts.
+    pub fn demo(listen_key: impl Into<String>) -> Self {
+        Self {
+            listen_key: listen_key.into(),
+            events_filter: None,
+            private_ws_base: DEMO_PRIVATE_WS_BASE.into(),
+        }
+    }
+
+    pub fn with_private_ws_base(mut self, base: impl Into<String>) -> Self {
+        self.private_ws_base = base.into();
+        self
     }
 
     pub fn with_events_filter(mut self, events: impl Into<String>) -> Self {
@@ -55,15 +89,13 @@ impl UsdmUserDataStream {
 
 impl VenueEndpoints for UsdmUserDataStream {
     fn websocket_url(&self) -> String {
+        let base = self.private_ws_base.trim_end_matches('/');
         match &self.events_filter {
             Some(events) => format!(
-                "wss://fstream.binance.com/private/ws?listenKey={}&events={}",
+                "{base}/ws?listenKey={}&events={}",
                 self.listen_key, events
             ),
-            None => format!(
-                "wss://fstream.binance.com/private/ws/{}",
-                self.listen_key
-            ),
+            None => format!("{base}/ws/{}", self.listen_key),
         }
     }
 
@@ -88,6 +120,23 @@ mod tests {
         assert_eq!(
             ep.websocket_url(),
             "wss://fstream.binance.com/private/ws/abc123"
+        );
+    }
+
+    #[test]
+    fn demo_websocket_url_uses_demo_private_host() {
+        let ep = UsdmUserDataStream::demo("abc123");
+        assert_eq!(
+            ep.websocket_url(),
+            "wss://fstream.binancefuture.com/private/ws/abc123"
+        );
+    }
+
+    #[test]
+    fn demo_depth_rest_url_builds_expected_path() {
+        assert_eq!(
+            demo_depth_rest_url("ethusdt"),
+            "https://demo-fapi.binance.com/fapi/v1/depth?symbol=ETHUSDT&limit=1000"
         );
     }
 

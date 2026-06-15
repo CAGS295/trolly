@@ -50,6 +50,14 @@ egress.dispatch(OutboundMessage::order_request(
 
 Demo REST base: `https://demo-fapi.binance.com` (see `.env.example` `DEMO_BINANCE_KEY` / `DEMO_BINANCE_SECRET`).
 
+| Host | URL |
+|------|-----|
+| REST | `https://demo-fapi.binance.com` |
+| Market streams | `wss://fstream.binancefuture.com` |
+| Private user-data | `wss://fstream.binancefuture.com/private/ws/<listenKey>` |
+
+`ListenKeyClient` manages `POST` / `PUT` / `DELETE` `/fapi/v1/listenKey` on the demo REST host. Opt-in live checks: [`tests/binance_demo_integration.rs`](../../tests/binance_demo_integration.rs) (`RUN_BINANCE_DEMO_INTEGRATION=1`).
+
 ## Stream subscription (user-data)
 
 Private USDM execution events are delivered on a **private** user-data websocket keyed by `listenKey` (created via `POST /fapi/v1/listenKey` on the REST host). This crate does not call listen-key endpoints; callers supply an active key.

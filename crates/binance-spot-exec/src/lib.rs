@@ -15,7 +15,10 @@ mod parse;
 pub use account::AccountBook;
 pub use auth::{build_subscribe_signature_params, current_timestamp_ms, sign_hmac_sha256_hex};
 pub use egress::SpotRestEgress;
-pub use endpoints::{ApiCredentials, BinanceSpotUserStream};
+pub use endpoints::{
+    demo_depth_rest_url, ApiCredentials, BinanceSpotUserStream, DEMO_REST_BASE_URL,
+    DEMO_STREAM_BASE_URL, DEMO_WS_API_URL,
+};
 pub use order::{
     build_signed_order_form, parse_order_side, OrderError, OrderSide, OrderType, SpotOrderClient,
     SpotOrderRequest, SpotOrderResponse, TimeInForce, DEFAULT_REST_BASE_URL,
