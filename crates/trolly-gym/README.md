@@ -33,3 +33,9 @@ The optional `tch` crate is pulled in only when `--features torch` is set.
 - **Env** — [`Env`](src/env.rs) ties ingest → window → step → egress; see `tests/smoke.rs` for an offline mock flow.
 
 Training loops, checkpoints, and GPU policies are out of scope for this crate scaffold.
+
+## Toolchain analysis (WP-016)
+
+Stack comparison for offline RL training vs live stream inference — ONNX Runtime for
+production inference, Python/PyTorch for batch training, existing `torch` feature as
+optional dev fallback: [`docs/toolchain-analysis.md`](docs/toolchain-analysis.md).
