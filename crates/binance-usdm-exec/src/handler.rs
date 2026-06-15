@@ -4,7 +4,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use trolly_stream::{EventHandler, Message, VenueEndpoints};
 
 use crate::parse::{parse_user_events, ParseError};
-use crate::types::{SymbolBookkeeping, UsdmExec, UsdmExecUpdate};
+use crate::types::{position_amount_is_zero, PositionChange, PositionKey, SymbolBookkeeping, UsdmExec, UsdmExecUpdate};
 
 /// Routing key for account-wide events (`ACCOUNT_UPDATE` balances, `MARGIN_CALL`, etc.).
 pub const ACCOUNT_ROUTING_ID: &str = "__account__";
@@ -52,6 +52,20 @@ impl UsdmExecHandler {
         &self.state
     }
 
+    /// Apply a position row to local bookkeeping without outbound side effects.
+    pub fn apply_position_bookkeeping(&mut self, position: &PositionChange) {
+        Self::upsert_position(&mut self.state, position);
+    }
+
+    fn upsert_position(state: &mut SymbolBookkeeping, position: &PositionChange) {
+        let key = PositionKey::from(position);
+        if position_amount_is_zero(&position.position_amount) {
+            state.positions.remove(&key);
+        } else {
+            state.positions.insert(key, position.clone());
+        }
+    }
+
     fn apply(&mut self, update: UsdmExecUpdate) -> Result<(), ParseError> {
         match &update {
             UsdmExecUpdate::OrderTrade(order) => {
@@ -64,9 +78,7 @@ impl UsdmExecHandler {
                 }
             }
             UsdmExecUpdate::PositionChange(position) => {
-                self.state
-                    .positions
-                    .insert(position.position_side.clone(), position.clone());
+                Self::upsert_position(&mut self.state, position);
             }
             UsdmExecUpdate::BalanceChange(_)
             | UsdmExecUpdate::ListenKeyExpired

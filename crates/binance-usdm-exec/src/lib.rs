@@ -15,8 +15,8 @@ pub use handler::{UsdmExecHandler, ACCOUNT_ROUTING_ID};
 pub use ingress::{build_multiplexor, ingest_user_data};
 pub use parse::{parse_user_events, ParseError};
 pub use types::{
-    BalanceChange, MarginCall, MarginCallPosition, OrderTradeUpdate, PositionChange,
-    SymbolBookkeeping, UsdmExec, UsdmExecUpdate,
+    position_amount_is_zero, BalanceChange, MarginCall, MarginCallPosition, OrderTradeUpdate,
+    PositionChange, PositionKey, SymbolBookkeeping, UsdmExec, UsdmExecUpdate,
 };
 
 #[cfg(test)]
@@ -132,5 +132,87 @@ mod tests {
         hub.ingest_message(Message::Text(json.into()));
 
         assert_eq!(recorded.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn position_amount_is_zero_detects_closed_positions() {
+        assert!(position_amount_is_zero("0"));
+        assert!(position_amount_is_zero("0.000"));
+        assert!(position_amount_is_zero("-0"));
+        assert!(!position_amount_is_zero("20"));
+        assert!(!position_amount_is_zero("-10"));
+    }
+
+    #[test]
+    fn handler_position_bookkeeping_uses_composite_keys_and_removes_flatten() {
+        let open_json = include_str!("../tests/fixtures/account_update.json");
+        let flatten_json = include_str!("../tests/fixtures/account_update_flatten.json");
+
+        let mut handler = UsdmExecHandler::new("BTCUSDT", None);
+        for event in parse_user_events(Message::Text(open_json.into())).unwrap() {
+            if let UsdmExecUpdate::PositionChange(position) = event {
+                handler.apply_position_bookkeeping(&position);
+            }
+        }
+
+        let long_key = PositionKey::new("BTCUSDT", "LONG");
+        let short_key = PositionKey::new("BTCUSDT", "SHORT");
+        assert_eq!(handler.state().positions.len(), 2);
+        assert!(handler.state().positions.contains_key(&long_key));
+        assert!(handler.state().positions.contains_key(&short_key));
+
+        for event in parse_user_events(Message::Text(flatten_json.into())).unwrap() {
+            if let UsdmExecUpdate::PositionChange(position) = event {
+                handler.apply_position_bookkeeping(&position);
+            }
+        }
+
+        assert_eq!(handler.state().positions.len(), 1);
+        assert!(!handler.state().positions.contains_key(&long_key));
+        assert!(handler.state().positions.contains_key(&short_key));
+    }
+
+    #[test]
+    fn ingest_account_update_persists_both_leg_on_account_and_symbol_handlers() {
+        let both_json = include_str!("../tests/fixtures/account_update_both.json");
+        let mut hub = build_multiplexor(&["ETHUSDT"], None);
+
+        ingest_user_data(&mut hub, Message::Text(both_json.into()));
+
+        let both_key = PositionKey::new("ETHUSDT", "BOTH");
+        let eth_state = hub.writers.get("ETHUSDT").unwrap().state();
+        assert_eq!(eth_state.positions.len(), 1);
+        assert_eq!(
+            eth_state.positions.get(&both_key).unwrap().position_amount,
+            "2.500"
+        );
+
+        let account_state = hub.writers.get(ACCOUNT_ROUTING_ID).unwrap().state();
+        assert_eq!(account_state.positions.len(), 1);
+        assert_eq!(
+            account_state.positions.get(&both_key).unwrap().position_side,
+            "BOTH"
+        );
+        assert!(account_state.open_orders.is_empty());
+    }
+
+    #[test]
+    fn ingest_account_update_flattens_account_wide_positions() {
+        let open_json = include_str!("../tests/fixtures/account_update.json");
+        let flatten_json = include_str!("../tests/fixtures/account_update_flatten.json");
+        let mut hub = build_multiplexor(&["BTCUSDT", "ETHUSDT"], None);
+
+        ingest_user_data(&mut hub, Message::Text(open_json.into()));
+        let account = hub.writers.get(ACCOUNT_ROUTING_ID).unwrap().state();
+        assert_eq!(account.positions.len(), 2);
+
+        ingest_user_data(&mut hub, Message::Text(flatten_json.into()));
+        let account = hub.writers.get(ACCOUNT_ROUTING_ID).unwrap().state();
+        let long_key = PositionKey::new("BTCUSDT", "LONG");
+        assert_eq!(account.positions.len(), 1);
+        assert!(!account.positions.contains_key(&long_key));
+        assert!(account
+            .positions
+            .contains_key(&PositionKey::new("BTCUSDT", "SHORT")));
     }
 }

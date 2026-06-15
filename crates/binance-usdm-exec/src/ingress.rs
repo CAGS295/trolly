@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use tracing::error;
 use trolly_stream::{EventHandler, Message, MonitorMultiplexor};
 
-use crate::handler::UsdmExecHandler;
+use crate::handler::{UsdmExecHandler, ACCOUNT_ROUTING_ID};
 use crate::parse::parse_user_events;
 use crate::types::{UsdmExec, UsdmExecUpdate};
 
@@ -40,9 +40,19 @@ fn route_update(
     };
 
     handler
-        .handle_update(event)
+        .handle_update(event.clone())
         .inspect_err(|e| error!("usdm handler error: {e}"))
         .ok();
+
+    if let UsdmExecUpdate::PositionChange(position) = &event {
+        if id != ACCOUNT_ROUTING_ID {
+            let Some(account) = hub.writers.get_mut(ACCOUNT_ROUTING_ID) else {
+                error!("missing usdm handler id {ACCOUNT_ROUTING_ID}");
+                return;
+            };
+            account.apply_position_bookkeeping(position);
+        }
+    }
 }
 
 /// Build a multiplexor with per-symbol handlers plus an account-wide handler.
@@ -144,7 +154,25 @@ mod tests {
 
         let btc_state = hub.writers.get("BTCUSDT").unwrap().state();
         assert_eq!(btc_state.positions.len(), 2);
-        assert!(btc_state.positions.contains_key("LONG"));
-        assert!(btc_state.positions.contains_key("SHORT"));
+        assert!(btc_state
+            .positions
+            .contains_key(&crate::types::PositionKey::new("BTCUSDT", "LONG")));
+        assert!(btc_state
+            .positions
+            .contains_key(&crate::types::PositionKey::new("BTCUSDT", "SHORT")));
+
+        let account_state = hub
+            .writers
+            .get(crate::handler::ACCOUNT_ROUTING_ID)
+            .unwrap()
+            .state();
+        assert_eq!(account_state.positions.len(), 2);
+        assert!(account_state.positions.contains_key(
+            &crate::types::PositionKey::new("BTCUSDT", "LONG")
+        ));
+        assert!(account_state.positions.contains_key(
+            &crate::types::PositionKey::new("BTCUSDT", "SHORT")
+        ));
+        assert!(account_state.open_orders.is_empty());
     }
 }

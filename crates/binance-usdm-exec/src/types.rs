@@ -63,6 +63,33 @@ pub struct PositionChange {
     pub position_side: String,
 }
 
+/// Composite key for open positions in [`SymbolBookkeeping`].
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PositionKey {
+    pub symbol: String,
+    pub position_side: String,
+}
+
+impl PositionKey {
+    pub fn new(symbol: impl Into<String>, position_side: impl Into<String>) -> Self {
+        Self {
+            symbol: symbol.into(),
+            position_side: position_side.into(),
+        }
+    }
+}
+
+impl From<&PositionChange> for PositionKey {
+    fn from(position: &PositionChange) -> Self {
+        Self::new(position.symbol.clone(), position.position_side.clone())
+    }
+}
+
+/// Whether a position amount string represents a closed (zero) position.
+pub fn position_amount_is_zero(amount: &str) -> bool {
+    amount.trim().parse::<f64>().is_ok_and(|v| v == 0.0)
+}
+
 /// `MARGIN_CALL` event (account-wide).
 #[derive(Debug, Clone, PartialEq)]
 pub struct MarginCall {
@@ -87,7 +114,7 @@ pub struct MarginCallPosition {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct SymbolBookkeeping {
     pub open_orders: HashMap<i64, OrderTradeUpdate>,
-    pub positions: HashMap<String, PositionChange>,
+    pub positions: HashMap<PositionKey, PositionChange>,
 }
 
 impl UsdmExecUpdate {
