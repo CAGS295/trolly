@@ -7,7 +7,7 @@ Project journal for shipped work. Active backlog lives in [`WORKPLAN.md`](WORKPL
 - Add more exchange providers beyond Binance spot + USDM (stub scaffold landed; full venues remain).
 
 ## change log
-+ `binance-usdm-exec`: signed REST USDM order placement, `UsdmRestEgress`, strategy `position_side` egress field.
++ `binance demo`: opt-in spot/USDM demo integration tests, `.env.example` flags, demo URL helpers.
 + `binance-usdm-exec`: MARGIN_CALL persistence on __account__, supersede by event_time, outbound forwarding.
 + `binance-usdm-exec`: durable ACCOUNT_UPDATE position bookkeeping with `(symbol, position_side)` keys and flatten semantics.
 + `binance-spot-exec`: signed REST spot order placement, `SpotRestEgress`, minimal `Execute` CLI entrypoint.
