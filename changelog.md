@@ -7,7 +7,7 @@ Project journal for shipped work. Active backlog lives in [`WORKPLAN.md`](WORKPL
 - Add more exchange providers beyond Binance spot + USDM (stub scaffold landed; full venues remain).
 
 ## change log
-+ `binance-usdm-exec`: MARGIN_CALL persistence on __account__, supersede by event_time, outbound forwarding.
++ `binance-usdm-exec`: signed REST USDM order placement, `UsdmRestEgress`, strategy `position_side` egress field.
 + `binance-spot-exec`: signed REST spot order placement, `SpotRestEgress`, minimal `Execute` CLI entrypoint.
 + `trolly-gym`: RL training/inference toolchain analysis ADR (tch, Candle, Burn, ORT, Python sidecar).
 + `trolly-gym`: stream-fed `Env`, observation windows, replay buffer stub, `torch` feature gate.
