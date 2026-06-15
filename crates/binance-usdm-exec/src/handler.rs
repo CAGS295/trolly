@@ -4,7 +4,10 @@ use tokio::sync::mpsc::UnboundedSender;
 use trolly_stream::{EventHandler, Message, VenueEndpoints};
 
 use crate::parse::{parse_user_events, ParseError};
-use crate::types::{position_amount_is_zero, PositionChange, PositionKey, SymbolBookkeeping, UsdmExec, UsdmExecUpdate};
+use crate::types::{
+    position_amount_is_zero, MarginCall, PositionChange, PositionKey, SymbolBookkeeping, UsdmExec,
+    UsdmExecUpdate,
+};
 
 /// Routing key for account-wide events (`ACCOUNT_UPDATE` balances, `MARGIN_CALL`, etc.).
 pub const ACCOUNT_ROUTING_ID: &str = "__account__";
@@ -57,6 +60,11 @@ impl UsdmExecHandler {
         Self::upsert_position(&mut self.state, position);
     }
 
+    /// Apply a margin-call payload to local bookkeeping without outbound side effects.
+    pub fn apply_margin_call_bookkeeping(&mut self, call: &MarginCall) {
+        Self::apply_margin_call(&mut self.state, call);
+    }
+
     fn upsert_position(state: &mut SymbolBookkeeping, position: &PositionChange) {
         let key = PositionKey::from(position);
         if position_amount_is_zero(&position.position_amount) {
@@ -64,6 +72,21 @@ impl UsdmExecHandler {
         } else {
             state.positions.insert(key, position.clone());
         }
+    }
+
+    fn apply_margin_call(state: &mut SymbolBookkeeping, call: &MarginCall) {
+        if state
+            .latest_margin_call
+            .as_ref()
+            .is_some_and(|existing| call.event_time <= existing.event_time)
+        {
+            return;
+        }
+
+        if !call.cross_wallet_balance.is_empty() {
+            state.cross_wallet_balance = call.cross_wallet_balance.clone();
+        }
+        state.latest_margin_call = Some(call.clone());
     }
 
     fn apply(&mut self, update: UsdmExecUpdate) -> Result<(), ParseError> {
@@ -80,9 +103,8 @@ impl UsdmExecHandler {
             UsdmExecUpdate::PositionChange(position) => {
                 Self::upsert_position(&mut self.state, position);
             }
-            UsdmExecUpdate::BalanceChange(_)
-            | UsdmExecUpdate::ListenKeyExpired
-            | UsdmExecUpdate::MarginCall(_) => {}
+            UsdmExecUpdate::BalanceChange(_) | UsdmExecUpdate::ListenKeyExpired => {}
+            UsdmExecUpdate::MarginCall(call) => Self::apply_margin_call(&mut self.state, call),
         }
 
         if let Some(tx) = &self.outbound {

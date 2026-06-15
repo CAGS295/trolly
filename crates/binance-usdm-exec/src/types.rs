@@ -115,6 +115,10 @@ pub struct MarginCallPosition {
 pub struct SymbolBookkeeping {
     pub open_orders: HashMap<i64, OrderTradeUpdate>,
     pub positions: HashMap<PositionKey, PositionChange>,
+    /// Last known cross wallet balance from a crossed-position `MARGIN_CALL`.
+    pub cross_wallet_balance: String,
+    /// Latest margin-call payload for strategy inspection (superseded by newer `event_time`).
+    pub latest_margin_call: Option<MarginCall>,
 }
 
 impl UsdmExecUpdate {

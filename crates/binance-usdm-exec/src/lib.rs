@@ -74,6 +74,108 @@ mod tests {
     }
 
     #[test]
+    fn parse_margin_call_fixture() {
+        let json = include_str!("../tests/fixtures/margin_call.json");
+        let events = parse_user_events(Message::Text(json.into())).unwrap();
+        assert_eq!(events.len(), 1);
+
+        let UsdmExecUpdate::MarginCall(call) = &events[0] else {
+            panic!("expected margin call update");
+        };
+        assert_eq!(call.event_time, 1587727187525);
+        assert_eq!(call.cross_wallet_balance, "3.16812045");
+        assert_eq!(call.positions.len(), 2);
+        assert_eq!(call.positions[0].symbol, "ETHUSDT");
+        assert_eq!(call.positions[0].position_side, "LONG");
+        assert_eq!(call.positions[0].position_amount, "1.327");
+        assert_eq!(call.positions[0].maintenance_margin_required, "1.614445");
+        assert_eq!(call.positions[1].symbol, "BTCUSDT");
+        assert_eq!(call.positions[1].position_side, "SHORT");
+    }
+
+    #[test]
+    fn handler_records_latest_margin_call_and_supersedes_on_event_time() {
+        let older_json = include_str!("../tests/fixtures/margin_call_older.json");
+        let newer_json = include_str!("../tests/fixtures/margin_call.json");
+
+        let mut handler = UsdmExecHandler::new(ACCOUNT_ROUTING_ID, None);
+
+        let newer = UsdmExecHandler::parse_update(Message::Text(newer_json.into()))
+            .unwrap()
+            .unwrap();
+        handler.handle_update(newer).unwrap();
+
+        let state = handler.state();
+        assert_eq!(state.cross_wallet_balance, "3.16812045");
+        let latest = state.latest_margin_call.as_ref().unwrap();
+        assert_eq!(latest.event_time, 1587727187525);
+        assert_eq!(latest.positions.len(), 2);
+
+        let older = UsdmExecHandler::parse_update(Message::Text(older_json.into()))
+            .unwrap()
+            .unwrap();
+        handler.handle_update(older).unwrap();
+
+        let state = handler.state();
+        assert_eq!(state.cross_wallet_balance, "3.16812045");
+        assert_eq!(
+            state.latest_margin_call.as_ref().unwrap().event_time,
+            1587727187525
+        );
+    }
+
+    #[test]
+    fn handler_forwards_margin_call_on_outbound_channel() {
+        let json = include_str!("../tests/fixtures/margin_call.json");
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut handler = UsdmExecHandler::new(ACCOUNT_ROUTING_ID, Some(tx));
+
+        let update = UsdmExecHandler::parse_update(Message::Text(json.into()))
+            .unwrap()
+            .unwrap();
+        handler.handle_update(update).unwrap();
+
+        let forwarded = rx.try_recv().unwrap();
+        assert!(matches!(forwarded, UsdmExecUpdate::MarginCall(_)));
+    }
+
+    #[test]
+    fn ingest_margin_call_routes_to_account_handler() {
+        let margin_call_json = include_str!("../tests/fixtures/margin_call.json");
+        let btc_rec = Arc::new(Mutex::new(Vec::new()));
+        let account_rec = Arc::new(Mutex::new(Vec::new()));
+
+        let mut hub = MonitorMultiplexor::from_writers(HashMap::from([
+            (
+                "BTCUSDT".into(),
+                UsdmExecHandler::with_recorder("BTCUSDT", btc_rec.clone()),
+            ),
+            (
+                ACCOUNT_ROUTING_ID.into(),
+                UsdmExecHandler::with_recorder(ACCOUNT_ROUTING_ID, account_rec.clone()),
+            ),
+        ]));
+
+        ingest_user_data(&mut hub, Message::Text(margin_call_json.into()));
+
+        assert!(btc_rec.lock().unwrap().is_empty());
+        assert_eq!(account_rec.lock().unwrap().len(), 1);
+        assert!(matches!(
+            account_rec.lock().unwrap()[0],
+            UsdmExecUpdate::MarginCall(_)
+        ));
+
+        let account_state = hub.writers.get(ACCOUNT_ROUTING_ID).unwrap().state();
+        assert_eq!(account_state.cross_wallet_balance, "3.16812045");
+        let latest = account_state.latest_margin_call.as_ref().unwrap();
+        assert_eq!(latest.event_time, 1587727187525);
+        assert_eq!(latest.positions.len(), 2);
+        assert_eq!(latest.positions[0].symbol, "ETHUSDT");
+        assert_eq!(latest.positions[1].symbol, "BTCUSDT");
+        assert_eq!(UsdmExecHandler::to_id(&account_rec.lock().unwrap()[0]), ACCOUNT_ROUTING_ID);
+    }
+
+    #[test]
     fn parse_combined_stream_envelope() {
         let inner = include_str!("../tests/fixtures/order_trade_update.json");
         let wrapped = format!(r#"{{"stream":"lk","data":{inner}}}"#);
