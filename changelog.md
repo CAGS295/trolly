@@ -8,6 +8,8 @@ Project journal for shipped work. Active backlog lives in [`WORKPLAN.md`](WORKPL
 
 ## change log
 + `binance-usdm-exec`: signed REST USDM order placement, `UsdmRestEgress`, strategy `position_side` egress field.
++ `binance-usdm-exec`: MARGIN_CALL persistence on __account__, supersede by event_time, outbound forwarding.
++ `binance-usdm-exec`: durable ACCOUNT_UPDATE position bookkeeping with `(symbol, position_side)` keys and flatten semantics.
 + `binance-spot-exec`: signed REST spot order placement, `SpotRestEgress`, minimal `Execute` CLI entrypoint.
 + `trolly-gym`: RL training/inference toolchain analysis ADR (tch, Candle, Burn, ORT, Python sidecar).
 + `trolly-gym`: stream-fed `Env`, observation windows, replay buffer stub, `torch` feature gate.
