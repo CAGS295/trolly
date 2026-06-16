@@ -16,13 +16,14 @@ Signed query params: `symbol`, `side`, `type` (`MARKET` / `LIMIT`), `quantity`, 
 
 ## User-data stream (listen key)
 
-Private execution events require an active `listenKey`:
+Private execution events require an active `listenKey` on demo/production REST (`https://demo-fapi.binance.com` for demo):
 
 1. **Caller responsibility:** create via `POST /fapi/v1/listenKey`, keepalive via `PUT /fapi/v1/listenKey` every ~30 minutes, and recreate on `listenKeyExpired`. This crate does not manage listen-key lifecycle.
-2. Connect with [`UsdmUserDataStream`](src/endpoints.rs):
+2. Connect with [`UsdmUserDataStream`](src/endpoints.rs) (production `wss://fstream.binance.com`, demo `wss://fstream.binancefuture.com`):
 
 ```text
 wss://fstream.binance.com/private/ws/<listenKey>
+wss://fstream.binancefuture.com/private/ws/<listenKey>   # demo
 ```
 
 Optional event filter:

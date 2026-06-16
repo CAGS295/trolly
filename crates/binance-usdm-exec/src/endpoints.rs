@@ -41,7 +41,21 @@ pub struct BinanceUsdmRest;
 impl BinanceUsdmRest {
     pub const PRODUCTION_URL: &'static str = "https://fapi.binance.com";
     pub const TESTNET_URL: &'static str = "https://testnet.binancefuture.com";
+    /// USDM demo REST host ([derivatives docs](https://developers.binance.com/docs/derivatives/)).
     pub const DEMO_URL: &'static str = "https://demo-fapi.binance.com";
+
+    pub fn demo_depth_url(symbol: impl AsRef<str>, limit: u16) -> String {
+        format!(
+            "{}/fapi/v1/depth?symbol={}&limit={}",
+            Self::DEMO_URL,
+            symbol.as_ref().to_uppercase(),
+            limit
+        )
+    }
+
+    pub fn demo_listen_key_url() -> String {
+        format!("{}/fapi/v1/listenKey", Self::DEMO_URL)
+    }
 }
 
 /// Private USDM user-data stream endpoint for a single `listenKey`.
@@ -53,10 +67,23 @@ pub struct UsdmUserDataStream {
 }
 
 impl UsdmUserDataStream {
+    /// USDM demo private user-data host ([USDM general info](https://developers.binance.com/docs/derivatives/usds-margined-futures/general-info)).
+    pub const DEMO_WS_BASE: &'static str = "wss://fstream.binancefuture.com";
+
     pub fn new(listen_key: impl Into<String>) -> Self {
         Self {
             listen_key: listen_key.into(),
             events_filter: None,
+        }
+    }
+
+    pub fn demo_websocket_url(&self) -> String {
+        match &self.events_filter {
+            Some(events) => format!(
+                "{}/private/ws?listenKey={}&events={}",
+                Self::DEMO_WS_BASE, self.listen_key, events
+            ),
+            None => format!("{}/private/ws/{}", Self::DEMO_WS_BASE, self.listen_key),
         }
     }
 
@@ -118,5 +145,26 @@ mod tests {
     fn ws_subscriptions_empty() {
         let ep = UsdmUserDataStream::new("k");
         assert!(ep.ws_subscriptions(["BTCUSDT"].iter()).is_empty());
+    }
+
+    #[test]
+    fn demo_websocket_url_listen_key_path() {
+        let ep = UsdmUserDataStream::new("abc123");
+        assert_eq!(
+            ep.demo_websocket_url(),
+            "wss://fstream.binancefuture.com/private/ws/abc123"
+        );
+    }
+
+    #[test]
+    fn demo_depth_and_listen_key_urls() {
+        assert_eq!(
+            BinanceUsdmRest::demo_depth_url("btcusdt", 500),
+            "https://demo-fapi.binance.com/fapi/v1/depth?symbol=BTCUSDT&limit=500"
+        );
+        assert_eq!(
+            BinanceUsdmRest::demo_listen_key_url(),
+            "https://demo-fapi.binance.com/fapi/v1/listenKey"
+        );
     }
 }

@@ -67,6 +67,8 @@ rand = { version = "*" }
 criterion = "*"
 http-body-util = "0.1.2"
 dotenvy = "0.15"
+tokio = { version = "1.20.1", features = ["macros", "rt", "rt-multi-thread", "net", "time", "io-util"] }
+futures-util = "0.3.21"
 
 [features]
 default = ["grpc", "codec", "prometheus"]

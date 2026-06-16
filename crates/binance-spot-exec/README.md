@@ -8,6 +8,7 @@ We use the Binance **REST** trading API (not the WebSocket trading API) for plac
 
 - Production: `https://api.binance.com/api/v3/order`
 - Testnet: `https://testnet.binance.vision/api/v3/order`
+- Demo: `https://demo-api.binance.com/api/v3/order`
 
 Signed query params: `symbol`, `side`, `type` (`MARKET` / `LIMIT`), `quantity`, optional `price` + `timeInForce` (`GTC`, `IOC`, `FOK`) for limits, `timestamp`, `signature` (HMAC-SHA256). Header: `X-MBX-APIKEY`.
 
@@ -21,7 +22,7 @@ cargo run -- execute place-order --symbol BTCUSDT --side BUY --quantity 0.01 --p
 
 ## Stream subscription (user-data ingest)
 
-1. Connect to the Binance WebSocket API: `wss://ws-api.binance.com:443/ws-api/v3`.
+1. Connect to the Binance WebSocket API: `wss://ws-api.binance.com:443/ws-api/v3` (demo: `wss://demo-ws-api.binance.com/ws-api/v3`).
 2. Send a signed subscribe request (no REST listen key):
 
 ```json

@@ -158,6 +158,23 @@ cargo test --test global_book global_book_live_rest_merge -- --ignored
 Optional: set `TROLLY_INTEGRATION_SYMBOL` in `.env` (default `BTCUSDT`). If the flag is missing or
 `0`, the live test skips even when invoked with `--ignored`.
 
+### Binance demo integration (spot + USDM, opt-in)
+
+Demo/testnet hosts only — use **demo** API keys from [Binance demo mode](https://developers.binance.com/docs/binance-spot-api-docs/demo-mode/general-info), never production keys.
+
+| Venue | REST | WebSocket |
+|-------|------|-----------|
+| Spot demo | `https://demo-api.binance.com/api` | WS API `wss://demo-ws-api.binance.com/ws-api/v3`; market `wss://demo-stream.binance.com/ws` |
+| USDM demo | `https://demo-fapi.binance.com` | user-data `wss://fstream.binancefuture.com/private/ws/<listenKey>` |
+
+```bash
+cp .env.example .env
+# edit .env: DEMO_BINANCE_KEY, DEMO_BINANCE_SECRET, RUN_BINANCE_DEMO_INTEGRATION=1
+cargo test --test binance_demo -- --ignored
+```
+
+Optional: `TROLLY_DEMO_SYMBOL` (default `BTCUSDT`). Tests in [`tests/binance_demo.rs`](tests/binance_demo.rs) fetch demo REST depth, subscribe to authenticated user-data streams, and assert parsed events when the demo account has recent activity; otherwise they skip with a clear idle message. Default `cargo test --workspace` stays offline.
+
 ## Benchmarks
 
 Criterion benchmarks for both serving paths:
