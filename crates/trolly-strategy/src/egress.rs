@@ -1,4 +1,7 @@
 //! Outbound messages dispatched back through the stream egress API.
+//!
+//! Venue adapters (spot and USDM exec crates) consume [`OutboundMessage::OrderRequest`]
+//! and translate to signed REST calls.
 
 use trolly_stream::Message;
 

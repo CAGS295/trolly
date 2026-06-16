@@ -222,7 +222,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-014 — USDM order placement (`binance-usdm-exec`)
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-013]
 - scope: crates/binance-usdm-exec/, crates/trolly-strategy/

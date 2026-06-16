@@ -1,10 +1,13 @@
-//! USDM user-data stream connection helpers.
+//! USDM REST and user-data stream connection helpers.
 //!
 //! ## Subscription setup
 //!
 //! Binance USD-M futures execution events are delivered on a **private** user-data
-//! websocket keyed by `listenKey` (created via `POST /fapi/v1/listenKey`). This crate
-//! does not call REST trading or listen-key endpoints; callers supply an active key.
+//! websocket keyed by `listenKey` (created via `POST /fapi/v1/listenKey`). Outbound
+//! order placement uses signed REST [`POST /fapi/v1/order`](crate::outbound::UsdmOrderClient::place_order);
+//! listen-key lifecycle REST calls are **not** implemented here — callers must create,
+//! keepalive (`PUT /fapi/v1/listenKey`), and renew keys before connecting
+//! [`UsdmUserDataStream`].
 //!
 //! Recommended private URL (2026 endpoint layout):
 //!
@@ -23,6 +26,23 @@
 //! and execution handlers on the same ingress API.
 
 use trolly_stream::VenueEndpoints;
+
+/// API credentials for signed Binance USDM REST calls.
+#[derive(Clone, Debug)]
+pub struct ApiCredentials {
+    pub api_key: String,
+    pub secret_key: String,
+}
+
+/// Binance USDM REST trading endpoints.
+#[derive(Clone, Debug)]
+pub struct BinanceUsdmRest;
+
+impl BinanceUsdmRest {
+    pub const PRODUCTION_URL: &'static str = "https://fapi.binance.com";
+    pub const TESTNET_URL: &'static str = "https://testnet.binancefuture.com";
+    pub const DEMO_URL: &'static str = "https://demo-fapi.binance.com";
+}
 
 /// Private USDM user-data stream endpoint for a single `listenKey`.
 #[derive(Clone, Debug)]
@@ -66,8 +86,7 @@ impl VenueEndpoints for UsdmUserDataStream {
     }
 
     fn rest_api_url(&self, _symbol: impl AsRef<str>) -> String {
-        // REST is intentionally unused in this crate (stream-native execution bookkeeping).
-        String::new()
+        BinanceUsdmRest::PRODUCTION_URL.into()
     }
 }
 

@@ -4,16 +4,30 @@
 //! stream events, maintains per-symbol order/position state plus account-wide margin-call
 //! snapshots on the [`ACCOUNT_ROUTING_ID`] handler, and fans updates into
 //! [`trolly_stream::MonitorMultiplexor`] ingress alongside other stream handlers.
+//!
+//! Outbound order placement uses signed REST `POST /fapi/v1/order`; see [`README.md`](../README.md).
 
+mod auth;
 mod endpoints;
 mod handler;
 mod ingress;
+mod order;
+mod outbound;
 mod parse;
 mod types;
 
-pub use endpoints::UsdmUserDataStream;
+pub use auth::{
+    build_signed_rest_params, current_timestamp_ms, sign_hmac_sha256_hex, signed_params_payload,
+};
+pub use endpoints::{ApiCredentials, BinanceUsdmRest, UsdmUserDataStream};
 pub use handler::{UsdmExecHandler, ACCOUNT_ROUTING_ID};
 pub use ingress::{account_state, build_multiplexor, ingest_user_data};
+pub use order::{
+    NewOrderRequest, OrderBuildError, OrderSide, OrderType, PositionSide, TimeInForce,
+};
+pub use outbound::{
+    build_order, OrderError, PlaceOrderResponse, UsdmExecEgress, UsdmOrderClient,
+};
 pub use parse::{parse_user_events, ParseError};
 pub use types::{
     BalanceChange, MarginCall, MarginCallPosition, OrderTradeUpdate, PositionChange, PositionKey,
