@@ -195,7 +195,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-012 — USDM position bookkeeping (`binance-usdm-exec`)
 
-- status: in_progress
+- status: done
 - repos: trolly
 - depends_on: [WP-009]
 - scope: crates/binance-usdm-exec/
@@ -209,7 +209,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-013 — USDM margin-call handling (`binance-usdm-exec`)
 
-- status: todo
+- status: in_progress
 - repos: trolly
 - depends_on: [WP-012]
 - scope: crates/binance-usdm-exec/
@@ -236,7 +236,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-015 — Spot order execution (`binance-spot-exec`)
 
-- status: in_progress
+- status: done
 - repos: trolly
 - depends_on: [WP-008]
 - scope: crates/binance-spot-exec/, crates/trolly-strategy/, src/cli/mod.rs
@@ -250,7 +250,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-016 — RL training and inference toolchain analysis (`trolly-gym`)
 
-- status: in_progress
+- status: done
 - repos: trolly
 - depends_on: [WP-011]
 - scope: crates/trolly-gym/, docs/ or crates/trolly-gym/docs/
