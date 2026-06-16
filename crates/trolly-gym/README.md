@@ -33,3 +33,10 @@ The optional `tch` crate is pulled in only when `--features torch` is set.
 - **Env** — [`Env`](src/env.rs) ties ingest → window → step → egress; see `tests/smoke.rs` for an offline mock flow.
 
 Training loops, checkpoints, and GPU policies are out of scope for this crate scaffold.
+
+## RL toolchain analysis (WP-016)
+
+Stack comparison for stream-fed RL **training** and **live inference** — integration
+points, algorithm support, and feature-gate decisions:
+
+- [ADR-001: RL Training and Inference Toolchain](docs/001-rl-toolchain-analysis.md)
