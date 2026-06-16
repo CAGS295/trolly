@@ -18,6 +18,23 @@ pub enum OutboundMessage {
     Raw(Message),
 }
 
+impl OutboundMessage {
+    /// Build a normalized place-order command (`price: None` => market).
+    pub fn order_request(
+        symbol: impl Into<String>,
+        side: impl Into<String>,
+        qty: impl Into<String>,
+        price: Option<impl Into<String>>,
+    ) -> Self {
+        Self::OrderRequest {
+            symbol: symbol.into(),
+            side: side.into(),
+            qty: qty.into(),
+            price: price.map(Into::into),
+        }
+    }
+}
+
 /// Dispatches outbound stream messages (websocket writes, fan-in queues, etc.).
 pub trait StreamEgress {
     type Error;

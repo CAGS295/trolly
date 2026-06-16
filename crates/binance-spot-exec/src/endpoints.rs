@@ -3,11 +3,20 @@ use trolly_stream::VenueEndpoints;
 
 use crate::auth::build_subscribe_signature_params;
 
-/// API credentials for signed user-data stream subscription (WebSocket API only).
+/// API credentials for signed Binance spot REST and WebSocket API calls.
 #[derive(Clone, Debug)]
 pub struct ApiCredentials {
     pub api_key: String,
     pub secret_key: String,
+}
+
+/// Binance spot REST trading endpoints.
+#[derive(Clone, Debug)]
+pub struct BinanceSpotRest;
+
+impl BinanceSpotRest {
+    pub const PRODUCTION_URL: &'static str = "https://api.binance.com";
+    pub const TESTNET_URL: &'static str = "https://testnet.binance.vision";
 }
 
 /// Binance spot user-data stream endpoints (WebSocket API, no REST trading).

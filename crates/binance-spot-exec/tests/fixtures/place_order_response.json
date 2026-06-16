@@ -1,0 +1,13 @@
+{
+  "symbol": "BTCUSDT",
+  "orderId": 28,
+  "clientOrderId": "test-order-1",
+  "transactTime": 1507725176595,
+  "price": "100.0",
+  "origQty": "0.01",
+  "executedQty": "0.0",
+  "status": "NEW",
+  "timeInForce": "GTC",
+  "type": "LIMIT",
+  "side": "BUY"
+}
