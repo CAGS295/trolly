@@ -63,6 +63,35 @@ pub struct PositionChange {
     pub position_side: String,
 }
 
+/// Composite key for the latest position row per `(symbol, position_side)`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PositionKey {
+    pub symbol: String,
+    pub position_side: String,
+}
+
+impl PositionKey {
+    pub fn new(symbol: impl Into<String>, position_side: impl Into<String>) -> Self {
+        Self {
+            symbol: symbol.into(),
+            position_side: position_side.into(),
+        }
+    }
+
+    pub fn from_change(position: &PositionChange) -> Self {
+        Self::new(&position.symbol, &position.position_side)
+    }
+}
+
+/// Returns true when the position amount represents a flat/closed leg.
+pub fn position_is_flat(position_amount: &str) -> bool {
+    position_amount
+        .trim()
+        .parse::<f64>()
+        .map(|amount| amount == 0.0)
+        .unwrap_or(false)
+}
+
 /// `MARGIN_CALL` event (account-wide).
 #[derive(Debug, Clone, PartialEq)]
 pub struct MarginCall {
@@ -83,21 +112,38 @@ pub struct MarginCallPosition {
     pub maintenance_margin_required: String,
 }
 
-/// Per-symbol execution and position bookkeeping state.
+/// Per-symbol execution and account-wide position bookkeeping state.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct SymbolBookkeeping {
     pub open_orders: HashMap<i64, OrderTradeUpdate>,
-    pub positions: HashMap<String, PositionChange>,
+    /// Latest position row per `(symbol, position_side)`; flat legs are omitted.
+    pub positions: HashMap<PositionKey, PositionChange>,
+}
+
+impl SymbolBookkeeping {
+    pub fn position(&self, symbol: &str, position_side: &str) -> Option<&PositionChange> {
+        self.positions
+            .get(&PositionKey::new(symbol, position_side))
+    }
+
+    pub fn positions_for_symbol<'a>(
+        &'a self,
+        symbol: &'a str,
+    ) -> impl Iterator<Item = &'a PositionChange> + 'a {
+        self.positions
+            .values()
+            .filter(move |position| position.symbol == symbol)
+    }
 }
 
 impl UsdmExecUpdate {
     pub fn routing_id(&self) -> &str {
         match self {
             Self::OrderTrade(o) => &o.symbol,
-            Self::PositionChange(p) => &p.symbol,
-            Self::BalanceChange(_) | Self::ListenKeyExpired | Self::MarginCall(_) => {
-                crate::handler::ACCOUNT_ROUTING_ID
-            }
+            Self::PositionChange(_)
+            | Self::BalanceChange(_)
+            | Self::ListenKeyExpired
+            | Self::MarginCall(_) => crate::handler::ACCOUNT_ROUTING_ID,
         }
     }
 }

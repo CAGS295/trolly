@@ -5,7 +5,7 @@ use trolly_stream::{EventHandler, Message, MonitorMultiplexor};
 
 use crate::handler::UsdmExecHandler;
 use crate::parse::parse_user_events;
-use crate::types::{UsdmExec, UsdmExecUpdate};
+use crate::types::{SymbolBookkeeping, UsdmExec, UsdmExecUpdate};
 
 /// Fan one raw user-data websocket payload into [`MonitorMultiplexor::ingest_message`]
 /// semantics: parse, route by [`UsdmExecHandler::to_id`], and apply bookkeeping.
@@ -45,7 +45,14 @@ fn route_update(
         .ok();
 }
 
-/// Build a multiplexor with per-symbol handlers plus an account-wide handler.
+/// Account-wide bookkeeping state (`__account__` handler).
+pub fn account_state(
+    hub: &MonitorMultiplexor<UsdmExecHandler, UsdmExec>,
+) -> Option<&SymbolBookkeeping> {
+    hub.writers
+        .get(crate::handler::ACCOUNT_ROUTING_ID)
+        .map(UsdmExecHandler::state)
+}
 pub fn build_multiplexor(
     symbols: &[&str],
     outbound: Option<tokio::sync::mpsc::UnboundedSender<UsdmExecUpdate>>,
@@ -138,13 +145,53 @@ mod tests {
 
         ingest_user_data(&mut hub, Message::Text(account_json.into()));
 
-        assert_eq!(account_rec.lock().unwrap().len(), 2);
-        assert_eq!(btc_rec.lock().unwrap().len(), 2);
+        assert_eq!(account_rec.lock().unwrap().len(), 4);
+        assert!(btc_rec.lock().unwrap().is_empty());
         assert!(eth_rec.lock().unwrap().is_empty());
 
-        let btc_state = hub.writers.get("BTCUSDT").unwrap().state();
-        assert_eq!(btc_state.positions.len(), 2);
-        assert!(btc_state.positions.contains_key("LONG"));
-        assert!(btc_state.positions.contains_key("SHORT"));
+        let account_state = account_state(&hub).expect("account handler");
+        assert_eq!(account_state.positions.len(), 2);
+        assert!(account_state.position("BTCUSDT", "LONG").is_some());
+        assert!(account_state.position("BTCUSDT", "SHORT").is_some());
+    }
+
+    #[test]
+    fn ingest_account_update_both_mode_persisted_on_account() {
+        let account_json = include_str!("../tests/fixtures/account_update_both.json");
+        let account_rec = Arc::new(Mutex::new(Vec::new()));
+
+        let mut hub = MonitorMultiplexor::from_writers(HashMap::from([(
+            crate::handler::ACCOUNT_ROUTING_ID.into(),
+            UsdmExecHandler::with_recorder(
+                crate::handler::ACCOUNT_ROUTING_ID,
+                account_rec.clone(),
+            ),
+        )]));
+
+        ingest_user_data(&mut hub, Message::Text(account_json.into()));
+
+        assert_eq!(account_rec.lock().unwrap().len(), 1);
+        let account_state = account_state(&hub).expect("account handler");
+        assert_eq!(account_state.positions.len(), 1);
+        let position = account_state.position("ETHUSDT", "BOTH").expect("BOTH leg");
+        assert_eq!(position.position_amount, "1.5");
+    }
+
+    #[test]
+    fn ingest_account_update_flatten_removes_closed_leg() {
+        let open_json = include_str!("../tests/fixtures/account_update.json");
+        let flatten_json = include_str!("../tests/fixtures/account_update_flatten_long.json");
+
+        let mut hub = build_multiplexor(&["BTCUSDT"], None);
+
+        ingest_user_data(&mut hub, Message::Text(open_json.into()));
+        let state = account_state(&hub).expect("account handler");
+        assert_eq!(state.positions.len(), 2);
+
+        ingest_user_data(&mut hub, Message::Text(flatten_json.into()));
+        let state = account_state(&hub).expect("account handler");
+        assert_eq!(state.positions.len(), 1);
+        assert!(state.position("BTCUSDT", "LONG").is_none());
+        assert!(state.position("BTCUSDT", "SHORT").is_some());
     }
 }

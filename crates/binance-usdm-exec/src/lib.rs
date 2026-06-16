@@ -12,11 +12,11 @@ mod types;
 
 pub use endpoints::UsdmUserDataStream;
 pub use handler::{UsdmExecHandler, ACCOUNT_ROUTING_ID};
-pub use ingress::{build_multiplexor, ingest_user_data};
+pub use ingress::{account_state, build_multiplexor, ingest_user_data};
 pub use parse::{parse_user_events, ParseError};
 pub use types::{
-    BalanceChange, MarginCall, MarginCallPosition, OrderTradeUpdate, PositionChange,
-    SymbolBookkeeping, UsdmExec, UsdmExecUpdate,
+    BalanceChange, MarginCall, MarginCallPosition, OrderTradeUpdate, PositionChange, PositionKey,
+    SymbolBookkeeping, UsdmExec, UsdmExecUpdate, position_is_flat,
 };
 
 #[cfg(test)]
@@ -26,6 +26,57 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use trolly_stream::{EventHandler, Message, MonitorMultiplexor};
+
+    #[test]
+    fn position_is_flat_detects_zero_amounts() {
+        assert!(position_is_flat("0"));
+        assert!(position_is_flat("0.0"));
+        assert!(position_is_flat("0.00000000"));
+        assert!(position_is_flat("-0"));
+        assert!(!position_is_flat("20"));
+        assert!(!position_is_flat("-10"));
+    }
+
+    #[test]
+    fn handler_position_bookkeeping_on_account_handler() {
+        let account_json = include_str!("../tests/fixtures/account_update.json");
+        let events = parse_user_events(Message::Text(account_json.into())).unwrap();
+
+        let mut handler = UsdmExecHandler::new(ACCOUNT_ROUTING_ID, None);
+        for event in events {
+            handler.handle_update(event).unwrap();
+        }
+
+        let state = handler.state();
+        assert_eq!(state.positions.len(), 2);
+        assert_eq!(
+            state.position("BTCUSDT", "LONG").unwrap().position_amount,
+            "20"
+        );
+        assert_eq!(
+            state.position("BTCUSDT", "SHORT").unwrap().position_amount,
+            "-10"
+        );
+        assert_eq!(state.positions_for_symbol("BTCUSDT").count(), 2);
+    }
+
+    #[test]
+    fn handler_position_flatten_removes_leg() {
+        let open_json = include_str!("../tests/fixtures/account_update.json");
+        let flatten_json = include_str!("../tests/fixtures/account_update_flatten_long.json");
+
+        let mut handler = UsdmExecHandler::new(ACCOUNT_ROUTING_ID, None);
+        for event in parse_user_events(Message::Text(open_json.into())).unwrap() {
+            handler.handle_update(event).unwrap();
+        }
+        assert_eq!(handler.state().positions.len(), 2);
+
+        for event in parse_user_events(Message::Text(flatten_json.into())).unwrap() {
+            handler.handle_update(event).unwrap();
+        }
+        assert_eq!(handler.state().positions.len(), 1);
+        assert!(handler.state().position("BTCUSDT", "LONG").is_none());
+    }
 
     #[test]
     fn parse_order_trade_update_fixture() {
@@ -117,6 +168,12 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(UsdmExecHandler::to_id(&update), "BTCUSDT");
+
+        let account_json = include_str!("../tests/fixtures/account_update.json");
+        let events = parse_user_events(Message::Text(account_json.into())).unwrap();
+        for event in events {
+            assert_eq!(UsdmExecHandler::to_id(&event), ACCOUNT_ROUTING_ID);
+        }
     }
 
     #[test]

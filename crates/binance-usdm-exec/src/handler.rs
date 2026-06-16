@@ -4,7 +4,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use trolly_stream::{EventHandler, Message, VenueEndpoints};
 
 use crate::parse::{parse_user_events, ParseError};
-use crate::types::{SymbolBookkeeping, UsdmExec, UsdmExecUpdate};
+use crate::types::{position_is_flat, PositionKey, SymbolBookkeeping, UsdmExec, UsdmExecUpdate};
 
 /// Routing key for account-wide events (`ACCOUNT_UPDATE` balances, `MARGIN_CALL`, etc.).
 pub const ACCOUNT_ROUTING_ID: &str = "__account__";
@@ -64,9 +64,12 @@ impl UsdmExecHandler {
                 }
             }
             UsdmExecUpdate::PositionChange(position) => {
-                self.state
-                    .positions
-                    .insert(position.position_side.clone(), position.clone());
+                let key = PositionKey::from_change(position);
+                if position_is_flat(&position.position_amount) {
+                    self.state.positions.remove(&key);
+                } else {
+                    self.state.positions.insert(key, position.clone());
+                }
             }
             UsdmExecUpdate::BalanceChange(_)
             | UsdmExecUpdate::ListenKeyExpired
