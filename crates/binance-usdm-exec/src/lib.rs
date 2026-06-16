@@ -1,7 +1,8 @@
 //! Binance USDM execution and account bookkeeping over user-data streams.
 //!
-//! Parses `ORDER_TRADE_UPDATE`, `ACCOUNT_UPDATE`, and related private stream events,
-//! maintains per-symbol order/position state, and fans updates into
+//! Parses `ORDER_TRADE_UPDATE`, `ACCOUNT_UPDATE`, `MARGIN_CALL`, and related private
+//! stream events, maintains per-symbol order/position state plus account-wide margin-call
+//! snapshots on the [`ACCOUNT_ROUTING_ID`] handler, and fans updates into
 //! [`trolly_stream::MonitorMultiplexor`] ingress alongside other stream handlers.
 
 mod endpoints;
@@ -189,5 +190,97 @@ mod tests {
         hub.ingest_message(Message::Text(json.into()));
 
         assert_eq!(recorded.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn parse_margin_call_fixture() {
+        let json = include_str!("../tests/fixtures/margin_call.json");
+        let events = parse_user_events(Message::Text(json.into())).unwrap();
+        assert_eq!(events.len(), 1);
+
+        let UsdmExecUpdate::MarginCall(call) = &events[0] else {
+            panic!("expected margin call update");
+        };
+        assert_eq!(call.event_time, 1587727187525);
+        assert_eq!(call.cross_wallet_balance, "3.16812045");
+        assert_eq!(call.positions.len(), 1);
+        assert_eq!(call.positions[0].symbol, "ETHUSDT");
+        assert_eq!(call.positions[0].position_side, "LONG");
+        assert_eq!(call.positions[0].position_amount, "1.327");
+        assert_eq!(call.positions[0].maintenance_margin_required, "1.614445");
+    }
+
+    #[test]
+    fn handler_margin_call_persisted_on_account() {
+        let json = include_str!("../tests/fixtures/margin_call.json");
+        let events = parse_user_events(Message::Text(json.into())).unwrap();
+
+        let mut handler = UsdmExecHandler::new(ACCOUNT_ROUTING_ID, None);
+        for event in events {
+            assert_eq!(UsdmExecHandler::to_id(&event), ACCOUNT_ROUTING_ID);
+            handler.handle_update(event).unwrap();
+        }
+
+        let state = handler.state();
+        assert_eq!(state.cross_wallet_balance, "3.16812045");
+        let call = state.margin_call().expect("latest margin call");
+        assert_eq!(call.event_time, 1587727187525);
+        assert_eq!(call.positions.len(), 1);
+        assert_eq!(call.positions[0].symbol, "ETHUSDT");
+    }
+
+    #[test]
+    fn handler_margin_call_supersedes_older() {
+        let older_json = include_str!("../tests/fixtures/margin_call.json");
+        let newer_json = r#"{
+  "e": "MARGIN_CALL",
+  "E": 1587727187526,
+  "cw": "2.00000000",
+  "p": [
+    {
+      "s": "BTCUSDT",
+      "ps": "SHORT",
+      "pa": "-0.5",
+      "mt": "isolated",
+      "iw": "100.0",
+      "mp": "65000.0",
+      "up": "-10.0",
+      "mm": "0.5"
+    }
+  ]
+}"#;
+
+        let mut handler = UsdmExecHandler::new(ACCOUNT_ROUTING_ID, None);
+        for event in parse_user_events(Message::Text(newer_json.into())).unwrap() {
+            handler.handle_update(event).unwrap();
+        }
+        for event in parse_user_events(Message::Text(older_json.into())).unwrap() {
+            handler.handle_update(event).unwrap();
+        }
+
+        let state = handler.state();
+        assert_eq!(state.cross_wallet_balance, "2.00000000");
+        let call = state.margin_call().expect("latest margin call");
+        assert_eq!(call.event_time, 1587727187526);
+        assert_eq!(call.positions[0].symbol, "BTCUSDT");
+    }
+
+    #[test]
+    fn handler_margin_call_forwarded_on_outbound() {
+        use tokio::sync::mpsc;
+
+        let json = include_str!("../tests/fixtures/margin_call.json");
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let mut handler = UsdmExecHandler::new(ACCOUNT_ROUTING_ID, Some(tx));
+
+        let event = parse_user_events(Message::Text(json.into()))
+            .unwrap()
+            .into_iter()
+            .next()
+            .unwrap();
+        handler.handle_update(event).unwrap();
+
+        let forwarded = rx.try_recv().expect("margin call forwarded");
+        assert!(matches!(forwarded, UsdmExecUpdate::MarginCall(_)));
     }
 }

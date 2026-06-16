@@ -118,6 +118,14 @@ pub struct SymbolBookkeeping {
     pub open_orders: HashMap<i64, OrderTradeUpdate>,
     /// Latest position row per `(symbol, position_side)`; flat legs are omitted.
     pub positions: HashMap<PositionKey, PositionChange>,
+    /// Cross wallet balance from the most recent [`MarginCall`] (when provided).
+    pub cross_wallet_balance: String,
+    /// Latest margin-call payload for strategy inspection.
+    ///
+    /// Supersede semantics: a call replaces the stored payload when its
+    /// [`MarginCall::event_time`] is greater than or equal to the previous one;
+    /// older calls are ignored.
+    pub latest_margin_call: Option<MarginCall>,
 }
 
 impl SymbolBookkeeping {
@@ -133,6 +141,30 @@ impl SymbolBookkeeping {
         self.positions
             .values()
             .filter(move |position| position.symbol == symbol)
+    }
+
+    pub fn margin_call(&self) -> Option<&MarginCall> {
+        self.latest_margin_call.as_ref()
+    }
+
+    /// Persist cross wallet balance and the margin-call positions snapshot.
+    ///
+    /// Newer calls (by [`MarginCall::event_time`]) replace older ones; equal
+    /// timestamps are treated as newer (last-write-wins). Stale calls are ignored
+    /// entirely (balance and snapshot are unchanged).
+    pub fn apply_margin_call(&mut self, call: &MarginCall) {
+        if self
+            .latest_margin_call
+            .as_ref()
+            .is_some_and(|existing| existing.event_time > call.event_time)
+        {
+            return;
+        }
+
+        if !call.cross_wallet_balance.is_empty() {
+            self.cross_wallet_balance = call.cross_wallet_balance.clone();
+        }
+        self.latest_margin_call = Some(call.clone());
     }
 }
 

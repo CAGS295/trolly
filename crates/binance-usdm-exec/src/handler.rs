@@ -72,8 +72,10 @@ impl UsdmExecHandler {
                 }
             }
             UsdmExecUpdate::BalanceChange(_)
-            | UsdmExecUpdate::ListenKeyExpired
-            | UsdmExecUpdate::MarginCall(_) => {}
+            | UsdmExecUpdate::ListenKeyExpired => {}
+            UsdmExecUpdate::MarginCall(call) => {
+                self.state.apply_margin_call(call);
+            }
         }
 
         if let Some(tx) = &self.outbound {
