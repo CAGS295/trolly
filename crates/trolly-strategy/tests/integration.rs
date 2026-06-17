@@ -16,6 +16,7 @@ fn synthetic_multi_symbol_depth_execution_account_flow() {
         qty: "0.01".into(),
         price: Some("100".into()),
         time_in_force: None,
+        position_side: None,
     };
     let mut hub = StrategyHub::new(
         RecordingStrategy::with_responses(vec![outbound.clone()]),

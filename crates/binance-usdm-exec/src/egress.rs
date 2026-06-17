@@ -5,13 +5,13 @@ use trolly_strategy::{OutboundMessage, StreamEgress};
 use crate::order::{order_from_outbound, OrderBuildError, PlaceOrderRequest};
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum SpotExecEgressError {
+pub enum UsdmExecEgressError {
     Build(OrderBuildError),
     QueueClosed,
     Unsupported(String),
 }
 
-impl std::fmt::Display for SpotExecEgressError {
+impl std::fmt::Display for UsdmExecEgressError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Build(err) => write!(f, "{err}"),
@@ -21,7 +21,7 @@ impl std::fmt::Display for SpotExecEgressError {
     }
 }
 
-impl std::error::Error for SpotExecEgressError {
+impl std::error::Error for UsdmExecEgressError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Build(err) => Some(err),
@@ -30,19 +30,19 @@ impl std::error::Error for SpotExecEgressError {
     }
 }
 
-impl From<OrderBuildError> for SpotExecEgressError {
+impl From<OrderBuildError> for UsdmExecEgressError {
     fn from(value: OrderBuildError) -> Self {
         Self::Build(value)
     }
 }
 
-/// [`StreamEgress`] adapter that enqueues signed spot order requests for an async executor.
+/// [`StreamEgress`] adapter that enqueues signed USDM order requests for an async executor.
 #[derive(Debug)]
-pub struct SpotExecEgress {
+pub struct UsdmExecEgress {
     orders: mpsc::UnboundedSender<PlaceOrderRequest>,
 }
 
-impl SpotExecEgress {
+impl UsdmExecEgress {
     pub fn new(orders: mpsc::UnboundedSender<PlaceOrderRequest>) -> Self {
         Self { orders }
     }
@@ -53,8 +53,8 @@ impl SpotExecEgress {
     }
 }
 
-impl StreamEgress for SpotExecEgress {
-    type Error = SpotExecEgressError;
+impl StreamEgress for UsdmExecEgress {
+    type Error = UsdmExecEgressError;
 
     fn dispatch(&mut self, message: OutboundMessage) -> Result<(), Self::Error> {
         match message {
@@ -64,7 +64,7 @@ impl StreamEgress for SpotExecEgress {
                 qty,
                 price,
                 time_in_force,
-                position_side: _,
+                position_side,
             } => {
                 let order = order_from_outbound(
                     symbol,
@@ -72,12 +72,13 @@ impl StreamEgress for SpotExecEgress {
                     &qty,
                     price.as_deref(),
                     time_in_force.as_deref(),
+                    position_side.as_deref(),
                 )?;
                 self.orders
                     .send(order)
-                    .map_err(|_| SpotExecEgressError::QueueClosed)
+                    .map_err(|_| UsdmExecEgressError::QueueClosed)
             }
-            other => Err(SpotExecEgressError::Unsupported(format!("{other:?}"))),
+            other => Err(UsdmExecEgressError::Unsupported(format!("{other:?}"))),
         }
     }
 }
@@ -85,11 +86,11 @@ impl StreamEgress for SpotExecEgress {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::order::{OrderType, Side, TimeInForce};
+    use crate::order::{OrderType, PositionSide, Side, TimeInForce};
 
     #[test]
-    fn dispatch_queues_limit_order_request() {
-        let (mut egress, mut rx) = SpotExecEgress::pair();
+    fn dispatch_queues_limit_order_with_position_side() {
+        let (mut egress, mut rx) = UsdmExecEgress::pair();
         egress
             .dispatch(OutboundMessage::OrderRequest {
                 symbol: "btcusdt".into(),
@@ -97,7 +98,7 @@ mod tests {
                 qty: "0.01".into(),
                 price: Some("100".into()),
                 time_in_force: Some("IOC".into()),
-                position_side: None,
+                position_side: Some("LONG".into()),
             })
             .unwrap();
 
@@ -106,11 +107,12 @@ mod tests {
         assert_eq!(order.side, Side::Buy);
         assert_eq!(order.order_type, OrderType::Limit);
         assert_eq!(order.time_in_force, Some(TimeInForce::Ioc));
+        assert_eq!(order.position_side, Some(PositionSide::Long));
     }
 
     #[test]
     fn dispatch_queues_market_order_request() {
-        let (mut egress, mut rx) = SpotExecEgress::pair();
+        let (mut egress, mut rx) = UsdmExecEgress::pair();
         egress
             .dispatch(OutboundMessage::OrderRequest {
                 symbol: "ETHUSDT".into(),
@@ -125,18 +127,19 @@ mod tests {
         let order = rx.try_recv().unwrap();
         assert_eq!(order.order_type, OrderType::Market);
         assert!(order.price.is_none());
+        assert!(order.position_side.is_none());
     }
 
     #[test]
     fn dispatch_rejects_non_order_messages() {
-        let (mut egress, _rx) = SpotExecEgress::pair();
+        let (mut egress, _rx) = UsdmExecEgress::pair();
         let msg = OutboundMessage::Subscribe {
             symbol: "BTCUSDT".into(),
             channel: "depth".into(),
         };
         assert!(matches!(
             egress.dispatch(msg),
-            Err(SpotExecEgressError::Unsupported(_))
+            Err(UsdmExecEgressError::Unsupported(_))
         ));
     }
 }

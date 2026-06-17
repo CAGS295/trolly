@@ -13,6 +13,8 @@ pub enum OutboundMessage {
         price: Option<String>,
         /// Limit order time-in-force (`GTC`, `IOC`, `FOK`). Defaults to `GTC` when price is set.
         time_in_force: Option<String>,
+        /// USDM hedge-mode position leg (`LONG`, `SHORT`, `BOTH`). Omitted for one-way mode.
+        position_side: Option<String>,
     },
     /// Request an additional stream subscription.
     Subscribe { symbol: String, channel: String },
