@@ -217,4 +217,35 @@ mod tests {
         assert!(account.position("ETHUSDT", "BOTH").is_none());
         assert!(account.positions_for_symbol("ETHUSDT").next().is_none());
     }
+
+    #[test]
+    fn ingest_margin_call_routes_to_account_and_updates_state() {
+        let margin_json = include_str!("../tests/fixtures/margin_call.json");
+        let btc_rec = Arc::new(Mutex::new(Vec::new()));
+        let eth_rec = Arc::new(Mutex::new(Vec::new()));
+        let account_rec = Arc::new(Mutex::new(Vec::new()));
+
+        let (mut hub, shared_account) =
+            test_hub(btc_rec.clone(), eth_rec.clone(), account_rec.clone());
+
+        ingest_user_data(&mut hub, Message::Text(margin_json.into()));
+
+        assert!(btc_rec.lock().unwrap().is_empty());
+        assert!(eth_rec.lock().unwrap().is_empty());
+        assert_eq!(account_rec.lock().unwrap().len(), 1);
+        assert!(matches!(
+            account_rec.lock().unwrap()[0],
+            UsdmExecUpdate::MarginCall(_)
+        ));
+
+        let account = shared_account.lock().unwrap();
+        let call = account.latest_margin_call().expect("margin call recorded");
+        assert_eq!(call.event_time, 1587727187525);
+        assert_eq!(call.cross_wallet_balance, "3.16812045");
+        assert_eq!(call.positions.len(), 2);
+        assert_eq!(call.positions[0].symbol, "ETHUSDT");
+        assert_eq!(call.positions[0].position_side, "LONG");
+        assert_eq!(call.positions[1].symbol, "BTCUSDT");
+        assert_eq!(call.positions[1].maintenance_margin_required, "800.25");
+    }
 }

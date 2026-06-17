@@ -51,6 +51,21 @@ mod tests {
     }
 
     #[test]
+    fn parse_margin_call_fixture() {
+        let json = include_str!("../tests/fixtures/margin_call.json");
+        let events = parse_user_events(Message::Text(json.into())).unwrap();
+        assert_eq!(events.len(), 1);
+
+        let UsdmExecUpdate::MarginCall(call) = &events[0] else {
+            panic!("expected margin call");
+        };
+        assert_eq!(call.event_time, 1587727187525);
+        assert_eq!(call.cross_wallet_balance, "3.16812045");
+        assert_eq!(call.positions.len(), 2);
+        assert_eq!(UsdmExecHandler::to_id(&events[0]), ACCOUNT_ROUTING_ID);
+    }
+
+    #[test]
     fn parse_account_update_fixture() {
         let json = include_str!("../tests/fixtures/account_update.json");
         let events = parse_user_events(Message::Text(json.into())).unwrap();
@@ -184,5 +199,32 @@ mod tests {
             .handle_update(UsdmExecUpdate::PositionChange(closed))
             .unwrap();
         assert!(handler.state().positions.is_empty());
+    }
+
+    #[test]
+    fn margin_call_forwards_on_outbound_channel() {
+        let json = include_str!("../tests/fixtures/margin_call.json");
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let ctx = UsdmExecContext::new(Some(tx));
+        let mut handler = UsdmExecHandler::with_context(ACCOUNT_ROUTING_ID, ctx);
+
+        let update = UsdmExecHandler::parse_update(Message::Text(json.into()))
+            .unwrap()
+            .unwrap();
+        handler.handle_update(update).unwrap();
+
+        let forwarded = rx.try_recv().expect("margin call forwarded");
+        let UsdmExecUpdate::MarginCall(call) = forwarded else {
+            panic!("expected margin call on outbound channel");
+        };
+        assert_eq!(call.event_time, 1587727187525);
+        assert_eq!(call.cross_wallet_balance, "3.16812045");
+
+        let account = handler.account_bookkeeping();
+        let book = account.lock().unwrap();
+        assert_eq!(
+            book.latest_margin_call().unwrap().event_time,
+            1587727187525
+        );
     }
 }

@@ -127,7 +127,16 @@ impl UsdmExecHandler {
                         .apply_balance(balance);
                 }
             }
-            UsdmExecUpdate::ListenKeyExpired | UsdmExecUpdate::MarginCall(_) => {}
+            UsdmExecUpdate::ListenKeyExpired => {}
+            UsdmExecUpdate::MarginCall(call) => {
+                if self.is_account {
+                    self.ctx
+                        .account
+                        .lock()
+                        .expect("account lock poisoned")
+                        .apply_margin_call(call);
+                }
+            }
         }
 
         if let Some(tx) = &self.ctx.outbound {
