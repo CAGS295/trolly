@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use tracing::error;
 use trolly_stream::{EventHandler, Message, MonitorMultiplexor};
 
-use crate::handler::UsdmExecHandler;
+use crate::handler::{UsdmExecContext, UsdmExecHandler};
 use crate::parse::parse_user_events;
 use crate::types::{UsdmExec, UsdmExecUpdate};
 
@@ -46,22 +46,36 @@ fn route_update(
 }
 
 /// Build a multiplexor with per-symbol handlers plus an account-wide handler.
+///
+/// All handlers share one [`crate::account::AccountBookkeeping`] instance via
+/// [`UsdmExecContext`].
 pub fn build_multiplexor(
     symbols: &[&str],
     outbound: Option<tokio::sync::mpsc::UnboundedSender<UsdmExecUpdate>>,
 ) -> MonitorMultiplexor<UsdmExecHandler, UsdmExec> {
+    let ctx = UsdmExecContext::new(outbound);
     let mut writers = HashMap::new();
     for symbol in symbols {
         writers.insert(
             (*symbol).to_string(),
-            UsdmExecHandler::new(*symbol, outbound.clone()),
+            UsdmExecHandler::with_context(*symbol, ctx.clone()),
         );
     }
     writers.insert(
         crate::handler::ACCOUNT_ROUTING_ID.into(),
-        UsdmExecHandler::new(crate::handler::ACCOUNT_ROUTING_ID, outbound),
+        UsdmExecHandler::with_context(crate::handler::ACCOUNT_ROUTING_ID, ctx),
     );
     MonitorMultiplexor::from_writers(writers)
+}
+
+/// Shared account bookkeeping from a built multiplexor (any handler's context).
+pub fn account_from_multiplexor(
+    hub: &MonitorMultiplexor<UsdmExecHandler, UsdmExec>,
+) -> Option<std::sync::Arc<std::sync::Mutex<crate::account::AccountBookkeeping>>> {
+    hub.writers
+        .values()
+        .next()
+        .map(|handler| handler.account_bookkeeping())
 }
 
 #[cfg(test)]
@@ -71,6 +85,37 @@ mod tests {
 
     use trolly_stream::Message;
 
+    fn test_hub(
+        btc_rec: Arc<Mutex<Vec<UsdmExecUpdate>>>,
+        eth_rec: Arc<Mutex<Vec<UsdmExecUpdate>>>,
+        account_rec: Arc<Mutex<Vec<UsdmExecUpdate>>>,
+    ) -> (
+        MonitorMultiplexor<UsdmExecHandler, UsdmExec>,
+        Arc<Mutex<crate::account::AccountBookkeeping>>,
+    ) {
+        let ctx = UsdmExecContext::new(None);
+        let shared_account = Arc::clone(&ctx.account);
+        let hub = MonitorMultiplexor::from_writers(HashMap::from([
+            (
+                "BTCUSDT".into(),
+                UsdmExecHandler::with_recorder_and_context("BTCUSDT", btc_rec, ctx.clone()),
+            ),
+            (
+                "ETHUSDT".into(),
+                UsdmExecHandler::with_recorder_and_context("ETHUSDT", eth_rec, ctx.clone()),
+            ),
+            (
+                crate::handler::ACCOUNT_ROUTING_ID.into(),
+                UsdmExecHandler::with_recorder_and_context(
+                    crate::handler::ACCOUNT_ROUTING_ID,
+                    account_rec,
+                    ctx,
+                ),
+            ),
+        ]));
+        (hub, shared_account)
+    }
+
     #[test]
     fn ingest_routes_order_trade_to_symbol_handler() {
         let order_json = include_str!("../tests/fixtures/order_trade_update.json");
@@ -78,23 +123,7 @@ mod tests {
         let eth_rec = Arc::new(Mutex::new(Vec::new()));
         let account_rec = Arc::new(Mutex::new(Vec::new()));
 
-        let mut hub = MonitorMultiplexor::from_writers(HashMap::from([
-            (
-                "BTCUSDT".into(),
-                UsdmExecHandler::with_recorder("BTCUSDT", btc_rec.clone()),
-            ),
-            (
-                "ETHUSDT".into(),
-                UsdmExecHandler::with_recorder("ETHUSDT", eth_rec.clone()),
-            ),
-            (
-                crate::handler::ACCOUNT_ROUTING_ID.into(),
-                UsdmExecHandler::with_recorder(
-                    crate::handler::ACCOUNT_ROUTING_ID,
-                    account_rec.clone(),
-                ),
-            ),
-        ]));
+        let (mut hub, _account) = test_hub(btc_rec.clone(), eth_rec.clone(), account_rec.clone());
 
         ingest_user_data(&mut hub, Message::Text(order_json.into()));
 
@@ -118,23 +147,8 @@ mod tests {
         let eth_rec = Arc::new(Mutex::new(Vec::new()));
         let account_rec = Arc::new(Mutex::new(Vec::new()));
 
-        let mut hub = MonitorMultiplexor::from_writers(HashMap::from([
-            (
-                "BTCUSDT".into(),
-                UsdmExecHandler::with_recorder("BTCUSDT", btc_rec.clone()),
-            ),
-            (
-                "ETHUSDT".into(),
-                UsdmExecHandler::with_recorder("ETHUSDT", eth_rec.clone()),
-            ),
-            (
-                crate::handler::ACCOUNT_ROUTING_ID.into(),
-                UsdmExecHandler::with_recorder(
-                    crate::handler::ACCOUNT_ROUTING_ID,
-                    account_rec.clone(),
-                ),
-            ),
-        ]));
+        let (mut hub, shared_account) =
+            test_hub(btc_rec.clone(), eth_rec.clone(), account_rec.clone());
 
         ingest_user_data(&mut hub, Message::Text(account_json.into()));
 
@@ -146,5 +160,61 @@ mod tests {
         assert_eq!(btc_state.positions.len(), 2);
         assert!(btc_state.positions.contains_key("LONG"));
         assert!(btc_state.positions.contains_key("SHORT"));
+
+        let account = shared_account.lock().unwrap();
+        assert_eq!(account.balances.len(), 2);
+        assert!(account.balance("USDT").is_some());
+        assert!(account.balance("BUSD").is_some());
+        assert_eq!(account.positions.len(), 2);
+        assert!(account.position("BTCUSDT", "LONG").is_some());
+        assert!(account.position("BTCUSDT", "SHORT").is_some());
+        assert_eq!(
+            account.position("BTCUSDT", "LONG").unwrap().position_amount,
+            "20"
+        );
+    }
+
+    #[test]
+    fn ingest_account_update_both_position_side() {
+        let account_json = include_str!("../tests/fixtures/account_update_both.json");
+        let btc_rec = Arc::new(Mutex::new(Vec::new()));
+        let eth_rec = Arc::new(Mutex::new(Vec::new()));
+        let account_rec = Arc::new(Mutex::new(Vec::new()));
+
+        let (mut hub, shared_account) =
+            test_hub(btc_rec.clone(), eth_rec.clone(), account_rec.clone());
+
+        ingest_user_data(&mut hub, Message::Text(account_json.into()));
+
+        assert_eq!(eth_rec.lock().unwrap().len(), 1);
+        let eth_state = hub.writers.get("ETHUSDT").unwrap().state();
+        assert_eq!(eth_state.positions.len(), 1);
+        assert!(eth_state.positions.contains_key("BOTH"));
+
+        let account = shared_account.lock().unwrap();
+        let both = account.position("ETHUSDT", "BOTH").unwrap();
+        assert_eq!(both.position_amount, "1.5");
+    }
+
+    #[test]
+    fn ingest_account_update_flattens_position() {
+        let open_json = include_str!("../tests/fixtures/account_update_both.json");
+        let flatten_json = include_str!("../tests/fixtures/account_update_flatten.json");
+        let btc_rec = Arc::new(Mutex::new(Vec::new()));
+        let eth_rec = Arc::new(Mutex::new(Vec::new()));
+        let account_rec = Arc::new(Mutex::new(Vec::new()));
+
+        let (mut hub, shared_account) =
+            test_hub(btc_rec.clone(), eth_rec.clone(), account_rec.clone());
+
+        ingest_user_data(&mut hub, Message::Text(open_json.into()));
+        ingest_user_data(&mut hub, Message::Text(flatten_json.into()));
+
+        let eth_state = hub.writers.get("ETHUSDT").unwrap().state();
+        assert!(eth_state.positions.is_empty());
+
+        let account = shared_account.lock().unwrap();
+        assert!(account.position("ETHUSDT", "BOTH").is_none());
+        assert!(account.positions_for_symbol("ETHUSDT").next().is_none());
     }
 }

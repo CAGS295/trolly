@@ -1,18 +1,23 @@
 //! Binance USDM execution and account bookkeeping over user-data streams.
 //!
 //! Parses `ORDER_TRADE_UPDATE`, `ACCOUNT_UPDATE`, and related private stream events,
-//! maintains per-symbol order/position state, and fans updates into
-//! [`trolly_stream::MonitorMultiplexor`] ingress alongside other stream handlers.
+//! maintains per-symbol order/position state plus account-wide balances and positions,
+//! and fans updates into [`trolly_stream::MonitorMultiplexor`] ingress alongside other
+//! stream handlers.
 
+mod account;
 mod endpoints;
 mod handler;
 mod ingress;
 mod parse;
 mod types;
 
+pub use account::{
+    apply_position_to_symbol, position_is_closed, AccountBookkeeping, PositionKey,
+};
 pub use endpoints::UsdmUserDataStream;
-pub use handler::{UsdmExecHandler, ACCOUNT_ROUTING_ID};
-pub use ingress::{build_multiplexor, ingest_user_data};
+pub use handler::{UsdmExecContext, UsdmExecHandler, ACCOUNT_ROUTING_ID};
+pub use ingress::{account_from_multiplexor, build_multiplexor, ingest_user_data};
 pub use parse::{parse_user_events, ParseError};
 pub use types::{
     BalanceChange, MarginCall, MarginCallPosition, OrderTradeUpdate, PositionChange,
@@ -132,5 +137,52 @@ mod tests {
         hub.ingest_message(Message::Text(json.into()));
 
         assert_eq!(recorded.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn account_query_api_reflects_shared_bookkeeping() {
+        let mut hub = build_multiplexor(&["BTCUSDT", "ETHUSDT"], None);
+        let account_json = include_str!("../tests/fixtures/account_update.json");
+        ingest_user_data(&mut hub, Message::Text(account_json.into()));
+
+        let shared = account_from_multiplexor(&hub).expect("shared account");
+        let book = shared.lock().unwrap();
+        assert_eq!(book.balance("USDT").unwrap().wallet_balance, "122624.12345678");
+        assert_eq!(
+            book.position("BTCUSDT", "SHORT").unwrap().position_amount,
+            "-10"
+        );
+        assert_eq!(book.positions_for_symbol("BTCUSDT").count(), 2);
+    }
+
+    #[test]
+    fn symbol_bookkeeping_removes_closed_position_legs() {
+        let ctx = UsdmExecContext::new(None);
+        let mut handler = UsdmExecHandler::with_context("ETHUSDT", ctx);
+
+        let open = PositionChange {
+            event_time: 1,
+            reason: "ORDER".into(),
+            symbol: "ETHUSDT".into(),
+            position_amount: "2".into(),
+            entry_price: "100".into(),
+            unrealized_pnl: "0".into(),
+            margin_type: "cross".into(),
+            isolated_wallet: "0".into(),
+            position_side: "BOTH".into(),
+        };
+        handler
+            .handle_update(UsdmExecUpdate::PositionChange(open.clone()))
+            .unwrap();
+        assert!(handler.state().positions.contains_key("BOTH"));
+
+        let closed = PositionChange {
+            position_amount: "0".into(),
+            ..open
+        };
+        handler
+            .handle_update(UsdmExecUpdate::PositionChange(closed))
+            .unwrap();
+        assert!(handler.state().positions.is_empty());
     }
 }
