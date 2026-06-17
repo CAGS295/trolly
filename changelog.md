@@ -9,7 +9,7 @@ Project journal for shipped work. Active backlog lives in [`WORKPLAN.md`](WORKPL
 ## change log
 + `binance-usdm-exec`: account-wide position bookkeeping (`AccountBookkeeping`), query API, flatten semantics (WP-012).
 + `binance-spot-exec`: signed REST order placement, `SpotExecEgress` strategy adapter, `execute place-order` CLI (WP-015).
-+ `trolly-gym`: RL toolchain ADR (`docs/rl-toolchain.md`) — Python sidecar training, ONNX inference path (WP-016).
++ `binance-usdm-exec`: `MARGIN_CALL` persistence in account state, supersede lifecycle, outbound forward (WP-013).
 + `trolly-gym`: stream-fed `Env`, observation windows, replay buffer stub, `torch` feature gate.
 + `binance-spot-exec`: spot user-data stream parsing, account book, trolly-stream ingress.
 + `binance-usdm-exec`: USDM user-data stream parsing, order/position tracking, trolly-stream ingress.
