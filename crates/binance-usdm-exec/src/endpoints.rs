@@ -38,13 +38,31 @@ pub struct UsdmUserDataStream {
     pub listen_key: String,
     /// When set, appended as `events=` query filter (slash-separated event names).
     pub events_filter: Option<String>,
+    /// Override private user-data WebSocket host (defaults to [`Self::PRODUCTION_WS_BASE`]).
+    ws_base: Option<String>,
 }
 
 impl UsdmUserDataStream {
+    pub const PRODUCTION_WS_BASE: &'static str = "wss://fstream.binance.com";
+    /// USDM demo private user-data host (`wss://fstream.binancefuture.com`).
+    pub const DEMO_WS_BASE: &'static str = "wss://fstream.binancefuture.com";
+    /// USDM demo REST base (`https://demo-fapi.binance.com`).
+    pub const DEMO_REST_BASE: &'static str = "https://demo-fapi.binance.com";
+
     pub fn new(listen_key: impl Into<String>) -> Self {
         Self {
             listen_key: listen_key.into(),
             events_filter: None,
+            ws_base: None,
+        }
+    }
+
+    /// USDM demo private user-data stream (listen key from [`crate::client::UsdmListenKeyClient`]).
+    pub fn demo(listen_key: impl Into<String>) -> Self {
+        Self {
+            listen_key: listen_key.into(),
+            events_filter: None,
+            ws_base: Some(Self::DEMO_WS_BASE.into()),
         }
     }
 
@@ -52,19 +70,37 @@ impl UsdmUserDataStream {
         self.events_filter = Some(events.into());
         self
     }
+
+    pub fn with_ws_base(mut self, base: impl Into<String>) -> Self {
+        self.ws_base = Some(base.into());
+        self
+    }
+
+    /// Read-only REST depth snapshot URL on the USDM demo host.
+    pub fn demo_rest_depth_url(symbol: impl AsRef<str>) -> String {
+        format!(
+            "{}/fapi/v1/depth?symbol={}&limit=1000",
+            Self::DEMO_REST_BASE,
+            symbol.as_ref().to_uppercase()
+        )
+    }
+
+    fn effective_ws_base(&self) -> &str {
+        self.ws_base
+            .as_deref()
+            .unwrap_or(Self::PRODUCTION_WS_BASE)
+    }
 }
 
 impl VenueEndpoints for UsdmUserDataStream {
     fn websocket_url(&self) -> String {
+        let base = self.effective_ws_base();
         match &self.events_filter {
             Some(events) => format!(
-                "wss://fstream.binance.com/private/ws?listenKey={}&events={}",
+                "{base}/private/ws?listenKey={}&events={}",
                 self.listen_key, events
             ),
-            None => format!(
-                "wss://fstream.binance.com/private/ws/{}",
-                self.listen_key
-            ),
+            None => format!("{base}/private/ws/{}", self.listen_key),
         }
     }
 
@@ -107,5 +143,23 @@ mod tests {
     fn ws_subscriptions_empty() {
         let ep = UsdmUserDataStream::new("k");
         assert!(ep.ws_subscriptions(["BTCUSDT"].iter()).is_empty());
+    }
+
+    #[test]
+    fn demo_rest_depth_url_format() {
+        let url = UsdmUserDataStream::demo_rest_depth_url("btcusdt");
+        assert_eq!(
+            url,
+            "https://demo-fapi.binance.com/fapi/v1/depth?symbol=BTCUSDT&limit=1000"
+        );
+    }
+
+    #[test]
+    fn demo_websocket_url_uses_binancefuture_host() {
+        let ep = UsdmUserDataStream::demo("abc123");
+        assert_eq!(
+            ep.websocket_url(),
+            "wss://fstream.binancefuture.com/private/ws/abc123"
+        );
     }
 }

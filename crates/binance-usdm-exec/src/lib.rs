@@ -22,7 +22,9 @@ pub use account::{
 pub use auth::{
     current_timestamp_ms, sign_hmac_sha256_hex, sign_params, signed_params_payload,
 };
-pub use client::{PlaceOrderError, PlaceOrderResult, UsdmOrderClient};
+pub use client::{
+    ListenKeyError, PlaceOrderError, PlaceOrderResult, UsdmListenKeyClient, UsdmOrderClient,
+};
 pub use egress::{UsdmExecEgress, UsdmExecEgressError};
 pub use endpoints::{ApiCredentials, UsdmUserDataStream};
 pub use handler::{UsdmExecContext, UsdmExecHandler, ACCOUNT_ROUTING_ID};
