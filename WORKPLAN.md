@@ -209,7 +209,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-013 — USDM margin-call handling (`binance-usdm-exec`)
 
-- status: in_progress
+- status: done
 - repos: trolly
 - depends_on: [WP-012]
 - scope: crates/binance-usdm-exec/
@@ -266,7 +266,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-017 — Binance demo integration tests (spot + USDM)
 
-- status: todo
+- status: in_progress
 - repos: trolly
 - depends_on: [WP-002, WP-008, WP-009]
 - scope: .env.example, tests/, crates/binance-spot-exec/, crates/binance-usdm-exec/, README.md
