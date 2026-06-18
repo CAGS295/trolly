@@ -1,6 +1,7 @@
 //! Binance spot execution and account bookkeeping over user-data streams.
 //!
-//! See [`README.md`](../README.md) for WebSocket subscription setup and multiplexor routing.
+//! See [`README.md`](../README.md) for WebSocket subscription setup, REST order
+//! placement, and multiplexor routing.
 
 mod account;
 mod auth;
@@ -9,8 +10,11 @@ mod events;
 mod handler;
 mod ingress;
 mod parse;
+pub mod adapter;
+pub mod order;
 
 pub use account::AccountBook;
+pub use adapter::{SpotEgressError, SpotExecEgress, run_order_worker};
 pub use auth::{build_subscribe_signature_params, current_timestamp_ms, sign_hmac_sha256_hex};
 pub use endpoints::{ApiCredentials, BinanceSpotUserStream};
 pub use events::{
@@ -19,6 +23,10 @@ pub use events::{
 };
 pub use handler::{SpotExecContext, SpotExecHandler};
 pub use ingress::{build_multiplexor, ingest_user_data};
+pub use order::{
+    HttpOrderClient, OrderAck, OrderClient, OrderError, OrderRequest, OrderSide, OrderType,
+    TimeInForce, place_order,
+};
 pub use parse::{ParseError, parse_user_data_message};
 
 /// Append [`ACCOUNT_ROUTE_ID`] when absent so account events route through the multiplexor.

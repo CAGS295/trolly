@@ -29,8 +29,26 @@ enum Commands {
         #[clap(subcommand)]
         metric: super::monitor::Monitorables,
     },
-    /// Comming soon
-    Execute,
+    /// Place a spot order on Binance via REST POST /api/v3/order.
+    ///
+    /// Credentials are read from the BINANCE_API_KEY and BINANCE_SECRET_KEY
+    /// environment variables (or --api-key / --secret-key flags).
+    /// Fills and rejects are reconciled by the existing executionReport
+    /// user-data stream — this command only submits the order.
+    PlaceOrder {
+        #[clap(long, env = "BINANCE_API_KEY", help = "Binance API key")]
+        api_key: String,
+        #[clap(long, env = "BINANCE_SECRET_KEY", help = "Binance secret key")]
+        secret_key: String,
+        #[clap(long, help = "Trading pair, e.g. BTCUSDT")]
+        symbol: String,
+        #[clap(long, help = "BUY or SELL")]
+        side: String,
+        #[clap(long, help = "Order quantity")]
+        quantity: String,
+        #[clap(long, help = "Limit price (omit for MARKET order)")]
+        price: Option<String>,
+    },
 }
 
 pub trait Run {
@@ -46,7 +64,45 @@ impl Run for Commands {
                 use super::monitor::Monitor;
                 args.monitor().await;
             }
-            _ => todo!(),
+            Self::PlaceOrder {
+                api_key,
+                secret_key,
+                symbol,
+                side,
+                quantity,
+                price,
+            } => {
+                use binance_spot_exec::{
+                    ApiCredentials, HttpOrderClient, OrderRequest, OrderSide, place_order,
+                };
+
+                let credentials = ApiCredentials {
+                    api_key: api_key.clone(),
+                    secret_key: secret_key.clone(),
+                };
+
+                let order_side = match side.parse::<OrderSide>() {
+                    Ok(s) => s,
+                    Err(e) => {
+                        eprintln!("Error: {e}");
+                        return;
+                    }
+                };
+
+                let request = match price {
+                    Some(p) => OrderRequest::limit(symbol, order_side, quantity, p),
+                    None => OrderRequest::market(symbol, order_side, quantity),
+                };
+
+                let client = HttpOrderClient::new();
+                match place_order(&client, &credentials, request).await {
+                    Ok(ack) => println!(
+                        "Order placed: id={} symbol={} status={} client_order_id={}",
+                        ack.order_id, ack.symbol, ack.status, ack.client_order_id
+                    ),
+                    Err(e) => eprintln!("Error placing order: {e}"),
+                }
+            }
         };
     }
 }
