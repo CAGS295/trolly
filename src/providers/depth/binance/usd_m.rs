@@ -162,4 +162,14 @@ mod test {
         assert_eq!(raw, "BTCUSDT");
         assert!(!is_rpi);
     }
+
+    #[test]
+    fn strip_rpi_lowercase_prefix() {
+        let (raw, is_rpi) = strip_rpi("rpi:BTCUSDT");
+        assert_eq!(raw, "BTCUSDT");
+        assert!(is_rpi);
+        let msgs = BinanceUsdM.ws_subscriptions(["rpi:BTCUSDT"].iter());
+        assert_eq!(msgs.len(), 2);
+        assert!(msgs[1].contains("rpiDepth@500ms"));
+    }
 }

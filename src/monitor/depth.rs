@@ -127,7 +127,7 @@ async fn stream_depth_serve(cfg: &DepthConfig) {
     let symbols = cfg.symbols.to_uppercase();
     let syms: Vec<&str> = symbols.split(',').collect();
 
-    match cfg.provider {
+    match &cfg.provider {
         Provider::Binance => {
             stream::<OrderBook, Depth, _, _>(crate::providers::Binance, tx, &syms).await
         }
@@ -155,7 +155,7 @@ impl super::Monitor for DepthConfig {
         }
 
         match self.output {
-            DepthOutput::Echo => stream_depth_echo(self.provider, &self.symbols).await,
+            DepthOutput::Echo => stream_depth_echo(self.provider.clone(), &self.symbols).await,
             DepthOutput::Serve => {
                 let local = tokio::task::LocalSet::new();
                 local.run_until(stream_depth_serve(self)).await;

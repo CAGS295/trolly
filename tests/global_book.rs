@@ -39,6 +39,21 @@ fn registered_labels_match_provider_onboarding_checklist() {
     }
 }
 
+static LOAD_DOTENV: Once = Once::new();
+
+fn load_integration_env() {
+    LOAD_DOTENV.call_once(|| {
+        dotenvy::dotenv().ok();
+    });
+}
+
+fn global_book_integration_enabled() -> bool {
+    load_integration_env();
+    std::env::var("RUN_GLOBAL_BOOK_INTEGRATION")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+}
+
 #[test]
 fn parse_cross_source_spot_and_usdm() {
     let sources =

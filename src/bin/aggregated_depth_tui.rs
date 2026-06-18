@@ -93,6 +93,15 @@ fn canonical_from_stream_id(stream_id: &str) -> String {
     }
 }
 
+/// Tab grouping key: provider prefix and optional `RPI:` overlay stripped so `@depth` and
+/// `@rpiDepth` legs share one `MERGED·BASE` / `Δ·BASE` strip without merging books in the hub.
+fn tab_group_instrument(stream_id: &str) -> String {
+    let sym = canonical_from_stream_id(stream_id);
+    sym.strip_prefix(RPI_PREFIX)
+        .map(str::to_string)
+        .unwrap_or(sym)
+}
+
 /// Parse [`lob::LimitOrderBook`]'s `Display` output (`price:qty` tuples) into ladder rows.
 fn parse_book_display(s: &str) -> Option<(u64, Vec<(String, String)>, Vec<(String, String)>)> {
     let s = s.trim();

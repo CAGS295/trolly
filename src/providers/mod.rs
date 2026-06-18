@@ -19,6 +19,11 @@ trait ApiURL {
     const REST: &'static str;
 }
 
+/// Whether `label` from `--sources provider:SYMBOL` has a wired depth implementation.
+pub fn is_registered_depth_label(label: &str) -> bool {
+    Provider::from_label(label).is_known()
+}
+
 #[derive(Deserialize, PartialEq, Debug)]
 pub struct NullResponse {
     id: u64,
