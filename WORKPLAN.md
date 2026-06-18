@@ -12,7 +12,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: 2026-06-12
+- last_run: 2026-06-13
 - max_parallel: 3
 
 ## Orchestrator notes
@@ -236,7 +236,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-012 — USDM position bookkeeping (`binance-usdm-exec`)
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-009]
 - scope: crates/binance-usdm-exec/
@@ -250,7 +250,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-013 — USDM margin-call handling (`binance-usdm-exec`)
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-012]
 - scope: crates/binance-usdm-exec/
@@ -263,7 +263,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-014 — USDM order placement (`binance-usdm-exec`)
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-013]
 - scope: crates/binance-usdm-exec/, crates/trolly-strategy/
@@ -277,7 +277,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-015 — Spot order execution (`binance-spot-exec`)
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-008]
 - scope: crates/binance-spot-exec/, crates/trolly-strategy/, src/cli/mod.rs
@@ -291,7 +291,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-016 — RL training and inference toolchain analysis (`trolly-gym`)
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-011]
 - scope: crates/trolly-gym/, docs/ or crates/trolly-gym/docs/
@@ -307,7 +307,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-017 — Binance demo integration tests (spot + USDM)
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-002, WP-008, WP-009]
 - scope: .env.example, tests/, crates/binance-spot-exec/, crates/binance-usdm-exec/, README.md

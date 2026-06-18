@@ -1,4 +1,8 @@
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
+
+use binance_spot_exec::{
+    ApiCredentials, OrderSide, PlaceOrderRequest, NativeTlsTransport, SpotOrderClient, TimeInForce,
+};
 
 #[derive(Parser)]
 #[clap(
@@ -29,8 +33,75 @@ enum Commands {
         #[clap(subcommand)]
         metric: super::monitor::Monitorables,
     },
-    /// Comming soon
-    Execute,
+    /// Place orders on an exchange.
+    Execute {
+        #[clap(subcommand)]
+        command: ExecuteCommands,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum ExecuteCommands {
+    /// Place a spot order via signed REST.
+    PlaceOrder(PlaceOrderArgs),
+}
+
+#[derive(Parser, Debug)]
+struct PlaceOrderArgs {
+    /// Trading pair (e.g. BTCUSDT).
+    #[clap(long)]
+    symbol: String,
+    /// Order side.
+    #[clap(long, value_enum)]
+    side: CliOrderSide,
+    /// Order quantity.
+    #[clap(long)]
+    qty: String,
+    /// Limit price (omit for market orders).
+    #[clap(long)]
+    price: Option<String>,
+    /// Time in force for limit orders (default GTC).
+    #[clap(long, value_enum, default_value_t = CliTimeInForce::Gtc)]
+    time_in_force: CliTimeInForce,
+    /// Binance API key (or set `BINANCE_API_KEY`).
+    #[clap(long, env = "BINANCE_API_KEY")]
+    api_key: String,
+    /// Binance API secret (or set `BINANCE_SECRET_KEY`).
+    #[clap(long, env = "BINANCE_SECRET_KEY")]
+    secret_key: String,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum CliOrderSide {
+    Buy,
+    Sell,
+}
+
+impl From<CliOrderSide> for OrderSide {
+    fn from(value: CliOrderSide) -> Self {
+        match value {
+            CliOrderSide::Buy => OrderSide::Buy,
+            CliOrderSide::Sell => OrderSide::Sell,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum, Default)]
+enum CliTimeInForce {
+    #[default]
+    Gtc,
+    Ioc,
+    Fok,
+}
+
+impl From<CliTimeInForce> for TimeInForce {
+    fn from(value: CliTimeInForce) -> Self {
+        match value {
+            CliTimeInForce::Gtc => TimeInForce::Gtc,
+            CliTimeInForce::Ioc => TimeInForce::Ioc,
+            CliTimeInForce::Fok => TimeInForce::Fok,
+        }
+    }
 }
 
 pub trait Run {
@@ -46,7 +117,52 @@ impl Run for Commands {
                 use super::monitor::Monitor;
                 args.monitor().await;
             }
-            _ => todo!(),
+            Self::Execute { command } => command.run().await,
         };
+    }
+}
+
+impl Run for ExecuteCommands {
+    async fn run(&self) {
+        match self {
+            Self::PlaceOrder(args) => args.run().await,
+        }
+    }
+}
+
+impl PlaceOrderArgs {
+    async fn run(&self) {
+        let request = if let Some(price) = &self.price {
+            PlaceOrderRequest::limit(
+                &self.symbol,
+                self.side.into(),
+                &self.qty,
+                price,
+                self.time_in_force.into(),
+            )
+        } else {
+            PlaceOrderRequest::market(&self.symbol, self.side.into(), &self.qty)
+        };
+
+        let client = SpotOrderClient::new(
+            ApiCredentials {
+                api_key: self.api_key.clone(),
+                secret_key: self.secret_key.clone(),
+            },
+            NativeTlsTransport::new(),
+        );
+
+        match client.place_order(request).await {
+            Ok(ack) => {
+                println!(
+                    "order placed: id={} symbol={} status={} side={} qty={}",
+                    ack.order_id, ack.symbol, ack.status, ack.side, ack.orig_qty
+                );
+            }
+            Err(err) => {
+                eprintln!("order placement failed: {err}");
+                std::process::exit(1);
+            }
+        }
     }
 }

@@ -21,7 +21,7 @@ trolly-strategy = { path = "crates/trolly-strategy" }
 trolly-gym = { path = "crates/trolly-gym" }
 axum = { version = "^0.7", features = ["macros"] }
 color-eyre = { version = "0.6.2", default-features = false }
-clap = { version = "4.2.1", features = ["derive"] }
+clap = { version = "4.2.1", features = ["derive", "env"] }
 ctrlc = "3.2.3"
 futures-util = "0.3.21"
 reqwest = { version = "^0.12", default-features = false, features = [
