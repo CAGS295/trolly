@@ -17,6 +17,7 @@ pub use account::AccountBook;
 pub use adapter::{SpotEgressError, SpotExecEgress, run_order_worker};
 pub use auth::{build_subscribe_signature_params, current_timestamp_ms, sign_hmac_sha256_hex};
 pub use endpoints::{ApiCredentials, BinanceSpotUserStream};
+pub use endpoints::demo as spot_demo_endpoints;
 pub use events::{
     AssetBalance, BalanceUpdate, EventStreamTerminated, ExecutionReport, ExternalLockUpdate,
     ListStatus, ListStatusOrder, OutboundAccountPosition, SpotUserEvent, ACCOUNT_ROUTE_ID,

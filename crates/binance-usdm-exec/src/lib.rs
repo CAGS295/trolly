@@ -11,6 +11,7 @@ mod parse;
 mod types;
 
 pub use endpoints::UsdmUserDataStream;
+pub use endpoints::demo as usdm_demo_endpoints;
 pub use handler::{UsdmExecHandler, ACCOUNT_ROUTING_ID};
 pub use ingress::{build_multiplexor, build_multiplexor_with_account, ingest_user_data};
 pub use parse::{parse_user_events, ParseError};

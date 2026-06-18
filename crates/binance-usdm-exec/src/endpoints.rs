@@ -21,8 +21,26 @@
 //! Fan execution events into a shared [`trolly_stream::MonitorMultiplexor`] via
 //! [`crate::ingress::ingest_user_data`] so USDM updates route alongside spot depth
 //! and execution handlers on the same ingress API.
+//!
+//! ## Demo / testnet
+//!
+//! The [`demo`] module contains base URLs for Binance USDM demo trading:
+//! - REST: `https://demo-fapi.binance.com/fapi/v1`
+//! - listenKey endpoint: `POST https://demo-fapi.binance.com/fapi/v1/listenKey`
+//! - Stream: `wss://fstream.binance.com/ws/<listenKey>` (uses demo listenKey on fstream)
 
 use trolly_stream::VenueEndpoints;
+
+/// Binance USDM futures demo/testnet base URLs.
+///
+/// The demo REST API issues listenKeys valid on the production `fstream.binance.com`
+/// stream endpoint.  Requires a real Binance API key enrolled in demo futures trading.
+pub mod demo {
+    /// REST API base URL for USDM demo futures (listenKey, depth, account).
+    pub const REST_BASE_URL: &str = "https://demo-fapi.binance.com";
+    /// WebSocket stream base URL for USDM user-data (use listenKey from demo REST).
+    pub const STREAM_BASE_URL: &str = "wss://fstream.binance.com";
+}
 
 /// Private USDM user-data stream endpoint for a single `listenKey`.
 #[derive(Clone, Debug)]

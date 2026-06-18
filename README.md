@@ -131,9 +131,8 @@ src/
 
 ## Testing
 
-Default `cargo test` is offline: unit and fixture tests only. The global order book integration
-test in [`tests/global_book.rs`](tests/global_book.rs) includes a live Binance REST merge check
-that is `#[ignore]` so CI and local runs without credentials never hit the network.
+Default `cargo test --workspace` is offline: unit and fixture tests only.  All live / network tests
+carry `#[ignore]` so CI and plain `cargo test` never hit the network.
 
 **Fixture tests (always run):**
 
@@ -141,13 +140,15 @@ that is `#[ignore]` so CI and local runs without credentials never hit the netwo
 git submodule update --init patches/lob
 cd patches/lob && git checkout main   # stay on branch, not detached HEAD
 cd ../..
-cargo test --test global_book
+cargo test --workspace
 ```
 
 `patches/lob` is developed in parallel with trolly. Commit lob changes on **`main`**, then
 record the new tip in trolly (`git add patches/lob && git commit`).
 
-**Live REST merge (opt-in, requires Binance HTTPS):**
+### Live REST merge (opt-in)
+
+Requires outbound HTTPS to Binance spot + USDM REST.
 
 ```bash
 cp .env.example .env
@@ -157,6 +158,55 @@ cargo test --test global_book global_book_live_rest_merge -- --ignored
 
 Optional: set `TROLLY_INTEGRATION_SYMBOL` in `.env` (default `BTCUSDT`). If the flag is missing or
 `0`, the live test skips even when invoked with `--ignored`.
+
+### Binance demo integration tests (opt-in)
+
+[`tests/binance_demo.rs`](tests/binance_demo.rs) contains `#[ignore]` tests against Binance **demo
+trading** endpoints (simulated funds, real credentials).
+
+| Venue | Endpoint type    | URL                                              |
+|-------|------------------|--------------------------------------------------|
+| Spot  | REST depth       | `https://demo-api.binance.com/api/v3`            |
+| Spot  | WS API (signed)  | `wss://demo-ws-api.binance.com:443/ws-api/v3`    |
+| Spot  | WS stream        | `wss://demo-stream.binance.com:9443/ws`          |
+| USDM  | REST depth       | `https://demo-fapi.binance.com/fapi/v1`          |
+| USDM  | listenKey REST   | `https://demo-fapi.binance.com/fapi/v1/listenKey`|
+| USDM  | WS user-data     | `wss://fstream.binance.com/ws/<listenKey>`       |
+
+**Setup:**
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env`:
+
+```env
+RUN_BINANCE_DEMO_INTEGRATION=1
+TROLLY_DEMO_SYMBOL=BTCUSDT          # optional, defaults to BTCUSDT
+DEMO_BINANCE_KEY=<your-api-key>     # required for signed / listenKey tests
+DEMO_BINANCE_SECRET=<your-secret>   # required for spot WS API subscribe
+```
+
+**Run:**
+
+```bash
+cargo test --test binance_demo -- --ignored
+```
+
+Tests included:
+
+| Test | Credentials required | Description |
+|------|---------------------|-------------|
+| `demo_spot_rest_depth_snapshot`    | none                   | Spot depth via `demo-api.binance.com` |
+| `demo_spot_ws_user_data_subscribe` | KEY + SECRET           | Signed WS API subscribe + exec event parse |
+| `demo_usdm_rest_depth_snapshot`    | none                   | USDM depth via `demo-fapi.binance.com` |
+| `demo_usdm_listen_key_lifecycle`   | KEY                    | POST / PUT keep-alive / DELETE listenKey |
+| `demo_usdm_user_data_stream`       | KEY                    | WS user-data stream + exec event parse |
+
+Public REST depth tests (no credentials) skip cleanly when the opt-in flag is unset.
+Signed / listenKey tests skip with a clear message when `DEMO_BINANCE_KEY` is absent.
+An idle demo account produces no WS events; those tests pass and print a skip note.
 
 ## Benchmarks
 

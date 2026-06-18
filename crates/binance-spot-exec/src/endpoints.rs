@@ -10,6 +10,19 @@ pub struct ApiCredentials {
     pub secret_key: String,
 }
 
+/// Binance spot demo/testnet base URLs.
+///
+/// Demo trading uses real credentials against simulated funds.
+/// See <https://www.binance.com/en/support/faq/binance-demo-trading-account> for setup.
+pub mod demo {
+    /// REST API base URL for Binance spot demo trading.
+    pub const REST_BASE_URL: &str = "https://demo-api.binance.com";
+    /// WebSocket API URL for Binance spot demo (signed user-data subscribe).
+    pub const WS_API_URL: &str = "wss://demo-ws-api.binance.com:443/ws-api/v3";
+    /// Market-data stream base URL for Binance spot demo.
+    pub const STREAM_BASE_URL: &str = "wss://demo-stream.binance.com:9443";
+}
+
 /// Binance spot user-data stream endpoints (WebSocket API, no REST trading).
 #[derive(Clone, Debug)]
 pub struct BinanceSpotUserStream {
