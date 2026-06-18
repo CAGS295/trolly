@@ -281,10 +281,10 @@ pub async fn run_global_book_stream(hub: GlobalBookHub, sources: &[BookSource]) 
     use futures_util::future::join_all;
     use std::collections::HashMap;
 
-    let mut by_provider: HashMap<Provider, Vec<String>> = HashMap::new();
+    let mut by_venue: HashMap<(Provider, String), Vec<String>> = HashMap::new();
     for s in sources {
-        by_provider
-            .entry(s.provider.clone())
+        by_venue
+            .entry((s.provider, s.provider_label.clone()))
             .or_default()
             .push(s.symbol.clone());
     }
@@ -292,7 +292,7 @@ pub async fn run_global_book_stream(hub: GlobalBookHub, sources: &[BookSource]) 
     let local = tokio::task::LocalSet::new();
     local
         .run_until(async move {
-            let tasks = by_provider.into_iter().map(|(provider, symbols)| {
+            let tasks = by_venue.into_iter().map(|((provider, provider_label), symbols)| {
                 let hub = hub.clone();
                 async move {
                     let syms: Vec<&str> = symbols.iter().map(String::as_str).collect();
