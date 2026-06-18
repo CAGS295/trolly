@@ -33,3 +33,16 @@ The optional `tch` crate is pulled in only when `--features torch` is set.
 - **Env** — [`Env`](src/env.rs) ties ingest → window → step → egress; see `tests/smoke.rs` for an offline mock flow.
 
 Training loops, checkpoints, and GPU policies are out of scope for this crate scaffold.
+
+## ML Toolchain Decision
+
+See [docs/adr-001-rl-toolchain.md](docs/adr-001-rl-toolchain.md) for the architecture decision
+record comparing Rust-native and hybrid ML stacks (tch/libtorch, Candle, Burn, ONNX Runtime, and a
+Python/PyTorch sidecar) for stream-fed RL training and live inference. The ADR covers:
+
+- Integration points: `ObservationWindow`, `ReplayBuffer`, `Action` → egress, backpressure
+- RL algorithm families (PPO, DQN, SAC, offline RL) and stack support matrix
+- Separate recommendations for offline training vs. sub-ms live inference
+- CI feasibility and GPU/CPU considerations
+- **Decision:** ONNX Runtime (`ort`) as primary inference backend + Python/PyTorch for training
+- Follow-on implementation WPs (WP-017 through WP-024)
