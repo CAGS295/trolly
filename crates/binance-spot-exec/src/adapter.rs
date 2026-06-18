@@ -54,6 +54,7 @@ impl StreamEgress for SpotExecEgress {
             side,
             qty,
             price,
+            position_side: _,
         } = message
         else {
             return Ok(());
@@ -107,6 +108,7 @@ mod tests {
             side: "BUY".into(),
             qty: "0.001".into(),
             price: price.map(String::from),
+            position_side: None,
         }
     }
 
@@ -154,6 +156,7 @@ mod tests {
                 side: "LONG".into(),
                 qty: "1".into(),
                 price: None,
+                position_side: None,
             })
             .unwrap_err();
         assert!(matches!(err, SpotEgressError::InvalidSide(_)));

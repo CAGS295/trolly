@@ -11,6 +11,9 @@ pub enum OutboundMessage {
         side: String,
         qty: String,
         price: Option<String>,
+        /// USDM hedge-mode position side: `LONG`, `SHORT`, or `BOTH`.
+        /// `None` for spot orders and USDM one-way mode.
+        position_side: Option<String>,
     },
     /// Request an additional stream subscription.
     Subscribe { symbol: String, channel: String },
