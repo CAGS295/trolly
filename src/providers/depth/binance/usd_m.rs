@@ -15,6 +15,8 @@
 
 use super::ApiURL;
 
+use crate::providers::{ApiURL, Endpoints};
+
 pub const RPI_PREFIX: &str = "RPI:";
 
 /// Strip optional [`RPI_PREFIX`] from a subscription symbol; returns `(bare_symbol, is_rpi)`.

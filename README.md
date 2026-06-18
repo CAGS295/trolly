@@ -24,11 +24,13 @@ Exchange WS feed ──► WebSocket stream ──► left-right LOB writer
 
 ## Supported exchanges
 
-| Exchange | Status |
-|----------|--------|
-| Binance  | Implemented (`wss://stream.binance.com:9443`, REST depth API v3) |
+| Exchange | CLI label | Status |
+|----------|-----------|--------|
+| Binance spot | `binance` | Implemented (`wss://stream.binance.com:9443`, REST depth API v3) |
+| Binance USD-M futures | `binance-usd-m` | Implemented (optional `RPI:` symbol prefix for `@rpiDepth`) |
+| Third venue (scaffold) | `other` | Parseable via `--sources`; no live WebSocket wired yet |
 
-The provider abstraction (`Endpoints` trait) makes it straightforward to add more exchanges.
+The provider abstraction (`Endpoints` trait) and [`REGISTERED_LABELS`](src/providers/depth/mod.rs) make it straightforward to add more exchanges. See [Adding a new exchange provider](#adding-a-new-exchange-provider) below.
 
 ## Building
 
@@ -102,6 +104,37 @@ docker run trolly depth_monitor monitor depth --provider binance --symbols btcus
 
 The multi-stage Alpine Dockerfile produces a minimal image containing only the `depth_monitor` binary and OpenSSL libraries.
 
+## Adding a new exchange provider
+
+Use this checklist when onboarding a real venue (replace the `other` scaffold or add a sibling module). The scaffold lives at [`src/providers/depth/other.rs`](src/providers/depth/other.rs); Binance spot and USD-M are the reference implementations.
+
+### 1. Module under `src/providers/depth/`
+
+- Add `depth::<exchange>::<market>.rs` (or `depth::<exchange>/mod.rs` + submodules) implementing [`Endpoints<Depth>`](src/providers/mod.rs).
+- Implement `websocket_url`, `ws_subscriptions`, and `rest_api_url` for the venue’s depth feed.
+- Export the type from [`src/providers/depth/mod.rs`](src/providers/depth/mod.rs) and re-export from [`src/providers/mod.rs`](src/providers/mod.rs) if it should be public.
+- For intra-venue overlays (like Binance RPI), use a symbol prefix in `ws_subscriptions` / `DepthUpdate.event.symbol` so routing stays distinct from the canonical leg.
+
+### 2. Register CLI labels
+
+- Append the kebab-case label to [`REGISTERED_LABELS`](src/providers/depth/mod.rs) in the same order you expect `--sources` parsing tests to cover.
+- Add a [`Provider`](src/monitor/mod.rs) enum variant.
+- Extend [`Provider::from_label`](src/monitor/global_book.rs) and [`Provider::label`](src/monitor/global_book.rs) with the new label (and common aliases if needed).
+
+### 3. Wire the global-book multiplexor
+
+In [`run_global_book_stream`](src/monitor/global_book.rs), add a match arm that calls `MonitorMultiplexor::<GlobalBookShard, Depth>::stream` with your `Endpoints` type and `(hub, Provider::YourVenue)` context — mirror the `Provider::Binance` / `Provider::BinanceUsdM` arms. Until this arm exists, `--sources your-label:SYMBOL` parses but only logs a scaffold warning.
+
+### 4. Tests
+
+- **Unit:** assert the label appears in `REGISTERED_LABELS` and round-trips through `Provider::from_label` / `BookSource::parse` (see [`src/providers/mod.rs`](src/providers/mod.rs) and [`src/monitor/global_book.rs`](src/monitor/global_book.rs) unit tests).
+- **Integration:** extend [`tests/global_book.rs`](tests/global_book.rs) with a `parse_book_sources` case that includes the new label alongside existing venues without breaking them.
+- Run `cargo test` (and `cargo test --features tui` if you touch the aggregated TUI).
+
+### 5. Backlog
+
+Update [`src/providers/.todo`](src/providers/.todo) so completed migrations are checked off and only real remaining work stays open.
+
 ## Project structure
 
 ```
@@ -119,8 +152,12 @@ src/
 │   ├── streaming.rs        # MultiSymbolStream (WS subscribe + event loop)
 │   └── ws_adapter.rs       # TLS WebSocket connection helper
 ├── providers/
-│   ├── mod.rs              # Endpoints trait (WS URL, REST URL, subscriptions)
-│   └── binance.rs          # Binance implementation
+│   ├── mod.rs              # Endpoints trait, REGISTERED_LABELS re-export
+│   ├── .todo               # Provider expansion backlog
+│   └── depth/
+│       ├── mod.rs          # REGISTERED_LABELS, venue modules
+│       ├── binance/        # spot + usd_m (RPI optional)
+│       └── other.rs        # third-venue scaffold
 ├── servers/
 │   ├── mod.rs              # Hyper/Axum server, route registration
 │   ├── grpc/               # tonic gRPC service (GetLimitOrderBook)
@@ -166,6 +203,38 @@ Criterion benchmarks for both serving paths:
 cargo bench --bench depth_monitor         # gRPC round-trip
 cargo bench --bench depth_monitor_scale   # HTTP codec round-trip
 ```
+
+## Testing
+
+### Default (no network)
+
+Fixture and unit tests run on every `cargo test` with no `.env` and no live exchange calls:
+
+```bash
+cargo test
+```
+
+The global book integration test `global_book_live_rest_merge` is marked `#[ignore]`, so it is skipped unless you opt in explicitly.
+
+### Global book live REST merge (opt-in)
+
+To exercise the cross-source REST fetch → parse → merge path against Binance (or a local stub when Binance is geo-blocked):
+
+1. Copy the env template: `cp .env.example .env`
+2. Set `RUN_GLOBAL_BOOK_INTEGRATION=1` in `.env` (optionally change `TROLLY_INTEGRATION_SYMBOL`)
+3. Run the ignored test:
+
+```bash
+cargo test --test global_book global_book_live_rest_merge -- --ignored --nocapture
+```
+
+If Binance REST returns HTTP 451 from your region, the test automatically falls back to a loopback REST stub so the merge pipeline is still verified. To force the stub:
+
+```bash
+TROLLY_INTEGRATION_USE_LOCAL_REST=1 cargo test --test global_book global_book_live_rest_merge -- --ignored --nocapture
+```
+
+See [`.env.example`](.env.example) for optional REST URL overrides.
 
 ## License
 

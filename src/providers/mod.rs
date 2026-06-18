@@ -25,6 +25,7 @@ pub struct NullResponse {
 
 #[cfg(test)]
 mod test {
+    use super::depth::REGISTERED_LABELS;
     use super::NullResponse;
 
     #[test]
@@ -38,5 +39,12 @@ mod test {
             },
             expected
         );
+    }
+
+    #[test]
+    fn registered_labels_include_binance_and_other() {
+        assert!(REGISTERED_LABELS.contains(&"binance"));
+        assert!(REGISTERED_LABELS.contains(&"binance-usd-m"));
+        assert!(REGISTERED_LABELS.contains(&"other"));
     }
 }

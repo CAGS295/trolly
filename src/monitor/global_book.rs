@@ -6,6 +6,7 @@
 //! venue-specific stream id (`binance-usd-m:RPI:BTCUSDT`).
 
 use std::collections::HashMap;
+use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 
 use crate::EventHandler;
@@ -35,7 +36,7 @@ impl Absorb<MergedOp> for LimitOrderBook {
     }
 
     fn sync_with(&mut self, first: &Self) {
-        *self = first.clone();
+        self.replace_from(first);
     }
 }
 
@@ -325,7 +326,10 @@ pub async fn run_global_book_stream(hub: GlobalBookHub, sources: &[BookSource]) 
                             .await
                         }
                         Provider::Other => {
-                            warn!("global book: unknown provider");
+                            warn!(
+                                "global book: provider {:?} has no live stream wired yet (scaffold only)",
+                                provider.label()
+                            );
                         }
                     }
                 }

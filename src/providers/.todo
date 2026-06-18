@@ -1,0 +1,17 @@
+# Provider expansion backlog (WP-003 scaffold)
+
+## Layout
+
+- `depth::binance::spot` — Binance spot (done)
+- `depth::binance::usd_m` — Binance USD-M futures (done)
+- `depth::other` — third-venue scaffold (parse + stub Endpoints; no WebSocket)
+
+## Completed
+
+- [x] move `binance_usd_m` to `depth::binance::usd_m` (WP-006)
+- [x] add rpi support (WP-004; RPI optional on USDM via `RPI:` symbol prefix)
+- [x] document new venue checklist in README (WP-008)
+
+## Remaining
+
+- [ ] wire `Provider::Other` (or per-label registry) into `run_global_book_stream` when a real venue lands

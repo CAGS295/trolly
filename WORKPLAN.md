@@ -59,7 +59,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - `git submodule update --init patches/lob && cargo test` passes
   - merge semantics unchanged (`tests/global_book.rs`, `patches/lob` merge tests)
   - fewer full-book clones on `GlobalBookHub::refresh_merged_for` hot path
-- notes: `refresh_merged_for` currently clones every source book before `merge_aggregate`.
+- notes: `refresh_merged_for` uses `merge_into` on read guards for multi-source merge (no per-source clone); single-source path still clones once for `MergedOp::Replace`.
 
 ### WP-002 — Integration test hygiene
 
@@ -84,7 +84,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - Binance spot refactor toward `depth::binance::spot` (per `.todo`) or documented equivalent layout
   - third venue can register in `--sources provider:SYMBOL` without breaking binance / binance-usd-m
   - `parse_book_sources` unit tests cover new layout; `cargo test` passes
-- notes: see `src/providers/.todo` — `move binance to depth::binance::spot`.
+- notes: Binance spot at `providers::depth::binance::spot`; `other` venue scaffold registered. See `src/providers/.todo` for remaining migrations.
 
 ### WP-004 — Intra-provider overlays (Binance RPI)
 
@@ -110,7 +110,48 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - no `Hook::new` / `Hook::register` dead_code warning in `src/servers/mod.rs`
   - `long_about` in `src/cli/mod.rs` describes project goals (not a TODO placeholder)
   - `cargo test` passes
-- notes: safe to run in parallel with WP-001 / WP-002 / WP-003 (disjoint scope).
+- notes: `Hook::new`/`register` wired into serve paths; CLI `long_about` describes LOB monitoring and serving goals.
+
+### WP-006 — USDM provider layout migration
+
+- status: done
+- repos: trolly
+- depends_on: []
+- scope: src/providers/binance_usd_m.rs, src/providers/depth/binance/, src/providers/mod.rs, tests/binance_usd_m.rs
+- acceptance:
+  - `BinanceUsdM` lives at `providers::depth::binance::usd_m` (re-export from `providers` unchanged)
+  - all `binance_usd_m` unit/integration tests pass
+  - `src/providers/.todo` updated to mark migration done
+  - `cargo test` passes
+- notes: `BinanceUsdM` at `providers::depth::binance::usd_m`; public re-exports unchanged; RPI intact.
+
+### WP-007 — Single-source merge without clone
+
+- status: done
+- repos: trolly, patches/lob
+- depends_on: [WP-001]
+- scope: src/monitor/global_book.rs, patches/lob/src/limit_order_book/mod.rs
+- acceptance:
+  - `refresh_merged_for` single-source path avoids full `LimitOrderBook` clone when possible
+  - merge semantics unchanged (`tests/global_book.rs`, `patches/lob` merge tests)
+  - `cargo test` passes
+- notes: unified refresh path uses `merge_into` on read guards for all source counts; `replace_from` avoids clone in `MergedOp::sync_with`.
+
+### WP-008 — Venue onboarding checklist
+
+- status: done
+- repos: trolly
+- depends_on: [WP-006]
+- scope: README.md, src/providers/.todo, WORKPLAN.md, tests/global_book.rs
+- acceptance:
+  - README documents steps to add a new exchange provider (module, labels, multiplexor, tests)
+  - `src/providers/.todo` reflects current state (no stale unchecked items for done work)
+  - at least one unit test references the checklist layout (e.g. `REGISTERED_LABELS`)
+  - `cargo test` passes
+- notes: complements provider scaffold; orchestrator updates WORKPLAN status only.
+  - **README:** new [Adding a new exchange provider](README.md#adding-a-new-exchange-provider) section (module, `REGISTERED_LABELS`, `Provider::from_label`, `run_global_book_stream` multiplexor arm, tests).
+  - **`.todo`:** USDM migration and RPI marked done; only `Provider::Other` live-stream wiring remains open.
+  - **Tests:** `registered_labels_match_provider_onboarding_checklist` in `tests/global_book.rs` asserts each `REGISTERED_LABELS` entry round-trips through `Provider::from_label` and `parse_book_sources`.
 
 ### WP-006 — Workspace layout and crate scaffold
 
