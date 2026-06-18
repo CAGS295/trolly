@@ -2,10 +2,12 @@ use serde::Deserialize;
 
 pub mod depth;
 mod binance_usd_m;
+mod registry;
 
 pub use depth::Binance;
 pub use depth::Stub;
 pub use binance_usd_m::{BinanceUsdM, RPI_PREFIX};
+pub use registry::{is_wired, parse_provider_label};
 
 /// Marker trait for venue endpoints scoped to a monitor type (e.g. [`crate::monitor::Depth`]).
 pub trait Endpoints<Monitorable>: trolly_stream::VenueEndpoints {}

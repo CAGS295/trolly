@@ -467,12 +467,12 @@ enum TabKind {
     Diff(String),
 }
 
-/// First-seen order of [`canonical_from_stream_id`] over subscribed stream ids.
-fn canonical_first_seen(stream_order: &[String]) -> Vec<String> {
+/// First-seen order of [`merge_canonical_from_stream_id`] over subscribed stream ids.
+fn merge_canonical_first_seen(stream_order: &[String]) -> Vec<String> {
     let mut out = Vec::new();
     let mut seen = HashSet::new();
     for s in stream_order {
-        let c = canonical_from_stream_id(s);
+        let c = merge_canonical_from_stream_id(s);
         if seen.insert(c.clone()) {
             out.push(c);
         }
@@ -483,11 +483,11 @@ fn canonical_first_seen(stream_order: &[String]) -> Vec<String> {
 fn tab_strip(stream_order: &[String]) -> (Vec<String>, Vec<TabKind>) {
     let mut labels = Vec::new();
     let mut kinds = Vec::new();
-    for c in canonical_first_seen(stream_order) {
+    for c in merge_canonical_first_seen(stream_order) {
         labels.push(format!("MERGED·{c}"));
         kinds.push(TabKind::MergedCanon(c.clone()));
         for s in stream_order {
-            if canonical_from_stream_id(s) == c {
+            if merge_canonical_from_stream_id(s) == c {
                 labels.push(s.clone());
                 kinds.push(TabKind::Sym(s.clone()));
             }
@@ -515,12 +515,13 @@ enum View {
 }
 
 fn diff_tab_title_to_canonical(view_title: &str) -> String {
-    canonical_from_stream_id(
-        view_title
-            .strip_prefix("Δ·")
-            .or_else(|| view_title.strip_prefix("Δ "))
-            .unwrap_or(view_title),
-    )
+    let raw = view_title
+        .strip_prefix("Δ·")
+        .or_else(|| view_title.strip_prefix("Δ "))
+        .unwrap_or(view_title);
+    raw.strip_prefix(RPI_PREFIX)
+        .unwrap_or(raw)
+        .to_uppercase()
 }
 
 fn run_tui(

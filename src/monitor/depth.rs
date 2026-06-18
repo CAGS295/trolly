@@ -21,7 +21,7 @@ pub enum DepthOutput {
 pub struct DepthConfig {
     #[arg(value_enum)]
     #[arg(short, long)]
-    provider: super::Provider,
+    provider: super::SelectableProvider,
     #[arg(
         short,
         long,
@@ -137,7 +137,6 @@ async fn stream_depth_serve(cfg: &DepthConfig) {
         Provider::Stub => {
             stream::<OrderBook, Depth, _, _>(crate::providers::Stub, tx, &syms).await
         }
-        super::Provider::Other => tracing::error!("serve: unknown provider"),
     }
 }
 

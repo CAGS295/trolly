@@ -187,7 +187,7 @@ async fn resolve_rest_urls(symbol: &str) -> (String, String) {
 
 /// Fetches spot + USDM REST snapshots and merges them (no WebSocket).
 #[tokio::test]
-#[ignore = "live Binance REST; set RUN_GLOBAL_BOOK_INTEGRATION=1 in .env"]
+#[ignore = "live Binance REST; copy .env.example → .env and set RUN_GLOBAL_BOOK_INTEGRATION=1"]
 async fn global_book_live_rest_merge() {
     dotenvy::dotenv().ok();
     if !integration_enabled() {
