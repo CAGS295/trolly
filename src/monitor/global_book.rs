@@ -6,7 +6,6 @@
 //! venue-specific stream id (`binance-usd-m:RPI:BTCUSDT`).
 
 use std::collections::HashMap;
-use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 
 use crate::EventHandler;
@@ -36,7 +35,7 @@ impl Absorb<MergedOp> for LimitOrderBook {
     }
 
     fn sync_with(&mut self, first: &Self) {
-        self.replace_from(first);
+        *self = first.clone();
     }
 }
 
@@ -152,7 +151,7 @@ impl GlobalBookHub {
         self.publish_serve_instrument(instrument);
     }
 
-    pub(crate) fn refresh_merged_for(&self, instrument: &str) {
+    fn refresh_merged_for(&self, instrument: &str) {
         let key = instrument.to_uppercase();
         let group: Vec<ReadHandleFactory<LimitOrderBook>> = {
             let inner = self.inner.lock().expect("hub lock");
@@ -168,14 +167,11 @@ impl GlobalBookHub {
             return;
         }
 
-        // Acquire read handles up-front so guards can borrow from them.
-        let handles: Vec<_> = group.iter().map(|f| f.handle()).collect();
-
-        let merged = if handles.len() == 1 {
-            // Single source: one clone, no merge needed.
-            handles[0]
+        let merged = if group.len() == 1 {
+            group[0]
+                .handle()
                 .enter()
-                .map(|guard| (*guard).clone())
+                .map(|guard| guard.clone())
                 .unwrap_or_default()
         } else {
             let mut merged = LimitOrderBook::new();
@@ -186,6 +182,13 @@ impl GlobalBookHub {
             }
             merged
         };
+
+        let mut merged = merged;
+        merged.update_id = group
+            .iter()
+            .filter_map(|fac| fac.handle().enter().map(|g| g.update_id))
+            .max()
+            .unwrap_or(0);
 
         let mut inner = self.inner.lock().expect("hub lock");
         let Some(lane) = inner.merged_by_instrument.get_mut(&key) else {
@@ -281,10 +284,10 @@ pub async fn run_global_book_stream(hub: GlobalBookHub, sources: &[BookSource]) 
     use futures_util::future::join_all;
     use std::collections::HashMap;
 
-    let mut by_venue: HashMap<(Provider, String), Vec<String>> = HashMap::new();
+    let mut by_provider: HashMap<Provider, Vec<String>> = HashMap::new();
     for s in sources {
-        by_venue
-            .entry((s.provider, s.provider_label.clone()))
+        by_provider
+            .entry(s.provider.clone())
             .or_default()
             .push(s.symbol.clone());
     }
@@ -292,7 +295,7 @@ pub async fn run_global_book_stream(hub: GlobalBookHub, sources: &[BookSource]) 
     let local = tokio::task::LocalSet::new();
     local
         .run_until(async move {
-            let tasks = by_venue.into_iter().map(|((provider, provider_label), symbols)| {
+            let tasks = by_provider.into_iter().map(|(provider, symbols)| {
                 let hub = hub.clone();
                 async move {
                     let syms: Vec<&str> = symbols.iter().map(String::as_str).collect();
@@ -322,10 +325,7 @@ pub async fn run_global_book_stream(hub: GlobalBookHub, sources: &[BookSource]) 
                             .await
                         }
                         Provider::Other => {
-                            warn!(
-                                "global book: provider {:?} has no live stream wired yet (scaffold only)",
-                                provider.label()
-                            );
+                            warn!("global book: unknown provider");
                         }
                     }
                 }
@@ -362,88 +362,9 @@ pub async fn stream_global_depth_serve(_sources: &str, _port: Option<u16>) -> Re
     Err("global serve requires the `grpc` and/or `codec` feature".into())
 }
 
-/// Test / TUI helper: seeded per-source book factory from REST-style JSON.
-#[cfg(any(test, feature = "tui"))]
-pub fn test_book_factory_from_json(lob_json: &str) -> ReadHandleFactory<LimitOrderBook> {
-    use crate::monitor::order_book::Operations;
-
-    let lob: LimitOrderBook = serde_json::from_str(lob_json).expect("fixture book");
-    let (mut w, r) = left_right::new::<LimitOrderBook, Operations>();
-    w.append(Operations::Initialize(lob));
-    w.publish();
-    // Keep the writer alive: dropping it would tear down the read side used by factories.
-    std::mem::forget(w);
-    r.factory()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::monitor::order_book::Operations;
-
-    fn register_test_book(
-        hub: &GlobalBookHub,
-        stream_id: &str,
-        instrument: &str,
-        lob_json: &str,
-    ) {
-        let lob: LimitOrderBook = serde_json::from_str(lob_json).expect("fixture book");
-        let (mut w, r) = left_right::new::<LimitOrderBook, Operations>();
-        w.append(Operations::Initialize(lob));
-        w.publish();
-        hub.register_factory(stream_id.into(), r.factory(), instrument);
-        hub.refresh_merged_for(instrument);
-    }
-
-    fn merged_bid_qty(hub: &GlobalBookHub, instrument: &str) -> Option<f64> {
-        let factory = hub.merged_factory_for(instrument)?;
-        let handle = factory.handle();
-        let guard = handle.enter()?;
-        let text = format!("{}", *guard);
-        let after_bids = text.split(", bids: [").nth(1)?;
-        let level = after_bids.split(']').next()?;
-        let qty = level.split(':').nth(1)?;
-        qty.parse().ok()
-    }
-
-    #[test]
-    fn rpi_and_standard_usdm_use_distinct_canonical_merge_keys() {
-        let std = BookSource::parse("binance-usd-m:BTCUSDT").expect("std source");
-        let rpi = BookSource::parse("binance-usd-m:RPI:BTCUSDT").expect("rpi source");
-        assert_eq!(std.stream_id(), "binance-usd-m:BTCUSDT");
-        assert_eq!(rpi.stream_id(), "binance-usd-m:RPI:BTCUSDT");
-        assert_eq!(std.canonical_instrument(), "BTCUSDT");
-        assert_eq!(rpi.canonical_instrument(), "RPI:BTCUSDT");
-        assert_ne!(std.canonical_instrument(), rpi.canonical_instrument());
-    }
-
-    #[test]
-    fn rpi_per_source_book_does_not_pollute_canonical_btcusdt_merge() {
-        let hub = GlobalBookHub::new();
-        register_test_book(
-            &hub,
-            "binance-usd-m:BTCUSDT",
-            "BTCUSDT",
-            r#"{"lastUpdateId":1,"bids":[["100.0","1.0"]],"asks":[["101.0","1.0"]]}"#,
-        );
-        register_test_book(
-            &hub,
-            "binance-usd-m:RPI:BTCUSDT",
-            "RPI:BTCUSDT",
-            r#"{"lastUpdateId":2,"bids":[["100.0","9.0"]],"asks":[["101.0","9.0"]]}"#,
-        );
-
-        assert_eq!(
-            merged_bid_qty(&hub, "BTCUSDT"),
-            Some(1.0),
-            "canonical BTCUSDT merge must exclude RPI stream size"
-        );
-        assert_eq!(
-            merged_bid_qty(&hub, "RPI:BTCUSDT"),
-            Some(9.0),
-            "RPI stream keeps its own merged lane"
-        );
-    }
 
     #[cfg(any(feature = "codec", feature = "grpc"))]
     #[test]

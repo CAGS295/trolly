@@ -2,12 +2,10 @@ use serde::Deserialize;
 
 pub mod depth;
 mod binance_usd_m;
-mod registry;
 
 pub use depth::Binance;
 pub use depth::Stub;
 pub use binance_usd_m::{BinanceUsdM, RPI_PREFIX};
-pub use registry::{is_wired, parse_provider_label};
 
 /// Marker trait for venue endpoints scoped to a monitor type (e.g. [`crate::monitor::Depth`]).
 pub trait Endpoints<Monitorable>: trolly_stream::VenueEndpoints {}
@@ -19,11 +17,6 @@ trait ApiURL {
     const REST: &'static str;
 }
 
-/// Whether `label` from `--sources provider:SYMBOL` has a wired depth implementation.
-pub fn is_registered_depth_label(label: &str) -> bool {
-    Provider::from_label(label).is_known()
-}
-
 #[derive(Deserialize, PartialEq, Debug)]
 pub struct NullResponse {
     id: u64,
@@ -32,7 +25,6 @@ pub struct NullResponse {
 
 #[cfg(test)]
 mod test {
-    use super::depth::REGISTERED_LABELS;
     use super::NullResponse;
 
     #[test]
@@ -46,12 +38,5 @@ mod test {
             },
             expected
         );
-    }
-
-    #[test]
-    fn registered_labels_include_binance_and_other() {
-        assert!(REGISTERED_LABELS.contains(&"binance"));
-        assert!(REGISTERED_LABELS.contains(&"binance-usd-m"));
-        assert!(REGISTERED_LABELS.contains(&"other"));
     }
 }

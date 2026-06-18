@@ -20,10 +20,6 @@ pub enum Monitorables {
     Depth(DepthConfig),
 }
 
-/// Depth venue for CLI `--provider` and global-book `--sources provider:SYMBOL`.
-///
-/// Registered labels: `binance`, `binance-usd-m`, `other` (see [`Provider::from_label`]).
-/// New exchanges add a module under [`crate::providers::depth`] and extend [`Provider`].
 #[derive(Clone, Copy, Debug, ValueEnum, Eq, PartialEq, Hash)]
 #[non_exhaustive]
 pub enum Provider {

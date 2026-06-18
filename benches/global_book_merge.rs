@@ -40,12 +40,11 @@ fn bench_merge_aggregate(c: &mut Criterion) {
             },
         );
 
-        let refs: Vec<&LimitOrderBook> = books.iter().collect();
         group.bench_with_input(
             BenchmarkId::new("refs_no_clone", n_sources),
-            &refs,
-            |b, refs| {
-                b.iter(|| black_box(LimitOrderBook::merge_aggregate_refs(refs)));
+            &books,
+            |b, books| {
+                b.iter(|| black_box(LimitOrderBook::merge_aggregate(books.iter())));
             },
         );
     }
@@ -70,13 +69,12 @@ fn bench_refresh_merged_simulation(c: &mut Criterion) {
             },
         );
 
-        let refs: Vec<&LimitOrderBook> = books.iter().collect();
         group.bench_with_input(
             BenchmarkId::new("refs_direct", n_sources),
-            &refs,
-            |b, refs| {
+            &books,
+            |b, books| {
                 b.iter(|| {
-                    black_box(LimitOrderBook::merge_aggregate_refs(refs));
+                    black_box(LimitOrderBook::merge_aggregate(books.iter()));
                 });
             },
         );

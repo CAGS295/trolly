@@ -11,7 +11,7 @@ use tracing_subscriber::{fmt, prelude::__tracing_subscriber_SubscriberExt, util:
 #[command(about = "Echo Binance-style depth updates to stdout")]
 struct Args {
     #[arg(short, long, value_enum)]
-    provider: trolly::monitor::SelectableProvider,
+    provider: trolly::monitor::Provider,
     #[arg(short, long)]
     symbols: String,
 }

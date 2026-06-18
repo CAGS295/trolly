@@ -38,6 +38,8 @@ impl OutboundMessage {
             side: side.into(),
             qty: qty.into(),
             price: price.map(Into::into),
+            time_in_force: None,
+            position_side: None,
         }
     }
 }

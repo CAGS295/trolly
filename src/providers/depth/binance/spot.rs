@@ -1,11 +1,5 @@
 use super::super::super::ApiURL;
 
-use crate::providers::{ApiURL, Endpoints};
-
-use super::super::super::{ApiURL, Endpoints};
-
-use crate::providers::{ApiURL, Endpoints};
-
 #[derive(Clone)]
 pub struct Binance;
 

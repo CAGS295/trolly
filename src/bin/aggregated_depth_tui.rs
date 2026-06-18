@@ -93,15 +93,6 @@ fn canonical_from_stream_id(stream_id: &str) -> String {
     }
 }
 
-/// Tab grouping key: provider prefix and optional `RPI:` overlay stripped so `@depth` and
-/// `@rpiDepth` legs share one `MERGED·BASE` / `Δ·BASE` strip without merging books in the hub.
-fn tab_group_instrument(stream_id: &str) -> String {
-    let sym = canonical_from_stream_id(stream_id);
-    sym.strip_prefix(RPI_PREFIX)
-        .map(str::to_string)
-        .unwrap_or(sym)
-}
-
 /// Parse [`lob::LimitOrderBook`]'s `Display` output (`price:qty` tuples) into ladder rows.
 fn parse_book_display(s: &str) -> Option<(u64, Vec<(String, String)>, Vec<(String, String)>)> {
     let s = s.trim();
@@ -476,12 +467,12 @@ enum TabKind {
     Diff(String),
 }
 
-/// First-seen order of [`merge_canonical_from_stream_id`] over subscribed stream ids.
-fn merge_canonical_first_seen(stream_order: &[String]) -> Vec<String> {
+/// First-seen order of [`canonical_from_stream_id`] over subscribed stream ids.
+fn canonical_first_seen(stream_order: &[String]) -> Vec<String> {
     let mut out = Vec::new();
     let mut seen = HashSet::new();
     for s in stream_order {
-        let c = merge_canonical_from_stream_id(s);
+        let c = canonical_from_stream_id(s);
         if seen.insert(c.clone()) {
             out.push(c);
         }
@@ -492,21 +483,17 @@ fn merge_canonical_first_seen(stream_order: &[String]) -> Vec<String> {
 fn tab_strip(stream_order: &[String]) -> (Vec<String>, Vec<TabKind>) {
     let mut labels = Vec::new();
     let mut kinds = Vec::new();
-    for c in merge_canonical_first_seen(stream_order) {
+    for c in canonical_first_seen(stream_order) {
         labels.push(format!("MERGED·{c}"));
         kinds.push(TabKind::MergedCanon(c.clone()));
         for s in stream_order {
-            if merge_canonical_from_stream_id(s) == c {
+            if canonical_from_stream_id(s) == c {
                 labels.push(s.clone());
                 kinds.push(TabKind::Sym(s.clone()));
             }
         }
-        // Δ is `@depth − @rpiDepth` for the base symbol only; RPI-prefixed canonical groups
-        // are separate per-source merges and must not get a duplicate/broken Δ tab.
-        if !c.starts_with(RPI_PREFIX) {
-            labels.push(format!("Δ·{c}"));
-            kinds.push(TabKind::Diff(c.clone()));
-        }
+        labels.push(format!("Δ·{c}"));
+        kinds.push(TabKind::Diff(c.clone()));
     }
     (labels, kinds)
 }
@@ -528,13 +515,12 @@ enum View {
 }
 
 fn diff_tab_title_to_canonical(view_title: &str) -> String {
-    let raw = view_title
-        .strip_prefix("Δ·")
-        .or_else(|| view_title.strip_prefix("Δ "))
-        .unwrap_or(view_title);
-    raw.strip_prefix(RPI_PREFIX)
-        .unwrap_or(raw)
-        .to_uppercase()
+    canonical_from_stream_id(
+        view_title
+            .strip_prefix("Δ·")
+            .or_else(|| view_title.strip_prefix("Δ "))
+            .unwrap_or(view_title),
+    )
 }
 
 fn run_tui(
