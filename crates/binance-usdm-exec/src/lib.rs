@@ -12,11 +12,11 @@ mod types;
 
 pub use endpoints::UsdmUserDataStream;
 pub use handler::{UsdmExecHandler, ACCOUNT_ROUTING_ID};
-pub use ingress::{build_multiplexor, ingest_user_data};
+pub use ingress::{build_multiplexor, build_multiplexor_with_account, ingest_user_data};
 pub use parse::{parse_user_events, ParseError};
 pub use types::{
-    BalanceChange, MarginCall, MarginCallPosition, OrderTradeUpdate, PositionChange,
-    SymbolBookkeeping, UsdmExec, UsdmExecUpdate,
+    AccountBookkeeping, BalanceChange, MarginCall, MarginCallPosition, OrderTradeUpdate,
+    PositionChange, SymbolBookkeeping, UsdmExec, UsdmExecUpdate,
 };
 
 #[cfg(test)]

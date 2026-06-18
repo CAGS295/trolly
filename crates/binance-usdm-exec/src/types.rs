@@ -4,6 +4,10 @@ use std::collections::HashMap;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct UsdmExec;
 
+pub(crate) fn is_zero_amount(amount: &str) -> bool {
+    amount == "0" || amount.parse::<f64>().map_or(false, |v| v == 0.0)
+}
+
 /// Normalized USDM user-data stream update routed by symbol (or account key).
 #[derive(Debug, Clone, PartialEq)]
 pub enum UsdmExecUpdate {
@@ -87,7 +91,30 @@ pub struct MarginCallPosition {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct SymbolBookkeeping {
     pub open_orders: HashMap<i64, OrderTradeUpdate>,
+    /// Positions keyed by `position_side`. Entry removed when `position_amount` is zero.
     pub positions: HashMap<String, PositionChange>,
+}
+
+/// Account-wide position bookkeeping aggregated across all symbols.
+///
+/// Keyed by `(symbol, position_side)`. Entries are removed when `position_amount` is zero
+/// (flatten semantics). Designed to be shared via `Arc<Mutex<AccountBookkeeping>>` across
+/// per-symbol handlers so all `PositionChange` events from any symbol are reflected here.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct AccountBookkeeping {
+    pub positions: HashMap<(String, String), PositionChange>,
+}
+
+impl AccountBookkeeping {
+    /// Apply a position change, inserting or removing using zero/flatten semantics.
+    pub fn apply_position(&mut self, pos: &PositionChange) {
+        let key = (pos.symbol.clone(), pos.position_side.clone());
+        if is_zero_amount(&pos.position_amount) {
+            self.positions.remove(&key);
+        } else {
+            self.positions.insert(key, pos.clone());
+        }
+    }
 }
 
 impl UsdmExecUpdate {
