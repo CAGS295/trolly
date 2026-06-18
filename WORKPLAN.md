@@ -91,7 +91,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 - status: done
 - repos: trolly
 - depends_on: [WP-003]
-- scope: src/providers/binance_usd_m.rs, src/bin/aggregated_depth_tui.rs, src/monitor/global_book.rs
+- scope: src/providers/binance/usd_m.rs, src/bin/aggregated_depth_tui.rs, src/monitor/global_book.rs
 - acceptance:
   - RPI stream routing (`binance-usd-m:RPI:SYMBOL`) works end-to-end
   - TUI `Δ` tab shows overlay without polluting canonical global merge
@@ -323,9 +323,96 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - optional follow-on (after WP-014 / WP-015): demo order place → user-stream reconcile round-trip for spot and USDM — document as sub-checklist in test module, not blocking this WP
 - notes: uses Binance **demo/testnet** endpoints only — never production keys. Complements WP-002 (public REST merge); this WP adds authenticated streams and venue-specific demo host wiring. Geo/network restrictions may skip in CI; verify on unrestricted egress like WP-002.
 
+## Integration test reference
+
+The global-book integration test (`tests/global_book.rs`) has two layers:
+
+| Layer | Runs on `cargo test` | Network required |
+|-------|---------------------|-----------------|
+| Fixture tests (parse, merge, stream-ID) | Always | No |
+| `global_book_live_rest_merge` (`#[ignore]`) | Only with `--ignored` + env | Yes (Binance REST) |
+
+**Enabling the live test:**
+
+```bash
+cp .env.example .env
+# set RUN_GLOBAL_BOOK_INTEGRATION=1 in .env
+cargo test --test global_book global_book_live_rest_merge -- --ignored
+```
+
+The env guard (`RUN_GLOBAL_BOOK_INTEGRATION`) ensures the test body exits early even if accidentally invoked without the flag, so CI remains network-free by default.
+
+## RPI subscription behavior
+
+**RPI** (Retail Price Improvement) is an optional Binance USDM overlay stream (`@rpiDepth@500ms`)
+that includes RPI-only liquidity layers. It runs alongside the standard `@depth` stream on the
+same combined WebSocket connection.
+
+### Stream routing
+
+| CLI source | Stream ID | WS subscription | Canonical instrument |
+|---|---|---|---|
+| `binance-usd-m:BTCUSDT` | `binance-usd-m:BTCUSDT` | `btcusdt@depth` | `BTCUSDT` |
+| `binance-usd-m:RPI:BTCUSDT` | `binance-usd-m:RPI:BTCUSDT` | `btcusdt@rpiDepth@500ms` | `RPI:BTCUSDT` |
+
+### Subscription protocol
+
+When any symbol in the subscription list carries the `RPI:` prefix:
+
+1. A `SET_PROPERTY` message (`{"method":"SET_PROPERTY","params":["combined",true],"id":0}`) is sent first to enable the combined stream envelope format.
+2. The `SUBSCRIBE` message lists all streams (both `@depth` and `@rpiDepth`) in a single params array.
+
+Standard-only subscriptions skip the `SET_PROPERTY` step.
+
+### Isolation from canonical merge
+
+RPI sources use `canonical_instrument() == "RPI:SYMBOL"` which is distinct from the standard
+`"SYMBOL"`. This means:
+
+- The `GlobalBookHub` merged lane for `BTCUSDT` only aggregates non-RPI sources.
+- RPI books get their own merged lane (`RPI:BTCUSDT`) and never pollute the canonical instrument.
+- The TUI `Δ·INSTRUMENT` tab computes `@depth − @rpiDepth` per price without touching the merge.
+
+### REST snapshot
+
+The REST API URL always strips the `RPI:` prefix — both `binance-usd-m:BTCUSDT` and
+`binance-usd-m:RPI:BTCUSDT` fetch the same `/fapi/v1/depth?symbol=BTCUSDT&limit=1000` snapshot
+as their initial book state. The divergence happens only on the WebSocket diff stream.
+
+### Depth parse (envelope detection)
+
+Messages arriving with a `"stream"` field containing `"rpiDepth"` have their symbol prefixed
+with `RPI:` during parsing (`depth_parse.rs`). This ensures `EventHandler::to_id()` routes
+RPI updates to the `RPI:SYMBOL` shard and standard updates to the `SYMBOL` shard, even when
+both coexist on the same multiplexed WebSocket connection.
+
+### TUI Δ tab
+
+The `Δ·INSTRUMENT` tab in the TUI binary shows per-price quantity differences:
+`qty(@depth) − qty(@rpiDepth)`. Both `binance-usd-m:SYMBOL` and `binance-usd-m:RPI:SYMBOL`
+must be present in `--sources` for the Δ tab to render data; otherwise it displays a diagnostic
+message. Positive Δ indicates more size on the public depth stream than the RPI stream at that
+price level.
+
+### Usage example
+
+```bash
+cargo run --features tui --bin aggregated_depth_tui -- \
+  --sources binance-usd-m:BTCUSDT,binance-usd-m:RPI:BTCUSDT
+```
+
+This subscribes to both the standard and RPI depth streams. The TUI shows:
+- `MERGED·BTCUSDT` — canonical merged book (standard only)
+- `binance-usd-m:BTCUSDT` — per-source standard depth
+- `binance-usd-m:RPI:BTCUSDT` — per-source RPI depth
+- `Δ·BTCUSDT` — public depth minus RPI depth overlay
+- `MERGED·RPI:BTCUSDT` — merged RPI book (single source)
+- `Δ·RPI:BTCUSDT` — undefined (no standard+RPI pair for that canonical)
+
 ## Completed milestones
 
 - [x] **Cross-source merge:** [`BookSource`](src/monitor/global_book.rs) → [`GlobalBookHub`](src/monitor/global_book.rs) via [`LimitOrderBook::merge_aggregate`](patches/lob/src/limit_order_book/mod.rs).
 - [x] **CLI serve:** `monitor depth --output global --sources binance:BTCUSDT,binance-usd-m:BTCUSDT --server-port 50051`
 - [x] **Prometheus:** `GET /metrics` (`trolly_depth_updates_total`, `trolly_global_book_merge_refresh_total`).
 - [x] **Submodule:** `patches/lob` wired for local `merge_aggregate` patch.
+- [x] **RPI overlay:** `binance-usd-m:RPI:SYMBOL` routing end-to-end, TUI Δ tab, isolation from canonical merge.
