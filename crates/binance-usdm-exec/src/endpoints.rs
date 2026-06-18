@@ -31,6 +31,13 @@
 
 use trolly_stream::VenueEndpoints;
 
+/// API credentials for signed USDM REST order placement.
+#[derive(Clone, Debug)]
+pub struct ApiCredentials {
+    pub api_key: String,
+    pub secret_key: String,
+}
+
 /// Binance USDM futures demo/testnet base URLs.
 ///
 /// The demo REST API issues listenKeys valid on the production `fstream.binance.com`

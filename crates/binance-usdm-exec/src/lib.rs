@@ -3,15 +3,26 @@
 //! Parses `ORDER_TRADE_UPDATE`, `ACCOUNT_UPDATE`, and related private stream events,
 //! maintains per-symbol order/position state, and fans updates into
 //! [`trolly_stream::MonitorMultiplexor`] ingress alongside other stream handlers.
+//!
+//! Outbound order placement is handled by [`order`] (REST `POST /fapi/v1/order`) and
+//! [`adapter`] ([`StreamEgress`](trolly_strategy::StreamEgress) integration).
 
+mod adapter;
+mod auth;
 mod endpoints;
 mod handler;
 mod ingress;
+mod order;
 mod parse;
 mod types;
 
-pub use endpoints::UsdmUserDataStream;
+pub use adapter::{UsdmExecEgress, UsdmEgressError, run_order_worker};
+pub use endpoints::{ApiCredentials, UsdmUserDataStream};
 pub use endpoints::demo as usdm_demo_endpoints;
+pub use order::{
+    HttpOrderClient, OrderAck, OrderClient, OrderError, OrderRequest, OrderSide, OrderType,
+    TimeInForce, REST_BASE_URL, place_order,
+};
 pub use handler::{UsdmExecHandler, ACCOUNT_ROUTING_ID};
 pub use ingress::{build_multiplexor, build_multiplexor_with_account, ingest_user_data};
 pub use parse::{parse_user_events, ParseError};
