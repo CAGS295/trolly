@@ -1,4 +1,4 @@
-//! Global order book: cross-source merge and optional live REST integration.
+//! Global order book integration tests.
 //!
 //! ## Offline (default)
 //!
@@ -53,6 +53,14 @@ fn global_book_integration_enabled() -> bool {
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false)
 }
+
+fn global_book_integration_enabled() -> bool {
+    std::env::var("RUN_GLOBAL_BOOK_INTEGRATION")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+}
+
+// --- offline fixtures (no network) ---
 
 #[test]
 fn parse_cross_source_spot_and_usdm() {

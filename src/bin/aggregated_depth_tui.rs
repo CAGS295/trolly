@@ -501,8 +501,12 @@ fn tab_strip(stream_order: &[String]) -> (Vec<String>, Vec<TabKind>) {
                 kinds.push(TabKind::Sym(s.clone()));
             }
         }
-        labels.push(format!("Δ·{c}"));
-        kinds.push(TabKind::Diff(c.clone()));
+        // Δ is `@depth − @rpiDepth` for the base symbol only; RPI-prefixed canonical groups
+        // are separate per-source merges and must not get a duplicate/broken Δ tab.
+        if !c.starts_with(RPI_PREFIX) {
+            labels.push(format!("Δ·{c}"));
+            kinds.push(TabKind::Diff(c.clone()));
+        }
     }
     (labels, kinds)
 }
