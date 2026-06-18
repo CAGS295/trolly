@@ -53,3 +53,14 @@ pub fn sign_params(
     params.insert("signature".into(), signature);
     params
 }
+
+/// Sign REST query params and append `signature`.
+pub fn build_signed_rest_params(
+    mut params: BTreeMap<String, String>,
+    secret_key: &str,
+) -> BTreeMap<String, String> {
+    let payload = signed_params_payload(&params);
+    let signature = sign_hmac_sha256_hex(secret_key, &payload);
+    params.insert("signature".into(), signature);
+    params
+}

@@ -1,4 +1,7 @@
 //! Outbound messages dispatched back through the stream egress API.
+//!
+//! Venue adapters (spot and USDM exec crates) consume [`OutboundMessage::OrderRequest`]
+//! and translate to signed REST calls.
 
 use trolly_stream::Message;
 
@@ -20,6 +23,23 @@ pub enum OutboundMessage {
     Subscribe { symbol: String, channel: String },
     /// Pre-serialized websocket payload (escape hatch for venue adapters).
     Raw(Message),
+}
+
+impl OutboundMessage {
+    /// Build a normalized place-order command (`price: None` => market).
+    pub fn order_request(
+        symbol: impl Into<String>,
+        side: impl Into<String>,
+        qty: impl Into<String>,
+        price: Option<impl Into<String>>,
+    ) -> Self {
+        Self::OrderRequest {
+            symbol: symbol.into(),
+            side: side.into(),
+            qty: qty.into(),
+            price: price.map(Into::into),
+        }
+    }
 }
 
 /// Dispatches outbound stream messages (websocket writes, fan-in queues, etc.).
