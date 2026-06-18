@@ -114,9 +114,12 @@ impl UsdmExecHandler {
                     account_state.lock().unwrap().apply_position(position);
                 }
             }
-            UsdmExecUpdate::BalanceChange(_)
-            | UsdmExecUpdate::ListenKeyExpired
-            | UsdmExecUpdate::MarginCall(_) => {}
+            UsdmExecUpdate::BalanceChange(_) | UsdmExecUpdate::ListenKeyExpired => {}
+            UsdmExecUpdate::MarginCall(call) => {
+                if let Some(account_state) = &self.account_state {
+                    account_state.lock().unwrap().apply_margin_call(call);
+                }
+            }
         }
 
         if let Some(tx) = &self.outbound {

@@ -133,4 +133,118 @@ mod tests {
 
         assert_eq!(recorded.lock().unwrap().len(), 1);
     }
+
+    // ── MARGIN_CALL tests ────────────────────────────────────────────────────
+
+    #[test]
+    fn parse_margin_call_fixture() {
+        let json = include_str!("../tests/fixtures/margin_call.json");
+        let events = parse_user_events(Message::Text(json.into())).unwrap();
+        assert_eq!(events.len(), 1);
+
+        let UsdmExecUpdate::MarginCall(call) = &events[0] else {
+            panic!("expected MarginCall, got {:?}", events[0]);
+        };
+        assert_eq!(call.event_time, 1587727187525);
+        assert_eq!(call.cross_wallet_balance, "3.16812045");
+        assert_eq!(call.positions.len(), 1);
+        assert_eq!(call.positions[0].symbol, "ETHUSDT");
+        assert_eq!(call.positions[0].position_side, "LONG");
+        assert_eq!(call.positions[0].position_amount, "1.327");
+        assert_eq!(call.positions[0].mark_price, "187.17127");
+        assert_eq!(call.positions[0].maintenance_margin_required, "1.614445");
+    }
+
+    #[test]
+    fn margin_call_routes_to_account_handler() {
+        use crate::ingress::ingest_user_data;
+        use crate::handler::ACCOUNT_ROUTING_ID;
+
+        let json = include_str!("../tests/fixtures/margin_call.json");
+        let account_rec = Arc::new(Mutex::new(Vec::new()));
+        let btc_rec = Arc::new(Mutex::new(Vec::new()));
+
+        let mut hub = MonitorMultiplexor::from_writers(HashMap::from([
+            (
+                "BTCUSDT".into(),
+                UsdmExecHandler::with_recorder("BTCUSDT", btc_rec.clone()),
+            ),
+            (
+                ACCOUNT_ROUTING_ID.into(),
+                UsdmExecHandler::with_recorder(ACCOUNT_ROUTING_ID, account_rec.clone()),
+            ),
+        ]));
+
+        ingest_user_data(&mut hub, Message::Text(json.into()));
+
+        assert_eq!(account_rec.lock().unwrap().len(), 1, "margin call must route to account handler");
+        assert!(btc_rec.lock().unwrap().is_empty(), "margin call must not route to symbol handler");
+        assert!(matches!(
+            account_rec.lock().unwrap()[0],
+            UsdmExecUpdate::MarginCall(_)
+        ));
+    }
+
+    #[test]
+    fn margin_call_updates_account_bookkeeping_state() {
+        use crate::ingress::{build_multiplexor_with_account, ingest_user_data};
+
+        let json = include_str!("../tests/fixtures/margin_call.json");
+        let (mut hub, account_bk) = build_multiplexor_with_account(&["ETHUSDT"], None);
+
+        ingest_user_data(&mut hub, Message::Text(json.into()));
+
+        let state = account_bk.lock().unwrap();
+        let mc = state.latest_margin_call.as_ref().expect("latest_margin_call must be set");
+        assert_eq!(mc.event_time, 1587727187525);
+        assert_eq!(mc.cross_wallet_balance, "3.16812045");
+        assert_eq!(mc.positions.len(), 1);
+        assert_eq!(mc.positions[0].symbol, "ETHUSDT");
+    }
+
+    #[test]
+    fn margin_call_superseded_by_newer_event_time() {
+        let mut bk = AccountBookkeeping::default();
+
+        let older = MarginCall {
+            event_time: 1000,
+            cross_wallet_balance: "10.0".into(),
+            positions: vec![],
+        };
+        let newer = MarginCall {
+            event_time: 2000,
+            cross_wallet_balance: "5.0".into(),
+            positions: vec![],
+        };
+
+        bk.apply_margin_call(&newer);
+        bk.apply_margin_call(&older);
+
+        assert_eq!(
+            bk.latest_margin_call.as_ref().unwrap().event_time,
+            2000,
+            "older event must not supersede newer"
+        );
+        assert_eq!(bk.latest_margin_call.as_ref().unwrap().cross_wallet_balance, "5.0");
+    }
+
+    #[test]
+    fn margin_call_forwarded_on_outbound_channel() {
+        use crate::ingress::ingest_user_data;
+        use crate::handler::ACCOUNT_ROUTING_ID;
+        use tokio::sync::mpsc::unbounded_channel;
+
+        let json = include_str!("../tests/fixtures/margin_call.json");
+        let (tx, mut rx) = unbounded_channel::<UsdmExecUpdate>();
+
+        let mut hub = MonitorMultiplexor::from_writers(HashMap::from([(
+            ACCOUNT_ROUTING_ID.into(),
+            UsdmExecHandler::new(ACCOUNT_ROUTING_ID, Some(tx)),
+        )]));
+
+        ingest_user_data(&mut hub, Message::Text(json.into()));
+
+        let received = rx.try_recv().expect("outbound channel must receive MarginCall");
+        assert!(matches!(received, UsdmExecUpdate::MarginCall(_)));
+    }
 }

@@ -103,6 +103,8 @@ pub struct SymbolBookkeeping {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct AccountBookkeeping {
     pub positions: HashMap<(String, String), PositionChange>,
+    /// Latest received `MARGIN_CALL` event, superseded only by strictly newer `event_time`.
+    pub latest_margin_call: Option<MarginCall>,
 }
 
 impl AccountBookkeeping {
@@ -113,6 +115,17 @@ impl AccountBookkeeping {
             self.positions.remove(&key);
         } else {
             self.positions.insert(key, pos.clone());
+        }
+    }
+
+    /// Record a margin-call event, superseding any previous one with an older `event_time`.
+    pub fn apply_margin_call(&mut self, call: &MarginCall) {
+        let supersede = self
+            .latest_margin_call
+            .as_ref()
+            .map_or(true, |existing| call.event_time >= existing.event_time);
+        if supersede {
+            self.latest_margin_call = Some(call.clone());
         }
     }
 }

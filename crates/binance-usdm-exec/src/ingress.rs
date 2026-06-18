@@ -69,7 +69,11 @@ pub fn build_multiplexor_with_account(
     }
     writers.insert(
         crate::handler::ACCOUNT_ROUTING_ID.into(),
-        UsdmExecHandler::new(crate::handler::ACCOUNT_ROUTING_ID, outbound),
+        UsdmExecHandler::new_with_account_state(
+            crate::handler::ACCOUNT_ROUTING_ID,
+            outbound,
+            account_bk.clone(),
+        ),
     );
     (MonitorMultiplexor::from_writers(writers), account_bk)
 }
