@@ -204,4 +204,111 @@ mod tests {
         assert_eq!(leg.position_amount, "5");
         assert!(!leg.is_flat());
     }
+
+    #[test]
+    fn parse_margin_call_fixture() {
+        let json = include_str!("../tests/fixtures/margin_call.json");
+        let events = parse_user_events(Message::Text(json.into())).unwrap();
+        assert_eq!(events.len(), 1);
+
+        let UsdmExecUpdate::MarginCall(call) = &events[0] else {
+            panic!("expected margin call");
+        };
+        assert_eq!(call.event_time, 1587727187525);
+        assert_eq!(call.cross_wallet_balance, "3.16812045");
+        assert_eq!(call.positions.len(), 2);
+        assert_eq!(call.positions[0].symbol, "ETHUSDT");
+        assert_eq!(call.positions[0].position_side, "LONG");
+        assert_eq!(call.positions[1].symbol, "BTCUSDT");
+    }
+
+    #[test]
+    fn margin_call_routes_to_account_and_persists_state() {
+        let json = include_str!("../tests/fixtures/margin_call.json");
+        let account = Arc::new(Mutex::new(SymbolBookkeeping::default()));
+        let ctx = UsdmExecContext::with_account(account.clone(), None);
+        let btc_rec = Arc::new(Mutex::new(Vec::new()));
+        let account_rec = Arc::new(Mutex::new(Vec::new()));
+
+        let mut hub = MonitorMultiplexor::from_writers(HashMap::from([
+            (
+                "BTCUSDT".into(),
+                UsdmExecHandler::with_recorder("BTCUSDT", btc_rec.clone(), ctx.clone()),
+            ),
+            (
+                "ETHUSDT".into(),
+                UsdmExecHandler::with_recorder("ETHUSDT", Arc::new(Mutex::new(Vec::new())), ctx.clone()),
+            ),
+            (
+                ACCOUNT_ROUTING_ID.into(),
+                UsdmExecHandler::with_recorder(ACCOUNT_ROUTING_ID, account_rec.clone(), ctx.clone()),
+            ),
+        ]));
+
+        ingest_user_data(&mut hub, Message::Text(json.into()));
+
+        assert_eq!(account_rec.lock().unwrap().len(), 1);
+        assert!(btc_rec.lock().unwrap().is_empty());
+        assert!(matches!(
+            account_rec.lock().unwrap()[0],
+            UsdmExecUpdate::MarginCall(_)
+        ));
+
+        let book = account.lock().unwrap();
+        let call = book.margin_call().expect("margin call persisted");
+        assert_eq!(call.event_time, 1587727187525);
+        assert_eq!(call.cross_wallet_balance, "3.16812045");
+        assert_eq!(call.positions.len(), 2);
+        assert_eq!(call.positions[0].symbol, "ETHUSDT");
+        assert_eq!(call.positions[1].symbol, "BTCUSDT");
+        drop(book);
+
+        assert_eq!(ctx.latest_margin_call().unwrap().event_time, 1587727187525);
+    }
+
+    #[test]
+    fn margin_call_supersedes_older_on_ingress() {
+        let older = r#"{"e":"MARGIN_CALL","E":100,"cw":"1.0","p":[]}"#;
+        let newer = r#"{"e":"MARGIN_CALL","E":200,"cw":"2.0","p":[]}"#;
+
+        let hub = build_hub(&["BTCUSDT"], shared_ctx());
+        let mut multiplexor = hub.multiplexor;
+
+        ingest_user_data(&mut multiplexor, Message::Text(older.into()));
+        ingest_user_data(&mut multiplexor, Message::Text(newer.into()));
+
+        {
+            let book = hub.account.lock().unwrap();
+            let call = book.margin_call().unwrap();
+            assert_eq!(call.event_time, 200);
+            assert_eq!(call.cross_wallet_balance, "2.0");
+        }
+
+        ingest_user_data(&mut multiplexor, Message::Text(older.into()));
+        {
+            let book = hub.account.lock().unwrap();
+            let call = book.margin_call().unwrap();
+            assert_eq!(call.event_time, 200);
+        }
+    }
+
+    #[test]
+    fn margin_call_forwards_on_outbound_channel() {
+        let json = include_str!("../tests/fixtures/margin_call.json");
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let ctx = UsdmExecContext::new(Some(tx));
+        let mut handler = UsdmExecHandler::new(ACCOUNT_ROUTING_ID, ctx);
+
+        let update = UsdmExecHandler::parse_update(Message::Text(json.into()))
+            .unwrap()
+            .unwrap();
+        handler.handle_update(update).unwrap();
+
+        let forwarded = rx.try_recv().unwrap();
+        let UsdmExecUpdate::MarginCall(call) = forwarded else {
+            panic!("expected margin call on outbound");
+        };
+        assert_eq!(call.event_time, 1587727187525);
+        assert_eq!(call.positions.len(), 2);
+    }
 }

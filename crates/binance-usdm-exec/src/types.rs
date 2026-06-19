@@ -124,6 +124,8 @@ pub struct SymbolBookkeeping {
     pub open_orders: HashMap<i64, OrderTradeUpdate>,
     pub balances: HashMap<String, BalanceChange>,
     pub positions: HashMap<PositionKey, PositionChange>,
+    /// Latest `MARGIN_CALL` snapshot (cross wallet balance + affected positions).
+    pub latest_margin_call: Option<MarginCall>,
 }
 
 impl SymbolBookkeeping {
@@ -172,6 +174,23 @@ impl SymbolBookkeeping {
     /// Latest balance row for an asset.
     pub fn balance(&self, asset: &str) -> Option<&BalanceChange> {
         self.balances.get(asset)
+    }
+
+    /// Persist the latest margin-call snapshot; newer calls supersede older ones.
+    pub fn apply_margin_call(&mut self, call: MarginCall) {
+        if self
+            .latest_margin_call
+            .as_ref()
+            .is_some_and(|existing| existing.event_time > call.event_time)
+        {
+            return;
+        }
+        self.latest_margin_call = Some(call);
+    }
+
+    /// Latest margin-call payload for strategy inspection, if any.
+    pub fn margin_call(&self) -> Option<&MarginCall> {
+        self.latest_margin_call.as_ref()
     }
 }
 
@@ -233,5 +252,35 @@ mod tests {
         book.apply_position(sample_position("2", "LONG"));
         book.apply_position(sample_position("1", "SHORT"));
         assert_eq!(book.open_positions().count(), 2);
+    }
+
+    fn sample_margin_call(event_time: u64, cw: &str) -> MarginCall {
+        MarginCall {
+            event_time,
+            cross_wallet_balance: cw.into(),
+            positions: vec![MarginCallPosition {
+                symbol: "ETHUSDT".into(),
+                position_side: "LONG".into(),
+                position_amount: "1.327".into(),
+                margin_type: "CROSSED".into(),
+                isolated_wallet: "0".into(),
+                mark_price: "187.17".into(),
+                unrealized_pnl: "-1.16".into(),
+                maintenance_margin_required: "1.61".into(),
+            }],
+        }
+    }
+
+    #[test]
+    fn apply_margin_call_supersedes_older() {
+        let mut book = SymbolBookkeeping::default();
+        book.apply_margin_call(sample_margin_call(100, "1.0"));
+        book.apply_margin_call(sample_margin_call(200, "2.0"));
+        assert_eq!(book.margin_call().unwrap().event_time, 200);
+        assert_eq!(book.margin_call().unwrap().cross_wallet_balance, "2.0");
+
+        book.apply_margin_call(sample_margin_call(150, "1.5"));
+        assert_eq!(book.margin_call().unwrap().event_time, 200);
+        assert_eq!(book.margin_call().unwrap().cross_wallet_balance, "2.0");
     }
 }

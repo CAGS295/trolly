@@ -47,6 +47,15 @@ impl UsdmExecContext {
             .position(symbol, position_side)
             .cloned()
     }
+
+    /// Latest `MARGIN_CALL` snapshot (timestamp, cross wallet balance, positions).
+    pub fn latest_margin_call(&self) -> Option<crate::types::MarginCall> {
+        self.account
+            .lock()
+            .expect("account bookkeeping lock poisoned")
+            .margin_call()
+            .cloned()
+    }
 }
 
 /// Per-symbol (or account) USDM execution bookkeeper implementing [`EventHandler`].
@@ -141,7 +150,17 @@ impl UsdmExecHandler {
                     .expect("account bookkeeping lock poisoned")
                     .apply_balance(balance.clone());
             }
-            UsdmExecUpdate::ListenKeyExpired | UsdmExecUpdate::MarginCall(_) => {}
+            UsdmExecUpdate::ListenKeyExpired => {}
+            UsdmExecUpdate::MarginCall(call) => {
+                if !self.account_events_only {
+                    return Ok(());
+                }
+                self.ctx
+                    .account
+                    .lock()
+                    .expect("account bookkeeping lock poisoned")
+                    .apply_margin_call(call.clone());
+            }
         }
 
         if let Some(tx) = &self.ctx.outbound {
