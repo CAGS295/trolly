@@ -52,14 +52,17 @@ impl Hook {
             .insert(key.into().to_uppercase(), BookHandle::LeftRight(factory));
     }
 
-    async fn get(&self, pair: &str) -> Option<LimitOrderBook> {
+    async fn get(&self, pair: &str) -> Option<Arc<LimitOrderBook>> {
         let handle = {
             let guard = self.0.lock().expect("book registry lock");
             guard.get(&pair.to_uppercase())?.clone()
         };
         match handle {
-            BookHandle::LeftRight(factory) => factory.handle().enter().map(|guard| guard.clone()),
-            BookHandle::Merged(swap) => Some((*swap.load_full()).clone()),
+            BookHandle::LeftRight(factory) => factory
+                .handle()
+                .enter()
+                .map(|guard| Arc::new(guard.clone())),
+            BookHandle::Merged(swap) => Some(swap.load_full()),
         }
     }
 }

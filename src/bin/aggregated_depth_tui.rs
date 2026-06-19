@@ -321,7 +321,7 @@ fn snapshot_ladder(
             let Some(swap) = hub.merged_swap_for(canon) else {
                 return (0, 0, vec![], vec![]);
             };
-            let book = swap.load();
+            let book = swap.load_full();
             let book_id = book.update_id;
             let text = format!("{}", *book);
             let fp = fnv1a64_prefix(&text, 4096);

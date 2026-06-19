@@ -25,7 +25,7 @@ impl LimitOrderBookService for Hook {
             let Some(native_book) = self.get(&pair).await else {
                 return Err(Status::not_found(pair));
             };
-            Ok(Response::new(From::from(native_book)))
+            Ok(Response::new(From::from(native_book.as_ref().clone())))
         }
         .instrument(span)
         .await
