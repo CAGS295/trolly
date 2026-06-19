@@ -316,37 +316,41 @@ fn snapshot_ladder(
     factories_by_symbol: &HashMap<String, ReadHandleFactory<LimitOrderBook>>,
     hub: &GlobalBookHub,
 ) -> (u64, u64, Vec<(String, String)>, Vec<(String, String)>) {
-    let factory = match view {
+    match view {
         View::MergedCanonical(canon) => {
-            let Some(f) = hub.merged_factory_for(canon) else {
+            let Some(swap) = hub.merged_swap_for(canon) else {
                 return (0, 0, vec![], vec![]);
             };
-            f
+            let book = swap.load();
+            let book_id = book.update_id;
+            let text = format!("{}", *book);
+            let fp = fnv1a64_prefix(&text, 4096);
+            let (_parsed_id, bids, asks) = parse_book_display(&text).unwrap_or((0, vec![], vec![]));
+            (book_id, fp, bids, asks)
         }
         View::Symbol(sym) => {
             let sym = sym.to_uppercase();
-            let Some(f) = factories_by_symbol
+            let Some(factory) = factories_by_symbol
                 .iter()
                 .find(|(k, _)| k.eq_ignore_ascii_case(&sym))
                 .map(|(_, f)| f.clone())
             else {
                 return (0, 0, vec![], vec![]);
             };
-            f
+            let snap = factory.handle().enter().map(|g| {
+                let book_id = g.update_id;
+                let text = format!("{}", *g);
+                let fp = fnv1a64_prefix(&text, 4096);
+                (book_id, fp, text)
+            });
+            let Some((book_id, fp, text)) = snap else {
+                return (0, 0, vec![], vec![]);
+            };
+            let (_parsed_id, bids, asks) = parse_book_display(&text).unwrap_or((0, vec![], vec![]));
+            (book_id, fp, bids, asks)
         }
-        View::Diff(_) => return (0, 0, vec![], vec![]),
-    };
-    let snap = factory.handle().enter().map(|g| {
-        let book_id = g.update_id;
-        let text = format!("{}", *g);
-        let fp = fnv1a64_prefix(&text, 4096);
-        (book_id, fp, text)
-    });
-    let Some((book_id, fp, text)) = snap else {
-        return (0, 0, vec![], vec![]);
-    };
-    let (_parsed_id, bids, asks) = parse_book_display(&text).unwrap_or((0, vec![], vec![]));
-    (book_id, fp, bids, asks)
+        View::Diff(_) => (0, 0, vec![], vec![]),
+    }
 }
 
 fn usdm_std_stream_id(base: &str) -> String {
@@ -555,7 +559,7 @@ fn run_tui(
 
         let missing_symbol = match &view {
             View::MergedCanonical(c) => {
-                c.is_empty() || hub.merged_factory_for(c).is_none()
+                c.is_empty() || hub.merged_swap_for(c).is_none()
             }
             View::Symbol(s) => !s.is_empty() && !by_sym.keys().any(|k| k.eq_ignore_ascii_case(s)),
             View::Diff(s) => s.is_empty() || !hub_has_rpi_depth_pair(&by_sym, s),

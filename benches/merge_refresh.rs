@@ -1,7 +1,9 @@
+use arc_swap::ArcSwap;
 use criterion::{criterion_group, criterion_main, Criterion};
 use left_right::{Absorb, ReadHandleFactory};
 use lob::{LimitOrderBook, PriceAndQuantity};
 use std::hint::black_box;
+use std::sync::Arc;
 
 enum BenchOp {
     Append(LimitOrderBook),
@@ -40,8 +42,24 @@ fn make_factories(count: usize) -> Vec<ReadHandleFactory<LimitOrderBook>> {
         .collect()
 }
 
+fn merge_from_factories(factories: &[ReadHandleFactory<LimitOrderBook>]) -> LimitOrderBook {
+    let mut merged = LimitOrderBook::new();
+    for factory in factories {
+        if let Some(book) = factory.handle().enter() {
+            merged.merge_aggregate_absorb(&book);
+        }
+    }
+    merged.update_id = factories
+        .iter()
+        .filter_map(|fac| fac.handle().enter().map(|g| g.update_id))
+        .max()
+        .unwrap_or(0);
+    merged
+}
+
 fn bench_merge_refresh(c: &mut Criterion) {
     let factories = make_factories(4);
+    let swap = Arc::new(ArcSwap::from_pointee(LimitOrderBook::new()));
 
     c.bench_function("merge_aggregate from read guards (no clone)", |b| {
         b.iter(|| {
@@ -59,6 +77,18 @@ fn bench_merge_refresh(c: &mut Criterion) {
                 .collect();
             black_box(LimitOrderBook::merge_aggregate(&snapshots));
         });
+    });
+
+    c.bench_function("merged lane ArcSwap store after merge", |b| {
+        b.iter(|| {
+            let merged = merge_from_factories(&factories);
+            swap.store(Arc::new(merged));
+        });
+    });
+
+    c.bench_function("merged lane ArcSwap load (read path)", |b| {
+        swap.store(Arc::new(merge_from_factories(&factories)));
+        b.iter(|| black_box(swap.load_full()));
     });
 }
 
