@@ -23,7 +23,7 @@ pub use client::{
     OrderTransportError, SpotOrderClient, DEFAULT_REST_API_URL,
 };
 pub use egress::SpotOrderEgress;
-pub use endpoints::{ApiCredentials, BinanceSpotUserStream};
+pub use endpoints::{ApiCredentials, BinanceSpotUserStream, DEMO_REST_API_BASE, DEMO_STREAM_URL};
 pub use events::{
     AssetBalance, BalanceUpdate, EventStreamTerminated, ExecutionReport, ExternalLockUpdate,
     ListStatus, ListStatusOrder, OutboundAccountPosition, SpotUserEvent, ACCOUNT_ROUTE_ID,

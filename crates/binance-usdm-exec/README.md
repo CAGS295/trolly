@@ -63,6 +63,18 @@ Private USDM events require a **listen key** from REST:
 
 **Caller responsibilities:** this crate does not create or renew listen keys automatically. Supply an active key to [`UsdmUserDataStream`](src/endpoints.rs) and run keepalive in your process supervisor. Constants [`LISTEN_KEY_CREATE_PATH`](src/endpoints.rs) and [`LISTEN_KEY_KEEPALIVE_PATH`](src/endpoints.rs) document the REST paths.
 
+## Demo / testnet endpoints
+
+Use Binance **demo** credentials only. Never use production keys against these hosts.
+
+| Host | URL |
+|------|-----|
+| REST | `https://demo-fapi.binance.com` |
+| Market streams | `wss://fstream.binancefuture.com` |
+| Private user-data | `wss://fstream.binancefuture.com/private/ws/<listenKey>` |
+
+Listen key lifecycle on demo REST: `POST` / `PUT` / `DELETE` `/fapi/v1/listenKey` with `X-MBX-APIKEY`. [`UsdmUserDataStream::demo`](src/endpoints.rs) and [`demo_rest_depth_url`](src/endpoints.rs) target demo hosts. Opt-in integration tests: [`tests/binance_demo_integration.rs`](../../tests/binance_demo_integration.rs) (`RUN_BINANCE_DEMO_INTEGRATION=1`).
+
 ## Multi-symbol routing (`trolly-stream`)
 
 User-data events are injected through [`MonitorMultiplexor::ingest_message`](https://docs.rs/trolly-stream/latest/trolly_stream/struct.MonitorMultiplexor.html#method.ingest_message):

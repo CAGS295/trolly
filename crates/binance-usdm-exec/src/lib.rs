@@ -25,8 +25,8 @@ pub use client::{
 };
 pub use egress::UsdmOrderEgress;
 pub use endpoints::{
-    ApiCredentials, UsdmUserDataStream, DEFAULT_REST_API_URL, LISTEN_KEY_CREATE_PATH,
-    LISTEN_KEY_KEEPALIVE_PATH,
+    ApiCredentials, UsdmUserDataStream, DEFAULT_REST_API_URL, DEMO_REST_API_URL,
+    DEMO_WS_PRIVATE_BASE, LISTEN_KEY_CREATE_PATH, LISTEN_KEY_KEEPALIVE_PATH, demo_rest_depth_url,
 };
 pub use handler::{UsdmExecContext, UsdmExecHandler, ACCOUNT_ROUTING_ID};
 pub use ingress::{build_hub, build_multiplexor, ingest_user_data, UsdmExecHub};

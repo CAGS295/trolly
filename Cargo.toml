@@ -28,7 +28,7 @@ reqwest = { version = "^0.12", default-features = false, features = [
     "json",
     "native-tls-vendored",
 ] }
-tokio = { version = "1.20.1", features = ["rt", "macros", "rt-multi-thread"] }
+tokio = { version = "1.20.1", features = ["rt", "macros", "rt-multi-thread", "time"] }
 tokio-tungstenite = { version = "^0", features = ["native-tls-vendored"] }
 tracing = { version = "0.1.36", features = ["attributes"] }
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }

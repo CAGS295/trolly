@@ -97,3 +97,15 @@ trolly execute spot-order --symbol BTCUSDT --side BUY --qty 0.01 --price 50000
 ```
 
 Omit `--price` for a market order. REST placement returns an acknowledgement; monitor the user-data stream for `executionReport` reconciliation.
+
+## Demo / testnet endpoints
+
+Use Binance **demo** credentials only (`DEMO_BINANCE_KEY`, `DEMO_BINANCE_SECRET`). Never use production keys against these hosts.
+
+| Host | URL |
+|------|-----|
+| REST | `https://demo-api.binance.com/api` |
+| WebSocket API (signed user-data) | `wss://demo-ws-api.binance.com/ws-api/v3` |
+| Market streams | `wss://demo-stream.binance.com/ws` |
+
+[`BinanceSpotUserStream::demo`](src/endpoints.rs) targets the demo WebSocket API; [`BinanceSpotUserStream::demo_rest_depth_url`](src/endpoints.rs) builds demo REST depth URLs. Opt-in integration tests live in [`tests/binance_demo_integration.rs`](../../tests/binance_demo_integration.rs) (`RUN_BINANCE_DEMO_INTEGRATION=1`).
