@@ -33,3 +33,11 @@ The optional `tch` crate is pulled in only when `--features torch` is set.
 - **Env** — [`Env`](src/env.rs) ties ingest → window → step → egress; see `tests/smoke.rs` for an offline mock flow.
 
 Training loops, checkpoints, and GPU policies are out of scope for this crate scaffold.
+
+## RL toolchain decision (WP-016)
+
+Architecture analysis comparing Rust-native and hybrid ML stacks for stream-fed RL **training** and **live inference** is documented in:
+
+- [`docs/ADR-001-rl-toolchain.md`](docs/ADR-001-rl-toolchain.md)
+
+**Summary:** offline training via Python/PyTorch (replay export + batch/sidecar); live inference via future optional `ort` (ONNX Runtime) feature; existing `torch`/`tch` feature retained as fallback. Default `cargo check --workspace` remains unchanged.
