@@ -13,6 +13,8 @@ pub enum OutboundMessage {
         price: Option<String>,
         /// Limit order time-in-force (`GTC`, `IOC`, `FOK`). Ignored for market orders.
         time_in_force: Option<String>,
+        /// USDM hedge-mode position leg (`LONG`, `SHORT`, `BOTH`). Ignored by spot adapters.
+        position_side: Option<String>,
     },
     /// Request an additional stream subscription.
     Subscribe { symbol: String, channel: String },
@@ -32,6 +34,7 @@ impl OutboundMessage {
             qty: qty.into(),
             price: None,
             time_in_force: None,
+            position_side: None,
         }
     }
 
@@ -48,7 +51,20 @@ impl OutboundMessage {
             qty: qty.into(),
             price: Some(price.into()),
             time_in_force: time_in_force.map(Into::into),
+            position_side: None,
         }
+    }
+
+    /// Attach a USDM `positionSide` leg to an order request.
+    pub fn with_position_side(mut self, position_side: impl Into<String>) -> Self {
+        if let Self::OrderRequest {
+            position_side: ref mut leg,
+            ..
+        } = &mut self
+        {
+            *leg = Some(position_side.into());
+        }
+        self
     }
 }
 
@@ -88,6 +104,7 @@ mod tests {
                 qty: "1".into(),
                 price: None,
                 time_in_force: None,
+                position_side: None,
             }
         );
         assert_eq!(
@@ -98,6 +115,18 @@ mod tests {
                 qty: "2".into(),
                 price: Some("3000".into()),
                 time_in_force: Some("IOC".into()),
+                position_side: None,
+            }
+        );
+        assert_eq!(
+            OutboundMessage::market_order("BTCUSDT", "BUY", "1").with_position_side("LONG"),
+            OutboundMessage::OrderRequest {
+                symbol: "BTCUSDT".into(),
+                side: "BUY".into(),
+                qty: "1".into(),
+                price: None,
+                time_in_force: None,
+                position_side: Some("LONG".into()),
             }
         );
     }

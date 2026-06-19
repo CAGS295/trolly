@@ -61,6 +61,7 @@ fn mock_stream_observations_env_step_and_replay() {
             qty: "0.01".into(),
             price: None,
             time_in_force: None,
+            position_side: None,
         }
     );
 

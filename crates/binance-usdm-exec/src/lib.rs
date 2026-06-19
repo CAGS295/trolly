@@ -3,16 +3,37 @@
 //! Parses `ORDER_TRADE_UPDATE`, `ACCOUNT_UPDATE`, and related private stream events,
 //! maintains per-symbol order state and account-wide position/balance books, and fans
 //! updates into [`trolly_stream::MonitorMultiplexor`] ingress alongside other stream handlers.
+//!
+//! See [`README.md`](../README.md) for outbound REST order placement and listen-key setup.
 
+mod auth;
+mod client;
+mod egress;
 mod endpoints;
 mod handler;
 mod ingress;
+mod order;
 mod parse;
 mod types;
 
-pub use endpoints::UsdmUserDataStream;
+pub use auth::{
+    current_timestamp_ms, sign_hmac_sha256_hex, sign_rest_params, signed_params_payload,
+};
+pub use client::{
+    MockOrderTransport, NativeTlsOrderTransport, OrderError, OrderHttpTransport,
+    OrderTransportError, UsdmOrderClient, DEFAULT_REST_API_URL as ORDER_REST_API_URL,
+};
+pub use egress::UsdmOrderEgress;
+pub use endpoints::{
+    ApiCredentials, UsdmUserDataStream, DEFAULT_REST_API_URL, LISTEN_KEY_CREATE_PATH,
+    LISTEN_KEY_KEEPALIVE_PATH,
+};
 pub use handler::{UsdmExecContext, UsdmExecHandler, ACCOUNT_ROUTING_ID};
 pub use ingress::{build_hub, build_multiplexor, ingest_user_data, UsdmExecHub};
+pub use order::{
+    NewOrderRequest, NewOrderResponse, OrderBuildError, OrderSide, OrderType, PositionSide,
+    TimeInForce, new_order_from_outbound, signed_order_form_body,
+};
 pub use parse::{parse_user_events, ParseError};
 pub use types::{
     BalanceChange, MarginCall, MarginCallPosition, OrderTradeUpdate, PositionChange, PositionKey,
