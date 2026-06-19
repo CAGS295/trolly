@@ -28,11 +28,37 @@ pub fn signed_params_payload(params: &BTreeMap<String, String>) -> String {
         .join("&")
 }
 
+pub fn append_signature(secret_key: &str, params: &mut BTreeMap<String, String>) {
+    let payload = signed_params_payload(params);
+    let signature = sign_hmac_sha256_hex(secret_key, &payload);
+    params.insert("signature".into(), signature);
+}
+
 pub fn build_subscribe_signature_params(api_key: &str, secret_key: &str) -> BTreeMap<String, String> {
     let timestamp = current_timestamp_ms().to_string();
     let mut params = BTreeMap::new();
     params.insert("apiKey".into(), api_key.into());
     params.insert("timestamp".into(), timestamp);
+    sign_params(secret_key, params)
+}
+
+/// Append `timestamp` and HMAC-SHA256 `signature` to signed REST request params.
+pub fn sign_params(
+    secret_key: &str,
+    mut params: BTreeMap<String, String>,
+) -> BTreeMap<String, String> {
+    params.insert("timestamp".into(), current_timestamp_ms().to_string());
+    let payload = signed_params_payload(&params);
+    let signature = sign_hmac_sha256_hex(secret_key, &payload);
+    params.insert("signature".into(), signature);
+    params
+}
+
+/// Sign REST query params and append `signature`.
+pub fn build_signed_rest_params(
+    mut params: BTreeMap<String, String>,
+    secret_key: &str,
+) -> BTreeMap<String, String> {
     let payload = signed_params_payload(&params);
     let signature = sign_hmac_sha256_hex(secret_key, &payload);
     params.insert("signature".into(), signature);

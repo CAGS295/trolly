@@ -8,11 +8,12 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 - Stream-native execution and account bookkeeping (Binance spot + USDM); outbound order placement as follow-on work items (WP-012–WP-015).
 - A strategy layer that consumes multi-symbol stream events and dispatches outbound messages.
 - Groundwork for a libtorch.rs training gym fed by trolly streams; toolchain choice deferred to WP-016 analysis.
+- Nash-equilibrium-oriented RL via **WoLF-PPO** ([Ratcliffe et al., IEEE CoG 2019](https://ieee-cog.org/2019/papers/paper_176.pdf)) on the primary `tch`/libtorch.rs stack (`torch` feature); validate on matrix games before stream-backed trading policies.
 
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: 2026-06-12
+- last_run: 2026-06-13
 - max_parallel: 3
 
 ## Orchestrator notes
@@ -59,7 +60,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - `git submodule update --init patches/lob && cargo test` passes
   - merge semantics unchanged (`tests/global_book.rs`, `patches/lob` merge tests)
   - fewer full-book clones on `GlobalBookHub::refresh_merged_for` hot path
-- notes: `refresh_merged_for` currently clones every source book before `merge_aggregate`.
+- notes: `refresh_merged_for` uses `merge_into` on read guards for multi-source merge (no per-source clone); single-source path still clones once for `MergedOp::Replace`.
 
 ### WP-002 — Integration test hygiene
 
@@ -84,14 +85,14 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - Binance spot refactor toward `depth::binance::spot` (per `.todo`) or documented equivalent layout
   - third venue can register in `--sources provider:SYMBOL` without breaking binance / binance-usd-m
   - `parse_book_sources` unit tests cover new layout; `cargo test` passes
-- notes: see `src/providers/.todo` — `move binance to depth::binance::spot`.
+- notes: Binance spot at `providers::depth::binance::spot`; `other` venue scaffold registered. See `src/providers/.todo` for remaining migrations.
 
 ### WP-004 — Intra-provider overlays (Binance RPI)
 
 - status: done
 - repos: trolly
 - depends_on: [WP-003]
-- scope: src/providers/binance_usd_m.rs, src/bin/aggregated_depth_tui.rs, src/monitor/global_book.rs
+- scope: src/providers/binance/usd_m.rs, src/bin/aggregated_depth_tui.rs, src/monitor/global_book.rs
 - acceptance:
   - RPI stream routing (`binance-usd-m:RPI:SYMBOL`) works end-to-end
   - TUI `Δ` tab shows overlay without polluting canonical global merge
@@ -110,7 +111,48 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - no `Hook::new` / `Hook::register` dead_code warning in `src/servers/mod.rs`
   - `long_about` in `src/cli/mod.rs` describes project goals (not a TODO placeholder)
   - `cargo test` passes
-- notes: safe to run in parallel with WP-001 / WP-002 / WP-003 (disjoint scope).
+- notes: `Hook::new`/`register` wired into serve paths; CLI `long_about` describes LOB monitoring and serving goals.
+
+### WP-006 — USDM provider layout migration
+
+- status: done
+- repos: trolly
+- depends_on: []
+- scope: src/providers/binance_usd_m.rs, src/providers/depth/binance/, src/providers/mod.rs, tests/binance_usd_m.rs
+- acceptance:
+  - `BinanceUsdM` lives at `providers::depth::binance::usd_m` (re-export from `providers` unchanged)
+  - all `binance_usd_m` unit/integration tests pass
+  - `src/providers/.todo` updated to mark migration done
+  - `cargo test` passes
+- notes: `BinanceUsdM` at `providers::depth::binance::usd_m`; public re-exports unchanged; RPI intact.
+
+### WP-007 — Single-source merge without clone
+
+- status: done
+- repos: trolly, patches/lob
+- depends_on: [WP-001]
+- scope: src/monitor/global_book.rs, patches/lob/src/limit_order_book/mod.rs
+- acceptance:
+  - `refresh_merged_for` single-source path avoids full `LimitOrderBook` clone when possible
+  - merge semantics unchanged (`tests/global_book.rs`, `patches/lob` merge tests)
+  - `cargo test` passes
+- notes: unified refresh path uses `merge_into` on read guards for all source counts; `replace_from` avoids clone in `MergedOp::sync_with`.
+
+### WP-008 — Venue onboarding checklist
+
+- status: done
+- repos: trolly
+- depends_on: [WP-006]
+- scope: README.md, src/providers/.todo, WORKPLAN.md, tests/global_book.rs
+- acceptance:
+  - README documents steps to add a new exchange provider (module, labels, multiplexor, tests)
+  - `src/providers/.todo` reflects current state (no stale unchecked items for done work)
+  - at least one unit test references the checklist layout (e.g. `REGISTERED_LABELS`)
+  - `cargo test` passes
+- notes: complements provider scaffold; orchestrator updates WORKPLAN status only.
+  - **README:** new [Adding a new exchange provider](README.md#adding-a-new-exchange-provider) section (module, `REGISTERED_LABELS`, `Provider::from_label`, `run_global_book_stream` multiplexor arm, tests).
+  - **`.todo`:** USDM migration and RPI marked done; only `Provider::Other` live-stream wiring remains open.
+  - **Tests:** `registered_labels_match_provider_onboarding_checklist` in `tests/global_book.rs` asserts each `REGISTERED_LABELS` entry round-trips through `Provider::from_label` and `parse_book_sources`.
 
 ### WP-006 — Workspace layout and crate scaffold
 
@@ -195,7 +237,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-012 — USDM position bookkeeping (`binance-usdm-exec`)
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-009]
 - scope: crates/binance-usdm-exec/
@@ -209,7 +251,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-013 — USDM margin-call handling (`binance-usdm-exec`)
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-012]
 - scope: crates/binance-usdm-exec/
@@ -222,7 +264,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-014 — USDM order placement (`binance-usdm-exec`)
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-013]
 - scope: crates/binance-usdm-exec/, crates/trolly-strategy/
@@ -236,7 +278,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-015 — Spot order execution (`binance-spot-exec`)
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-008]
 - scope: crates/binance-spot-exec/, crates/trolly-strategy/, src/cli/mod.rs
@@ -250,7 +292,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-016 — RL training and inference toolchain analysis (`trolly-gym`)
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-011]
 - scope: crates/trolly-gym/, docs/ or crates/trolly-gym/docs/
@@ -262,25 +304,157 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - separate recommendations for **offline training** (batch replay, checkpoints, experiment tracking) vs **online inference** (sub-ms to low-ms action loop, model hot-swap, deterministic fallbacks)
   - explicit decision: primary toolchain, optional fallback, and what stays feature-gated in `trolly-gym`; list follow-on implementation WPs (training loop, checkpoint I/O, inference hook) without implementing them here
   - no new runtime dependency required in default `cargo check --workspace`; analysis-only deliverable linked from [`crates/trolly-gym/README.md`](crates/trolly-gym/README.md)
-- notes: WP-011 landed the scaffold with an optional `torch`/`tch` gate. This WP is research and architecture — pick stacks before committing to a training loop, GPU CI, or production inference path.
+- notes: WP-011 landed the scaffold with an optional `torch`/`tch` gate. This WP is research and architecture — pick stacks before committing to a training loop, GPU CI, or production inference path. Follow-on implementation WPs for WoLF-PPO are **WP-018–WP-020** (assumes primary stack `tch`/libtorch.rs unless this ADR chooses otherwise).
 
 ### WP-017 — Binance demo integration tests (spot + USDM)
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-002, WP-008, WP-009]
 - scope: .env.example, tests/, crates/binance-spot-exec/, crates/binance-usdm-exec/, README.md
 - acceptance:
-  - extend [`.env.example`](.env.example) with demo credentials and opt-in flags (pattern matches WP-002): at minimum `DEMO_BINANCE_KEY`, `DEMO_BINANCE_SECRET`, `RUN_BINANCE_DEMO_INTEGRATION=0`, optional `TROLLY_DEMO_SYMBOL` (default `BTCUSDT`); document `cp .env.example .env` — this file is the repo env sample (no separate `.env.sample`)
+  - extend [`.env.example`](.env.example) with demo credentials and opt-in flags (pattern matches WP-002): at minimum `DEMO_BINANCE_KEY`, `DEMO_BINANCE_SECRET`, optional `TROLLY_DEMO_SYMBOL` (default `BTCUSDT`); document `cp .env.example .env` — this file is the repo env sample (no separate `.env.sample`)
   - document demo base URLs in README and/or test module docs:
     - **Spot demo** — [Spot Demo general info](https://developers.binance.com/docs/binance-spot-api-docs/demo-mode/general-info): REST `https://demo-api.binance.com/api`, WS API `wss://demo-ws-api.binance.com/ws-api/v3`, market streams `wss://demo-stream.binance.com/ws` (map from production hosts in [`src/providers/depth/binance/spot.rs`](src/providers/depth/binance/spot.rs) and [`crates/binance-spot-exec`](crates/binance-spot-exec))
     - **USDM demo** — [Derivatives docs](https://developers.binance.com/docs/derivatives/): REST `https://demo-fapi.binance.com`, market streams `wss://fstream.binancefuture.com` per [USDM general info](https://developers.binance.com/docs/derivatives/usds-margined-futures/general-info); user-data via `POST /fapi/v1/listenKey` on demo REST + private WS per [`crates/binance-usdm-exec`](crates/binance-usdm-exec)
-  - `#[ignore]` integration tests (require `RUN_BINANCE_DEMO_INTEGRATION=1`, `--ignored`, and demo keys in `.env`):
+  - `#[ignore]` integration tests (require `--ignored` and demo keys in `.env`):
     - spot: demo REST depth snapshot + signed user-data subscribe on demo WS API; assert parsed `executionReport` / account events when demo account activity exists (or skip with clear message if idle)
     - USDM: demo REST depth + listenKey lifecycle on `demo-fapi.binance.com` + user-data stream; assert `ORDER_TRADE_UPDATE` / `ACCOUNT_UPDATE` parsing against live demo payloads when available
-  - default `cargo test --workspace` stays offline; demo tests skip cleanly when flag unset or keys missing
+  - default `cargo test --workspace` stays offline; demo tests skip cleanly when keys missing
   - optional follow-on (after WP-014 / WP-015): demo order place → user-stream reconcile round-trip for spot and USDM — document as sub-checklist in test module, not blocking this WP
 - notes: uses Binance **demo/testnet** endpoints only — never production keys. Complements WP-002 (public REST merge); this WP adds authenticated streams and venue-specific demo host wiring. Geo/network restrictions may skip in CI; verify on unrestricted egress like WP-002.
+
+### WP-018 — WoLF-PPO core algorithm (`trolly-gym`)
+
+- status: todo
+- repos: trolly
+- depends_on: [WP-011, WP-016]
+- scope: crates/trolly-gym/src/ppo/, crates/trolly-gym/src/libtorch.rs, crates/trolly-gym/README.md
+- acceptance:
+  - implement **PPO** clipped surrogate objective (Eq. 1: `L^CLIP`, value loss `L^VF`, entropy bonus `S`) behind the existing `torch` feature using `tch`
+  - implement **WoLF-PPO** extension per [paper_176](https://ieee-cog.org/2019/papers/paper_176.pdf): rolling **average payoff** as estimated NES payoff; dual learning rates `α_WIN` and `α_LOSE` with `α_WIN = α_LOSE / 4`; select `α_WIN` when current expected payoff exceeds the estimate, else `α_LOSE`
+  - actor–critic MLP policy head (stochastic categorical actions) + value head; default hidden layers `[20, 20]` matching paper matrix-game experiments; SGD optimizer as default (Adam optional, documented)
+  - configurable hyperparameters: clip ε, entropy coef `c2`, value coef `c1`, PPO epochs per rollout, `α_LOSE`
+  - public API surface: e.g. `PpoConfig`, `WolfPpoConfig`, `ActorCritic`, `WolfPpoTrainer::policy_update` (or equivalent) usable from offline harness and later stream `Env`
+  - CPU unit tests with `--features torch`: forward-pass shapes, loss computes without NaN on synthetic batch, WoLF LR switches on payoff vs estimate
+  - default `cargo test -p trolly-gym` unchanged (no libtorch); `cargo test -p trolly-gym --features torch` passes
+  - README section documents WoLF-PPO rationale (NES convergence), hyperparameters, and paper citation
+- notes: primary stack is `tch`/libtorch.rs per WP-011 scaffold; WP-016 ADR may adjust fallback only. Does not include full training driver or market `Env` wiring — see WP-019 / WP-020.
+
+### WP-019 — Matrix-game validation harness (WoLF-PPO paper reproduction)
+
+- status: todo
+- repos: trolly
+- depends_on: [WP-018]
+- scope: crates/trolly-gym/src/games/, crates/trolly-gym/tests/matrix_games.rs, crates/trolly-gym/README.md
+- acceptance:
+  - offline two-player zero-sum matrix games from the paper: **Matching Pennies** (standard + weighted payoff Table IIa, NES `P(H)=0.4`) and **Rock–Paper–Scissors** (standard + weighted Table IIb, NES `P(R)=0.2`, `P(P)=0.4`)
+  - self-play training loop driving WP-018 `PPO` and `WoLF-PPO` with shared experimental setup (50-run capability; CI may use fewer seeds)
+  - metric: Euclidean distance of learned policy from known NES; report max distance over last 10 policy updates per run (paper Table I methodology)
+  - smoke test (always runs offline): short seeded run proves WoLF-PPO training step completes and distance metric is finite
+  - `#[ignore]` extended benchmark (optional): reproduce paper trend — WoLF-PPO closer to NES than PPO on **weighted** Matching Pennies at `α_LOSE ∈ {0.1, 0.01}`; document how to run locally
+  - `cargo test -p trolly-gym` passes default; matrix-game tests that need `tch` gated behind `torch` feature
+- notes: validates algorithm before stream latency and reward engineering. Weighted games are the critical regression case (NES ≠ max-entropy policy).
+
+### WP-020 — WoLF-PPO training loop and checkpoint I/O (`trolly-gym`)
+
+- status: todo
+- repos: trolly
+- depends_on: [WP-018, WP-019]
+- scope: crates/trolly-gym/src/train/, crates/trolly-gym/src/replay.rs, crates/trolly-gym/README.md
+- acceptance:
+  - rollout collection API (on-policy trajectories: obs, action, log-prob, value, reward, done) compatible with WP-018 update step and existing [`ReplayBuffer`](crates/trolly-gym/src/replay.rs) layout or documented parallel buffer
+  - `WolfPpoTrainer` (or equivalent) driver: collect rollouts → multi-epoch PPO/WoLF-PPO updates → log scalar metrics (policy loss, value loss, entropy, NES distance when available, active WoLF LR)
+  - checkpoint save/load for actor–critic weights (file format documented; round-trip test restores forward pass outputs on CPU)
+  - hook to feed rollouts from [`Env::ingest_event`](crates/trolly-gym/src/env.rs) / [`Env::step`](crates/trolly-gym/src/env.rs) (reward still stub ok) without requiring live Binance streams in CI
+  - `cargo test -p trolly-gym --features torch` includes checkpoint round-trip and short end-to-end train loop test
+- notes: inference hot-path integration with `trolly-strategy` egress and production reward shaping remain follow-on after WP-014 / WP-015 order placement.
+
+## Integration test reference
+
+The global-book integration test (`tests/global_book.rs`) has two layers:
+
+| Layer | Runs on `cargo test` | Network required |
+|-------|---------------------|-----------------|
+| Fixture tests (parse, merge, stream-ID) | Always | No |
+| `global_book_live_rest_merge` (`#[ignore]`) | Only with `--ignored` + env | Yes (Binance REST) |
+
+**Enabling the live test:**
+
+```bash
+cp .env.example .env
+# set RUN_GLOBAL_BOOK_INTEGRATION=1 in .env
+cargo test --test global_book global_book_live_rest_merge -- --ignored
+```
+
+The env guard (`RUN_GLOBAL_BOOK_INTEGRATION`) ensures the test body exits early even if accidentally invoked without the flag, so CI remains network-free by default.
+
+## RPI subscription behavior
+
+**RPI** (Retail Price Improvement) is an optional Binance USDM overlay stream (`@rpiDepth@500ms`)
+that includes RPI-only liquidity layers. It runs alongside the standard `@depth` stream on the
+same combined WebSocket connection.
+
+### Stream routing
+
+| CLI source | Stream ID | WS subscription | Canonical instrument |
+|---|---|---|---|
+| `binance-usd-m:BTCUSDT` | `binance-usd-m:BTCUSDT` | `btcusdt@depth` | `BTCUSDT` |
+| `binance-usd-m:RPI:BTCUSDT` | `binance-usd-m:RPI:BTCUSDT` | `btcusdt@rpiDepth@500ms` | `RPI:BTCUSDT` |
+
+### Subscription protocol
+
+When any symbol in the subscription list carries the `RPI:` prefix:
+
+1. A `SET_PROPERTY` message (`{"method":"SET_PROPERTY","params":["combined",true],"id":0}`) is sent first to enable the combined stream envelope format.
+2. The `SUBSCRIBE` message lists all streams (both `@depth` and `@rpiDepth`) in a single params array.
+
+Standard-only subscriptions skip the `SET_PROPERTY` step.
+
+### Isolation from canonical merge
+
+RPI sources use `canonical_instrument() == "RPI:SYMBOL"` which is distinct from the standard
+`"SYMBOL"`. This means:
+
+- The `GlobalBookHub` merged lane for `BTCUSDT` only aggregates non-RPI sources.
+- RPI books get their own merged lane (`RPI:BTCUSDT`) and never pollute the canonical instrument.
+- The TUI `Δ·INSTRUMENT` tab computes `@depth − @rpiDepth` per price without touching the merge.
+
+### REST snapshot
+
+The REST API URL always strips the `RPI:` prefix — both `binance-usd-m:BTCUSDT` and
+`binance-usd-m:RPI:BTCUSDT` fetch the same `/fapi/v1/depth?symbol=BTCUSDT&limit=1000` snapshot
+as their initial book state. The divergence happens only on the WebSocket diff stream.
+
+### Depth parse (envelope detection)
+
+Messages arriving with a `"stream"` field containing `"rpiDepth"` have their symbol prefixed
+with `RPI:` during parsing (`depth_parse.rs`). This ensures `EventHandler::to_id()` routes
+RPI updates to the `RPI:SYMBOL` shard and standard updates to the `SYMBOL` shard, even when
+both coexist on the same multiplexed WebSocket connection.
+
+### TUI Δ tab
+
+The `Δ·INSTRUMENT` tab in the TUI binary shows per-price quantity differences:
+`qty(@depth) − qty(@rpiDepth)`. Both `binance-usd-m:SYMBOL` and `binance-usd-m:RPI:SYMBOL`
+must be present in `--sources` for the Δ tab to render data; otherwise it displays a diagnostic
+message. Positive Δ indicates more size on the public depth stream than the RPI stream at that
+price level.
+
+### Usage example
+
+```bash
+cargo run --features tui --bin aggregated_depth_tui -- \
+  --sources binance-usd-m:BTCUSDT,binance-usd-m:RPI:BTCUSDT
+```
+
+This subscribes to both the standard and RPI depth streams. The TUI shows:
+- `MERGED·BTCUSDT` — canonical merged book (standard only)
+- `binance-usd-m:BTCUSDT` — per-source standard depth
+- `binance-usd-m:RPI:BTCUSDT` — per-source RPI depth
+- `Δ·BTCUSDT` — public depth minus RPI depth overlay
+- `MERGED·RPI:BTCUSDT` — merged RPI book (single source)
+- `Δ·RPI:BTCUSDT` — undefined (no standard+RPI pair for that canonical)
 
 ## Completed milestones
 
@@ -288,3 +462,4 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 - [x] **CLI serve:** `monitor depth --output global --sources binance:BTCUSDT,binance-usd-m:BTCUSDT --server-port 50051`
 - [x] **Prometheus:** `GET /metrics` (`trolly_depth_updates_total`, `trolly_global_book_merge_refresh_total`).
 - [x] **Submodule:** `patches/lob` wired for local `merge_aggregate` patch.
+- [x] **RPI overlay:** `binance-usd-m:RPI:SYMBOL` routing end-to-end, TUI Δ tab, isolation from canonical merge.
