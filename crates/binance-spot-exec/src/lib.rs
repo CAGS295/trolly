@@ -4,14 +4,25 @@
 
 mod account;
 mod auth;
+mod client;
+mod egress;
 mod endpoints;
 mod events;
 mod handler;
 mod ingress;
+mod order;
 mod parse;
 
 pub use account::AccountBook;
-pub use auth::{build_subscribe_signature_params, current_timestamp_ms, sign_hmac_sha256_hex};
+pub use auth::{
+    build_subscribe_signature_params, current_timestamp_ms, sign_hmac_sha256_hex,
+    sign_rest_params, signed_params_payload,
+};
+pub use client::{
+    MockOrderTransport, NativeTlsOrderTransport, OrderError, OrderHttpTransport,
+    OrderTransportError, SpotOrderClient, DEFAULT_REST_API_URL,
+};
+pub use egress::SpotOrderEgress;
 pub use endpoints::{ApiCredentials, BinanceSpotUserStream};
 pub use events::{
     AssetBalance, BalanceUpdate, EventStreamTerminated, ExecutionReport, ExternalLockUpdate,
@@ -19,6 +30,10 @@ pub use events::{
 };
 pub use handler::{SpotExecContext, SpotExecHandler};
 pub use ingress::{build_multiplexor, ingest_user_data};
+pub use order::{
+    NewOrderRequest, NewOrderResponse, OrderBuildError, OrderSide, OrderType, TimeInForce,
+    new_order_from_outbound, signed_order_form_body,
+};
 pub use parse::{ParseError, parse_user_data_message};
 
 /// Append [`ACCOUNT_ROUTE_ID`] when absent so account events route through the multiplexor.

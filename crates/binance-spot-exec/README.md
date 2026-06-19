@@ -1,8 +1,52 @@
 # binance-spot-exec
 
-Binance spot order execution and account bookkeeping driven **only** by WebSocket user-data streams. This crate does not call REST trading endpoints.
+Binance spot execution and account bookkeeping. **Inbound** order lifecycle and balances are driven by WebSocket user-data streams (`executionReport`, account events). **Outbound** order placement uses signed REST `POST /api/v3/order` (fills and rejects still reconcile on the user-data stream — no duplicate state machine).
 
-## Stream subscription
+## Outbound order placement (REST)
+
+This crate uses the Binance Spot REST API for signed order submission:
+
+- Endpoint: `POST https://api.binance.com/api/v3/order`
+- Auth: `X-MBX-APIKEY` header + HMAC-SHA256 signature over form parameters (`timestamp`, `signature`)
+
+WebSocket user-data remains the source of truth for fills, rejects, and account book updates after placement.
+
+### Request builder
+
+[`NewOrderRequest`](src/order.rs) covers market and limit basics:
+
+| Field | Market | Limit |
+|-------|--------|-------|
+| `symbol` | required | required |
+| `side` (`BUY` / `SELL`) | required | required |
+| `quantity` | required | required |
+| `price` | — | required |
+| `time_in_force` (`GTC`, `IOC`, `FOK`) | — | required (defaults to `GTC` via [`new_order_from_outbound`](src/order.rs)) |
+
+```rust
+use binance_spot_exec::{
+    ApiCredentials, NewOrderRequest, OrderSide, SpotOrderClient, TimeInForce,
+};
+
+let client = SpotOrderClient::new(ApiCredentials { api_key, secret_key });
+let limit = NewOrderRequest::limit("BTCUSDT", OrderSide::Buy, "0.01", "50000", TimeInForce::Gtc);
+let ack = client.place_order(&limit)?;
+// ack.status is REST acknowledgement only; stream executionReport reconciles fills/rejects
+```
+
+### Strategy egress integration
+
+[`SpotOrderEgress`](src/egress.rs) implements [`trolly_strategy::StreamEgress`](../../trolly-strategy/src/egress.rs) and converts [`OutboundMessage::OrderRequest`](../../trolly-strategy/src/egress.rs) into signed REST placement:
+
+```rust
+use binance_spot_exec::{ApiCredentials, SpotOrderEgress};
+use trolly_strategy::{OutboundMessage, StreamEgress};
+
+let mut egress = SpotOrderEgress::new(credentials);
+egress.dispatch(OutboundMessage::limit_order("BTCUSDT", "BUY", "0.01", "100", Some("GTC")))?;
+```
+
+## Stream subscription (user-data)
 
 1. Connect to the Binance WebSocket API: `wss://ws-api.binance.com:443/ws-api/v3`.
 2. Send a signed subscribe request (no REST listen key):
@@ -41,3 +85,15 @@ let symbols = exec_subscription_symbols(&["BTCUSDT", "ETHUSDT"]);
 ```
 
 One WebSocket connection receives all account events; the multiplexor fans execution reports to per-symbol handlers and account events to the `__account__` handler.
+
+## CLI
+
+From the root `trolly` binary:
+
+```bash
+export DEMO_BINANCE_KEY=...
+export DEMO_BINANCE_SECRET=...
+trolly execute spot-order --symbol BTCUSDT --side BUY --qty 0.01 --price 50000
+```
+
+Omit `--price` for a market order. REST placement returns an acknowledgement; monitor the user-data stream for `executionReport` reconciliation.

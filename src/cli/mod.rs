@@ -1,5 +1,7 @@
 use clap::{Parser, Subcommand};
 
+mod execute;
+
 #[derive(Parser)]
 #[clap(
     about = "Toy streamer client for crypto applications.",
@@ -29,8 +31,17 @@ enum Commands {
         #[clap(subcommand)]
         metric: super::monitor::Monitorables,
     },
-    /// Comming soon
-    Execute,
+    /// Place orders and run execution helpers.
+    Execute {
+        #[clap(subcommand)]
+        command: ExecuteCommands,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum ExecuteCommands {
+    /// Place a signed Binance spot order via REST (reconcile on user-data stream).
+    SpotOrder(execute::SpotOrderArgs),
 }
 
 pub trait Run {
@@ -46,7 +57,9 @@ impl Run for Commands {
                 use super::monitor::Monitor;
                 args.monitor().await;
             }
-            _ => todo!(),
+            Self::Execute { command } => match command {
+                ExecuteCommands::SpotOrder(args) => args.clone().run().await,
+            },
         };
     }
 }
