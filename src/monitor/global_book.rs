@@ -264,6 +264,7 @@ impl EventHandler<Depth> for GlobalBookShard {
         hub.register_factory(stream_id.clone(), factory, &instrument);
 
         w.append(Operations::Initialize(lob));
+        w.publish();
         hub.refresh_merged_for(&instrument);
 
         Ok((
