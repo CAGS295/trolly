@@ -20,10 +20,10 @@
 //! Production depth providers map from [`src/providers/depth/binance/spot.rs`](../src/providers/depth/binance/spot.rs);
 //! demo hosts are wired in [`binance-spot-exec`](../crates/binance-spot-exec) and [`binance-usdm-exec`](../crates/binance-usdm-exec).
 //!
-//! ## Live demo (opt-in)
+//! ## Live demo (opt-in via `--ignored`)
 //!
 //! 1. `cp .env.example .env`
-//! 2. Set `RUN_BINANCE_DEMO_INTEGRATION=1`, `DEMO_BINANCE_KEY`, and `DEMO_BINANCE_SECRET` in `.env`
+//! 2. Set `DEMO_BINANCE_KEY` and `DEMO_BINANCE_SECRET` in `.env`
 //! 3. Optional: `TROLLY_DEMO_SYMBOL` (default `BTCUSDT`)
 //! 4. Run ignored tests:
 //!
@@ -57,12 +57,6 @@ use tokio_tungstenite::connect_async_tls_with_config;
 
 const EVENT_WAIT: Duration = Duration::from_secs(20);
 
-fn demo_flag_enabled() -> bool {
-    std::env::var("RUN_BINANCE_DEMO_INTEGRATION")
-        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-        .unwrap_or(false)
-}
-
 fn load_demo_credentials() -> Option<(ApiCredentials, UsdmCredentials)> {
     let api_key = std::env::var("DEMO_BINANCE_KEY")
         .ok()
@@ -87,10 +81,6 @@ fn demo_symbol() -> String {
 
 fn skip_if_demo_disabled() -> bool {
     dotenvy::dotenv().ok();
-    if !demo_flag_enabled() {
-        eprintln!("skip: RUN_BINANCE_DEMO_INTEGRATION not enabled");
-        return true;
-    }
     if load_demo_credentials().is_none() {
         eprintln!("skip: DEMO_BINANCE_KEY / DEMO_BINANCE_SECRET missing or empty");
         return true;
@@ -126,7 +116,7 @@ async fn connect_ws(url: &str) -> tokio_tungstenite::WebSocketStream<
 
 /// Spot demo: REST depth snapshot + signed user-data subscribe on demo WS API.
 #[tokio::test]
-#[ignore = "live Binance spot demo; set RUN_BINANCE_DEMO_INTEGRATION=1 and demo keys in .env"]
+#[ignore = "live Binance spot demo; set DEMO_BINANCE_KEY/DEMO_BINANCE_SECRET in .env and run with --ignored"]
 async fn spot_demo_rest_depth_and_user_data_stream() {
     if skip_if_demo_disabled() {
         return;
@@ -200,7 +190,7 @@ async fn spot_demo_rest_depth_and_user_data_stream() {
 
 /// USDM demo: REST depth + listenKey lifecycle + user-data stream parsing.
 #[tokio::test]
-#[ignore = "live Binance USDM demo; set RUN_BINANCE_DEMO_INTEGRATION=1 and demo keys in .env"]
+#[ignore = "live Binance USDM demo; set DEMO_BINANCE_KEY/DEMO_BINANCE_SECRET in .env and run with --ignored"]
 async fn usdm_demo_rest_depth_listen_key_and_user_data_stream() {
     if skip_if_demo_disabled() {
         return;

@@ -208,7 +208,7 @@ Demo/testnet hosts (never use production keys):
 
 ```bash
 cp .env.example .env
-# edit .env: RUN_BINANCE_DEMO_INTEGRATION=1, DEMO_BINANCE_KEY, DEMO_BINANCE_SECRET
+# edit .env: DEMO_BINANCE_KEY, DEMO_BINANCE_SECRET
 cargo test --test binance_demo -- --ignored
 ```
 

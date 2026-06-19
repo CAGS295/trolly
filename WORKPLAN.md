@@ -8,6 +8,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 - Stream-native execution and account bookkeeping (Binance spot + USDM); outbound order placement as follow-on work items (WP-012–WP-015).
 - A strategy layer that consumes multi-symbol stream events and dispatches outbound messages.
 - Groundwork for a libtorch.rs training gym fed by trolly streams; toolchain choice deferred to WP-016 analysis.
+- Nash-equilibrium-oriented RL via **WoLF-PPO** ([Ratcliffe et al., IEEE CoG 2019](https://ieee-cog.org/2019/papers/paper_176.pdf)) on the primary `tch`/libtorch.rs stack (`torch` feature); validate on matrix games before stream-backed trading policies.
 
 ## Meta
 
@@ -303,7 +304,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - separate recommendations for **offline training** (batch replay, checkpoints, experiment tracking) vs **online inference** (sub-ms to low-ms action loop, model hot-swap, deterministic fallbacks)
   - explicit decision: primary toolchain, optional fallback, and what stays feature-gated in `trolly-gym`; list follow-on implementation WPs (training loop, checkpoint I/O, inference hook) without implementing them here
   - no new runtime dependency required in default `cargo check --workspace`; analysis-only deliverable linked from [`crates/trolly-gym/README.md`](crates/trolly-gym/README.md)
-- notes: WP-011 landed the scaffold with an optional `torch`/`tch` gate. This WP is research and architecture — pick stacks before committing to a training loop, GPU CI, or production inference path.
+- notes: WP-011 landed the scaffold with an optional `torch`/`tch` gate. This WP is research and architecture — pick stacks before committing to a training loop, GPU CI, or production inference path. Follow-on implementation WPs for WoLF-PPO are **WP-018–WP-020** (assumes primary stack `tch`/libtorch.rs unless this ADR chooses otherwise).
 
 ### WP-017 — Binance demo integration tests (spot + USDM)
 
@@ -312,16 +313,62 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 - depends_on: [WP-002, WP-008, WP-009]
 - scope: .env.example, tests/, crates/binance-spot-exec/, crates/binance-usdm-exec/, README.md
 - acceptance:
-  - extend [`.env.example`](.env.example) with demo credentials and opt-in flags (pattern matches WP-002): at minimum `DEMO_BINANCE_KEY`, `DEMO_BINANCE_SECRET`, `RUN_BINANCE_DEMO_INTEGRATION=0`, optional `TROLLY_DEMO_SYMBOL` (default `BTCUSDT`); document `cp .env.example .env` — this file is the repo env sample (no separate `.env.sample`)
+  - extend [`.env.example`](.env.example) with demo credentials and opt-in flags (pattern matches WP-002): at minimum `DEMO_BINANCE_KEY`, `DEMO_BINANCE_SECRET`, optional `TROLLY_DEMO_SYMBOL` (default `BTCUSDT`); document `cp .env.example .env` — this file is the repo env sample (no separate `.env.sample`)
   - document demo base URLs in README and/or test module docs:
     - **Spot demo** — [Spot Demo general info](https://developers.binance.com/docs/binance-spot-api-docs/demo-mode/general-info): REST `https://demo-api.binance.com/api`, WS API `wss://demo-ws-api.binance.com/ws-api/v3`, market streams `wss://demo-stream.binance.com/ws` (map from production hosts in [`src/providers/depth/binance/spot.rs`](src/providers/depth/binance/spot.rs) and [`crates/binance-spot-exec`](crates/binance-spot-exec))
     - **USDM demo** — [Derivatives docs](https://developers.binance.com/docs/derivatives/): REST `https://demo-fapi.binance.com`, market streams `wss://fstream.binancefuture.com` per [USDM general info](https://developers.binance.com/docs/derivatives/usds-margined-futures/general-info); user-data via `POST /fapi/v1/listenKey` on demo REST + private WS per [`crates/binance-usdm-exec`](crates/binance-usdm-exec)
-  - `#[ignore]` integration tests (require `RUN_BINANCE_DEMO_INTEGRATION=1`, `--ignored`, and demo keys in `.env`):
+  - `#[ignore]` integration tests (require `--ignored` and demo keys in `.env`):
     - spot: demo REST depth snapshot + signed user-data subscribe on demo WS API; assert parsed `executionReport` / account events when demo account activity exists (or skip with clear message if idle)
     - USDM: demo REST depth + listenKey lifecycle on `demo-fapi.binance.com` + user-data stream; assert `ORDER_TRADE_UPDATE` / `ACCOUNT_UPDATE` parsing against live demo payloads when available
-  - default `cargo test --workspace` stays offline; demo tests skip cleanly when flag unset or keys missing
+  - default `cargo test --workspace` stays offline; demo tests skip cleanly when keys missing
   - optional follow-on (after WP-014 / WP-015): demo order place → user-stream reconcile round-trip for spot and USDM — document as sub-checklist in test module, not blocking this WP
 - notes: uses Binance **demo/testnet** endpoints only — never production keys. Complements WP-002 (public REST merge); this WP adds authenticated streams and venue-specific demo host wiring. Geo/network restrictions may skip in CI; verify on unrestricted egress like WP-002.
+
+### WP-018 — WoLF-PPO core algorithm (`trolly-gym`)
+
+- status: todo
+- repos: trolly
+- depends_on: [WP-011, WP-016]
+- scope: crates/trolly-gym/src/ppo/, crates/trolly-gym/src/libtorch.rs, crates/trolly-gym/README.md
+- acceptance:
+  - implement **PPO** clipped surrogate objective (Eq. 1: `L^CLIP`, value loss `L^VF`, entropy bonus `S`) behind the existing `torch` feature using `tch`
+  - implement **WoLF-PPO** extension per [paper_176](https://ieee-cog.org/2019/papers/paper_176.pdf): rolling **average payoff** as estimated NES payoff; dual learning rates `α_WIN` and `α_LOSE` with `α_WIN = α_LOSE / 4`; select `α_WIN` when current expected payoff exceeds the estimate, else `α_LOSE`
+  - actor–critic MLP policy head (stochastic categorical actions) + value head; default hidden layers `[20, 20]` matching paper matrix-game experiments; SGD optimizer as default (Adam optional, documented)
+  - configurable hyperparameters: clip ε, entropy coef `c2`, value coef `c1`, PPO epochs per rollout, `α_LOSE`
+  - public API surface: e.g. `PpoConfig`, `WolfPpoConfig`, `ActorCritic`, `WolfPpoTrainer::policy_update` (or equivalent) usable from offline harness and later stream `Env`
+  - CPU unit tests with `--features torch`: forward-pass shapes, loss computes without NaN on synthetic batch, WoLF LR switches on payoff vs estimate
+  - default `cargo test -p trolly-gym` unchanged (no libtorch); `cargo test -p trolly-gym --features torch` passes
+  - README section documents WoLF-PPO rationale (NES convergence), hyperparameters, and paper citation
+- notes: primary stack is `tch`/libtorch.rs per WP-011 scaffold; WP-016 ADR may adjust fallback only. Does not include full training driver or market `Env` wiring — see WP-019 / WP-020.
+
+### WP-019 — Matrix-game validation harness (WoLF-PPO paper reproduction)
+
+- status: todo
+- repos: trolly
+- depends_on: [WP-018]
+- scope: crates/trolly-gym/src/games/, crates/trolly-gym/tests/matrix_games.rs, crates/trolly-gym/README.md
+- acceptance:
+  - offline two-player zero-sum matrix games from the paper: **Matching Pennies** (standard + weighted payoff Table IIa, NES `P(H)=0.4`) and **Rock–Paper–Scissors** (standard + weighted Table IIb, NES `P(R)=0.2`, `P(P)=0.4`)
+  - self-play training loop driving WP-018 `PPO` and `WoLF-PPO` with shared experimental setup (50-run capability; CI may use fewer seeds)
+  - metric: Euclidean distance of learned policy from known NES; report max distance over last 10 policy updates per run (paper Table I methodology)
+  - smoke test (always runs offline): short seeded run proves WoLF-PPO training step completes and distance metric is finite
+  - `#[ignore]` extended benchmark (optional): reproduce paper trend — WoLF-PPO closer to NES than PPO on **weighted** Matching Pennies at `α_LOSE ∈ {0.1, 0.01}`; document how to run locally
+  - `cargo test -p trolly-gym` passes default; matrix-game tests that need `tch` gated behind `torch` feature
+- notes: validates algorithm before stream latency and reward engineering. Weighted games are the critical regression case (NES ≠ max-entropy policy).
+
+### WP-020 — WoLF-PPO training loop and checkpoint I/O (`trolly-gym`)
+
+- status: todo
+- repos: trolly
+- depends_on: [WP-018, WP-019]
+- scope: crates/trolly-gym/src/train/, crates/trolly-gym/src/replay.rs, crates/trolly-gym/README.md
+- acceptance:
+  - rollout collection API (on-policy trajectories: obs, action, log-prob, value, reward, done) compatible with WP-018 update step and existing [`ReplayBuffer`](crates/trolly-gym/src/replay.rs) layout or documented parallel buffer
+  - `WolfPpoTrainer` (or equivalent) driver: collect rollouts → multi-epoch PPO/WoLF-PPO updates → log scalar metrics (policy loss, value loss, entropy, NES distance when available, active WoLF LR)
+  - checkpoint save/load for actor–critic weights (file format documented; round-trip test restores forward pass outputs on CPU)
+  - hook to feed rollouts from [`Env::ingest_event`](crates/trolly-gym/src/env.rs) / [`Env::step`](crates/trolly-gym/src/env.rs) (reward still stub ok) without requiring live Binance streams in CI
+  - `cargo test -p trolly-gym --features torch` includes checkpoint round-trip and short end-to-end train loop test
+- notes: inference hot-path integration with `trolly-strategy` egress and production reward shaping remain follow-on after WP-014 / WP-015 order placement.
 
 ## Integration test reference
 
