@@ -13,7 +13,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: 2026-06-13
+- last_run: 2026-06-20
 - max_parallel: 3
 
 ## Orchestrator notes
@@ -326,7 +326,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-018 — WoLF-PPO core algorithm (`trolly-gym`)
 
-- status: todo
+- status: in_progress
 - repos: trolly
 - depends_on: [WP-011, WP-016]
 - scope: crates/trolly-gym/src/ppo/, crates/trolly-gym/src/libtorch.rs, crates/trolly-gym/README.md
