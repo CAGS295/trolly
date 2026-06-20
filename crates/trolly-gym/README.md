@@ -34,6 +34,99 @@ The optional `tch` crate is pulled in only when `--features torch` is set.
 
 Training loops, checkpoints, and GPU policies are out of scope for this crate scaffold.
 
+## Matrix-game validation harness (WP-019)
+
+Validates WoLF-PPO on offline two-player zero-sum matrix games before any
+live-stream integration. Games and NES targets are taken from the payoff tables
+in Ratcliffe et al. (2019).
+
+### Games
+
+| Variant | Payoff matrix (row player) | Known NES |
+|---------|---------------------------|-----------|
+| Matching Pennies — standard | `[[1,−1],[−1,1]]` | P(H) = 0.5, P(T) = 0.5 |
+| Matching Pennies — weighted (Table IIa) | `[[2,−1],[−1,1]]` | **P(H) = 0.4**, P(T) = 0.6 |
+| Rock–Paper–Scissors — standard | skew-symmetric, ±1 | P(R)=P(P)=P(S) = 1/3 |
+| Rock–Paper–Scissors — weighted (Table IIb) | `[[0,−2,2],[2,0,−1],[−2,1,0]]` | **P(R)=0.2, P(P)=0.4, P(S)=0.4** |
+
+### Metric (paper Table I)
+
+After a training run of N update steps, the metric is:
+
+```
+max_distance = max{ d(πₖ, NES) : k ∈ {N−9, …, N} }
+```
+
+where `d` is the Euclidean distance and πₖ are the row player's policy
+probabilities extracted from the softmax of the actor logits.
+
+### Self-play training loop
+
+Both players are initialised with independent networks. At each update step:
+
+1. A batch of `batch_size` interactions is sampled from the current joint policy.
+2. Advantages are centred: `adv_t = r_t − mean(r)`.
+3. PPO (or WoLF-PPO) gradient steps are applied to each player independently.
+4. The row player's policy probabilities are recorded and compared to the NES.
+
+The column player's payoff is `−row_payoff` (zero-sum); WoLF-PPO's episode
+return is the mean batch payoff for that player.
+
+### Public API
+
+All types live in `trolly_gym::games` (requires `--features torch`):
+
+```rust
+use trolly_gym::games::{
+    matching_pennies::{matching_pennies_weighted, WEIGHTED_NES},
+    run_wolf_ppo_self_play, run_ppo_self_play, SelfPlayConfig,
+};
+use trolly_gym::ppo::WolfPpoConfig;
+
+let game = matching_pennies_weighted();
+
+// WoLF-PPO
+let result = run_wolf_ppo_self_play(
+    &game,
+    &WEIGHTED_NES,
+    SelfPlayConfig::default(),        // 200 updates, batch 64
+    WolfPpoConfig::default().with_alpha_lose(0.1),
+);
+println!("max NES distance (last 10): {:.4}", result.max_distance_last_10);
+
+// Standard PPO
+let ppo_result = run_ppo_self_play(&game, &WEIGHTED_NES, SelfPlayConfig::default());
+```
+
+### Default test (always offline)
+
+```bash
+cargo test -p trolly-gym                        # no libtorch needed
+cargo test -p trolly-gym --features torch       # includes torch-gated smoke tests
+```
+
+The always-run tests verify NES arithmetic and the distance metric with no
+libtorch dependency. The torch-gated smoke tests prove a WoLF-PPO training
+step completes and returns a finite NES distance.
+
+### Extended benchmark (`#[ignore]`)
+
+Reproduce the paper trend: WoLF-PPO converges closer to the NES than standard
+PPO on weighted Matching Pennies with `α_LOSE ∈ {0.1, 0.01}`.
+
+```bash
+export LIBTORCH_USE_PYTORCH=1
+export LIBTORCH_BYPASS_VERSION_CHECK=1
+export RUSTFLAGS="-L /usr/lib/gcc/x86_64-linux-gnu/13"
+cargo test -p trolly-gym --features torch -- --include-ignored \
+    benchmark_wolf_ppo_closer_to_nes_weighted_matching_pennies
+```
+
+Expected output: `WoLF-PPO (0.1)` and/or `WoLF-PPO (0.01)` mean max-distance
+≤ PPO mean max-distance over 10 seeds × 200 updates.
+
+---
+
 ## WoLF-PPO (WP-018)
 
 ### Rationale
