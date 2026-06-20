@@ -32,7 +32,167 @@ The optional `tch` crate is pulled in only when `--features torch` is set.
 - **Replay** — [`ReplayBuffer`](src/replay.rs) ring buffer stores flattened observation windows and step transitions (training loop stub).
 - **Env** — [`Env`](src/env.rs) ties ingest → window → step → egress; see `tests/smoke.rs` for an offline mock flow.
 
-Training loops, checkpoints, and GPU policies are out of scope for this crate scaffold.
+See the **WP-020 training loop** section below for rollout collection, the
+`WolfPpoTrainDriver`, and checkpoint save/load.
+
+## WoLF-PPO training loop and checkpoints (WP-020)
+
+### Modules (`trolly_gym::train`, requires `--features torch`)
+
+| Module | Contents |
+|--------|---------|
+| `train::rollout` | `OnPolicyTransition`, `RolloutCollector`, `compute_gae` |
+| `train::driver` | `WolfPpoTrainDriver`, `TrainMetrics`, `TrainDriverConfig` |
+| `train::checkpoint` | `save_checkpoint`, `load_checkpoint` |
+
+### Rollout collection
+
+[`RolloutCollector`](src/train/rollout.rs) steps a caller-supplied closure for
+`horizon` timesteps, recording observations, sampled actions, log-probabilities,
+and critic values.  After collection, `into_batch(bootstrap_value)` computes
+GAE(γ, λ) returns and advantages and wraps everything into a [`RolloutBatch`]
+compatible with `PpoTrainer`/`WolfPpoTrainer`.
+
+```rust
+use trolly_gym::train::rollout::{RolloutCollector, StepOutput};
+use trolly_gym::ppo::{ActorCritic, PpoConfig};
+use tch::nn;
+
+let vs = nn::VarStore::new(tch::Device::Cpu);
+let ac = ActorCritic::new(&vs, 4, 3, &PpoConfig::default());
+
+let mut collector = RolloutCollector::new(/*horizon=*/64, /*gamma=*/0.99, /*lambda=*/0.95);
+collector.collect(&ac, vec![0.0_f32; 4], |obs, _action| StepOutput {
+    next_observation: obs,   // advance your env here
+    reward: 0.0,
+    done: false,
+});
+let batch = collector.into_batch(0.0);
+```
+
+The env-step closure receives the **current observation** and the **sampled
+action index** and must return a `StepOutput` (next observation, reward, done).
+In CI/tests a mock closure is used; in production wrap `Env::step`.
+
+### Training driver
+
+[`WolfPpoTrainDriver`](src/train/driver.rs) wraps `WolfPpoTrainer` with a
+single `train_step` entry point that collects, computes GAE, and runs the
+multi-epoch PPO/WoLF-PPO update:
+
+```rust
+use trolly_gym::train::{WolfPpoTrainDriver, TrainDriverConfig, StepOutput};
+use trolly_gym::ppo::WolfPpoConfig;
+
+let cfg = TrainDriverConfig {
+    obs_dim: 4,
+    num_actions: 3,
+    horizon: 64,
+    gamma: 0.99,
+    gae_lambda: 0.95,
+};
+let mut driver = WolfPpoTrainDriver::new(cfg, WolfPpoConfig::default());
+
+for _step in 0..100 {
+    let metrics = driver.train_step(
+        vec![0.0_f32; 4],               // initial observation
+        |obs, _action| StepOutput {     // env closure
+            next_observation: obs,
+            reward: 0.0,
+            done: false,
+        },
+        0.0,                            // bootstrap value
+        None,                           // optional NES target for distance logging
+    );
+    println!(
+        "policy_loss={:.4}  value_loss={:.4}  entropy={:.4}  lr={}",
+        metrics.policy_loss, metrics.value_loss, metrics.entropy, metrics.active_lr
+    );
+}
+```
+
+#### `TrainMetrics` fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `policy_loss` | `f64` | Mean combined PPO loss (L^CLIP − c1·L^VF + c2·S) |
+| `value_loss` | `f64` | Diagnostic value-MSE loss (same gradient; separate readout) |
+| `entropy` | `f64` | Mean per-sample policy entropy H[π] over the rollout |
+| `nes_distance` | `Option<f64>` | Euclidean distance to the provided NES target |
+| `active_lr` | `f64` | WoLF learning rate used (α_WIN or α_LOSE) |
+| `steps_collected` | `usize` | Env steps in this training step |
+
+### Checkpoint save / load
+
+Checkpoints are written with `tch::nn::VarStore::save`.  The recommended
+extension is `.safetensors` (cross-language, readable from Python with the
+[`safetensors`](https://github.com/huggingface/safetensors) library).  All
+named parameters are stored; the network architecture must match on load.
+
+```rust
+use trolly_gym::train::checkpoint::{save_checkpoint, load_checkpoint};
+use trolly_gym::ppo::{PpoTrainer, PpoConfig};
+
+let mut trainer = PpoTrainer::new(4, 3, PpoConfig::default());
+// … train …
+save_checkpoint(&trainer.vs, "/tmp/actor_critic.safetensors").unwrap();
+
+// ── Restore into a fresh network with the same architecture ───────
+let mut trainer2 = PpoTrainer::new(4, 3, PpoConfig::default());
+load_checkpoint(&mut trainer2.vs, "/tmp/actor_critic.safetensors").unwrap();
+// trainer2.actor_critic now has the same weights as trainer.actor_critic
+```
+
+**Format notes:**
+
+| Extension | Format | Notes |
+|-----------|--------|-------|
+| `.safetensors` | [SafeTensors](https://github.com/huggingface/safetensors) | **Recommended.** Cross-language; readable from Python via `safetensors.torch.load_file`. |
+| `.ckpt` (or any non-`.pt`/`.bin`) | libtorch C++ module format | tch-native binary; not directly readable from Python. |
+
+> **Warning:** do **not** use `.pt` or `.bin` extensions with `VarStore::save` /
+> `VarStore::load`.  tch uses the libtorch C++ module format when *saving*
+> (regardless of extension), but routes `.pt`/`.bin` to a pickle-based loader
+> when *loading* — causing a format mismatch and a runtime error.
+
+- Architecture must match: variable names and tensor shapes are fixed at
+  network construction time and must align with the checkpoint.
+- Device: saved/loaded on CPU in the current implementation.
+
+### Env integration hook
+
+`RolloutCollector::collect` accepts any `FnMut(Vec<f32>, i64) -> StepOutput`
+closure, making it straightforward to wrap `Env::step`:
+
+```rust
+// Pseudocode — reward is still the stub in env.rs
+let mut gym_env = Env::new(EnvConfig::new("BTCUSDT"), egress);
+collector.collect(&ac, gym_env.observation_window().flattened(), |_obs, action_i| {
+    let a = Action::from_index(action_i);  // adapt index → Action
+    let step_result = gym_env.step(a).unwrap();
+    StepOutput {
+        next_observation: step_result.observation,
+        reward: step_result.reward as f32,
+        done: step_result.done,
+    }
+});
+```
+
+No live Binance connection is needed in CI — mock the closure with synthetic
+observations and rewards (see unit tests in `src/train/`).
+
+### Running the train tests
+
+```bash
+export LIBTORCH_USE_PYTORCH=1
+export LIBTORCH_BYPASS_VERSION_CHECK=1
+export RUSTFLAGS="-L /usr/lib/gcc/x86_64-linux-gnu/13"
+
+cargo test -p trolly-gym                        # no libtorch (env, replay, games NES)
+cargo test -p trolly-gym --features torch       # all tests including train + checkpoint
+```
+
+---
 
 ## Matrix-game validation harness (WP-019)
 
