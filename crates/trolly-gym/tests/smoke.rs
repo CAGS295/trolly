@@ -80,5 +80,9 @@ fn mock_stream_observations_env_step_and_replay() {
         .unwrap();
     assert_eq!(env2.observation_window().len(), 1);
 
+    // torch_enabled() reflects the `torch` feature at compile time
+    #[cfg(feature = "torch")]
+    assert!(trolly_gym::torch_enabled());
+    #[cfg(not(feature = "torch"))]
     assert!(!trolly_gym::torch_enabled());
 }
