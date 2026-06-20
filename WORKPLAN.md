@@ -326,7 +326,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-018 — WoLF-PPO core algorithm (`trolly-gym`)
 
-- status: in_progress
+- status: done
 - repos: trolly
 - depends_on: [WP-011, WP-016]
 - scope: crates/trolly-gym/src/ppo/, crates/trolly-gym/src/libtorch.rs, crates/trolly-gym/README.md
@@ -340,10 +340,11 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - default `cargo test -p trolly-gym` unchanged (no libtorch); `cargo test -p trolly-gym --features torch` passes
   - README section documents WoLF-PPO rationale (NES convergence), hyperparameters, and paper citation
 - notes: primary stack is `tch`/libtorch.rs per WP-011 scaffold; WP-016 ADR may adjust fallback only. Does not include full training driver or market `Env` wiring — see WP-019 / WP-020.
+- worker (2026-06-20): `crates/trolly-gym/src/ppo/` — PpoConfig, WolfPpoConfig, ActorCritic MLP [20,20], PpoTrainer (L^CLIP − c1·L^VF + c2·S), WolfPpoTrainer (rolling NES payoff, α_WIN = α_LOSE/4). README WoLF-PPO section. Default tests pass without libtorch; `--features torch` requires LIBTORCH (see README).
 
 ### WP-019 — Matrix-game validation harness (WoLF-PPO paper reproduction)
 
-- status: todo
+- status: in_progress
 - repos: trolly
 - depends_on: [WP-018]
 - scope: crates/trolly-gym/src/games/, crates/trolly-gym/tests/matrix_games.rs, crates/trolly-gym/README.md
