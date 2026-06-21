@@ -29,10 +29,10 @@ The optional `tch` crate is pulled in only when `--features torch` is set.
 
 - **Observations** — normalized [`StreamEvent`](https://github.com/CAGS295/trolly/tree/main/crates/trolly-strategy) values from `trolly-stream` ingress are converted to feature vectors and kept in a rolling [`ObservationWindow`](src/observation.rs).
 - **Actions** — discrete [`Action`](src/action.rs) values map to [`OutboundMessage`](https://github.com/CAGS295/trolly/tree/main/crates/trolly-strategy) commands and dispatch through [`StreamEgress`](https://github.com/CAGS295/trolly/tree/main/crates/trolly-strategy).
-- **Replay** — [`ReplayBuffer`](src/replay.rs) ring buffer stores flattened observation windows and step transitions (training loop stub).
+- **Replay** — [`ReplayBuffer`](src/replay.rs) ring buffer stores flattened observation windows and step transitions; [`OnPolicyRolloutBuffer`](src/replay.rs) holds PPO fields (log-prob, value) for on-policy updates.
 - **Env** — [`Env`](src/env.rs) ties ingest → window → step → egress; see `tests/smoke.rs` for an offline mock flow.
 
-Training loops, checkpoints, and GPU policies are out of scope for this crate scaffold.
+Training loops and checkpoints live behind the `torch` feature (WP-020).
 
 ## WoLF-PPO (WP-018)
 
@@ -49,6 +49,25 @@ cargo test -p trolly-gym --features torch
 ```
 
 Matrix-game validation (WP-019) and the full training driver (WP-020) build on this module.
+
+## Training loop and checkpoints (WP-020)
+
+The `torch` feature adds `src/train/` — rollout collection, WoLF-PPO driver, and checkpoint I/O:
+
+- **`OnPolicyRolloutBuffer`** — on-policy trajectories (obs, action, log-prob, value, reward, done); converts to [`RolloutBatch`](src/ppo/trainer.rs) via [`rollout_buffer_to_batch`](src/train/rollout.rs).
+- **`WolfPpoTrainingDriver`** — collect rollouts → multi-epoch WoLF-PPO update → log scalar metrics (policy/value loss, entropy, NES distance when a reference is supplied, active WoLF LR).
+- **`collect_env_rollout`** — feed mock [`StreamEvent`](https://github.com/CAGS295/trolly/tree/main/crates/trolly-strategy) slices through [`Env::ingest_event`](src/env.rs) / [`Env::step`](src/env.rs) (reward stub ok; no live Binance in CI).
+- **Checkpoints** — `save_checkpoint` / `load_checkpoint` write `*.safetensors` (VarStore weights) plus `*.meta.json` sidecar (`format_version`, `obs_dim`, `action_count`, `hidden_layers`).
+
+```bash
+export RUSTUP_TOOLCHAIN=stable
+unset LIBTORCH_USE_PYTORCH
+export LIBTORCH=/tmp/libtorch
+export LD_LIBRARY_PATH=/tmp/libtorch/lib
+cargo test -p trolly-gym --features torch
+```
+
+Integration tests in `tests/train_loop.rs` cover checkpoint round-trip and a short env-backed train loop.
 
 ## Matrix-game validation (WP-019)
 

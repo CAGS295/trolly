@@ -7,10 +7,16 @@ edition = "2021"
 trolly-strategy = { path = "../trolly-strategy" }
 trolly-stream = { path = "../trolly-stream" }
 tch = { version = "0.16", optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
 
 [features]
 default = []
-torch = ["dep:tch"]
+torch = ["dep:tch", "dep:serde", "dep:serde_json"]
 
 [dev-dependencies]
 trolly-strategy = { path = "../trolly-strategy" }
+
+[[test]]
+name = "train_loop"
+required-features = ["torch"]
