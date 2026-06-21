@@ -1,4 +1,7 @@
 //! libtorch.rs inference hooks (requires `--features torch` and a libtorch install).
+//!
+//! Policy training lives in [`crate::ppo`] (PPO / WoLF-PPO). This module keeps
+//! lightweight tensor helpers for observation → model input conversion.
 
 use tch::{Kind, Tensor};
 
