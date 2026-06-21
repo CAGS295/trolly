@@ -343,7 +343,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-019 — Matrix-game validation harness (WoLF-PPO paper reproduction)
 
-- status: in_progress
+- status: done
 - repos: trolly
 - depends_on: [WP-018]
 - scope: crates/trolly-gym/src/games/, crates/trolly-gym/tests/matrix_games.rs, crates/trolly-gym/README.md

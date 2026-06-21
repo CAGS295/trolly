@@ -7,6 +7,7 @@ Project journal for shipped work. Active backlog lives in [`WORKPLAN.md`](WORKPL
 - Add more exchange providers beyond Binance spot + USDM (stub scaffold landed; full venues remain).
 
 ## change log
++ `trolly-gym`: matrix-game validation harness — Matching Pennies/RPS (standard + weighted), NES distance metric, self-play WoLF-PPO smoke tests.
 + `trolly-gym`: WoLF-PPO core — PPO clipped surrogate, actor–critic MLP, dual WoLF learning rates (`src/ppo/`); `torch` feature tests.
 + Binance demo integration tests: opt-in spot/USDM demo streams (`tests/binance_demo.rs`), demo URL helpers, `.env.example` flags.
 + `binance-spot-exec`: signed REST order placement, strategy egress adapter, `execute place-order` CLI entrypoint.
