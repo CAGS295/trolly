@@ -7,6 +7,7 @@
 
 mod action;
 mod env;
+pub mod games;
 mod observation;
 mod replay;
 
@@ -19,7 +20,14 @@ pub mod ppo;
 pub use action::Action;
 pub use env::{Env, EnvConfig, StepResult};
 pub use observation::{features_from_event, FeatureVector, ObservationWindow};
+pub use games::{euclidean_distance, max_distance_last_n, mean_std, MatrixGame, MatrixGameKind};
 pub use replay::{FeatureRingBuffer, ReplayBuffer, Transition};
+
+#[cfg(feature = "torch")]
+pub use games::{
+    run_matrix_experiment, run_matrix_experiments, MatrixExperimentConfig, MatrixRunResult,
+    MatrixTrainerKind, DEFAULT_LAST_N_POLICY_UPDATES, DEFAULT_NUM_RUNS, DEFAULT_POLICY_UPDATES,
+};
 
 #[cfg(feature = "torch")]
 pub use ppo::{

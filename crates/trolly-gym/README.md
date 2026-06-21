@@ -50,6 +50,45 @@ cargo test -p trolly-gym --features torch
 
 Matrix-game validation (WP-019) and the full training driver (WP-020) build on this module.
 
+## Matrix-game validation (WP-019)
+
+Offline two-player zero-sum matrix games from [Ratcliffe et al., IEEE CoG 2019](https://ieee-cog.org/2019/papers/paper_176.pdf) validate WoLF-PPO before stream-backed training:
+
+| Game | Variant | NES |
+|------|---------|-----|
+| Matching Pennies | standard | P(H)=0.5 |
+| Matching Pennies | weighted (Table IIa) | P(H)=0.4 |
+| Rock–Paper–Scissors | standard | uniform 1/3 |
+| Rock–Paper–Scissors | weighted (Table IIb) | P(R)=0.2, P(P)=0.4, P(S)=0.4 |
+
+Implementation lives in `src/games/`:
+
+- **`MatrixGame`** — payoff matrix + known NES probabilities.
+- **`euclidean_distance` / `max_distance_last_n`** — Table I metric (max distance over the last 10 policy updates per run).
+- **`run_matrix_experiment`** (`torch` feature) — self-play loop driving `PpoTrainer` or `WolfPpoTrainer` with shared setup (50-run capable via `run_matrix_experiments`).
+
+Default CI runs offline metric/game tests without libtorch:
+
+```bash
+cargo test -p trolly-gym
+```
+
+Torch-backed smoke and benchmark tests:
+
+```bash
+export LIBTORCH=/tmp/libtorch
+export LD_LIBRARY_PATH=/tmp/libtorch/lib
+export RUSTUP_TOOLCHAIN=stable
+unset LIBTORCH_USE_PYTORCH
+cargo test -p trolly-gym --features torch
+```
+
+Optional extended benchmark (weighted Matching Pennies, reproduces paper trend — WoLF-PPO closer to NES than PPO):
+
+```bash
+cargo test -p trolly-gym --features torch weighted_matching_pennies_wolf_beats_ppo -- --ignored --nocapture
+```
+
 ## RL toolchain analysis (WP-016)
 
 Stack comparison, integration mapping, and train vs inference recommendations:
