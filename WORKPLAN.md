@@ -354,11 +354,11 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - smoke test (always runs offline): short seeded run proves WoLF-PPO training step completes and distance metric is finite
   - `#[ignore]` extended benchmark (optional): reproduce paper trend — WoLF-PPO closer to NES than PPO on **weighted** Matching Pennies at `α_LOSE ∈ {0.1, 0.01}`; document how to run locally
   - `cargo test -p trolly-gym` passes default; matrix-game tests that need `tch` gated behind `torch` feature
-- notes: validates algorithm before stream latency and reward engineering. Weighted games are the critical regression case (NES ≠ max-entropy policy).
+- notes: validates algorithm before stream latency and reward engineering. Weighted games are the critical regression case (NES ≠ max-entropy policy). `src/games/` implements Matching Pennies + RPS (standard/weighted), Table I NES distance metric, self-play harness; smoke + optional `#[ignore]` benchmark.
 
 ### WP-020 — WoLF-PPO training loop and checkpoint I/O (`trolly-gym`)
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-018, WP-019]
 - scope: crates/trolly-gym/src/train/, crates/trolly-gym/src/replay.rs, crates/trolly-gym/README.md
