@@ -7,7 +7,7 @@ use super::config::{PpoConfig, WolfPpoConfig};
 use super::loss::{ppo_losses, PpoLossBreakdown};
 
 /// On-policy rollout batch for a single PPO update.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct RolloutBatch {
     pub observations: Tensor,
     pub actions: Tensor,

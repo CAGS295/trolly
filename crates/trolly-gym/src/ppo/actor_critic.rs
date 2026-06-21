@@ -1,6 +1,8 @@
 //! Actor–critic MLP with categorical policy head and scalar value head.
 
-use tch::{nn, nn::Module, nn::OptimizerConfig, Device, Kind, Tensor};
+use std::ops::Mul;
+
+use tch::{nn, nn::OptimizerConfig, Device, Kind, Tensor};
 
 use super::config::PpoConfig;
 
@@ -80,7 +82,7 @@ impl ActorCritic {
         let (logits, _) = self.forward(obs);
         let policy_probs = logits.softmax(-1, Kind::Float);
         // payoffs: [actions, opp_actions], opponent_probs: [opp_actions]
-        let action_values = payoffs.matmul(opponent_probs.unsqueeze(-1)).squeeze_dim(-1);
+        let action_values = payoffs.matmul(&opponent_probs.unsqueeze(-1)).squeeze_dim(-1);
         policy_probs
             .mul(&action_values)
             .sum(Kind::Float)

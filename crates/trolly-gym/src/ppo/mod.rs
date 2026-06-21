@@ -15,7 +15,7 @@ mod tests {
     use super::*;
     use tch::{nn, Device, Kind, Tensor};
 
-    fn synthetic_batch(obs_dim: i64, batch: i64, actions: i64) -> RolloutBatch {
+    fn synthetic_batch(obs_dim: i64, batch: i64, _actions: i64) -> RolloutBatch {
         let observations = Tensor::randn(&[batch, obs_dim], (Kind::Float, Device::Cpu));
         let action_tensor = Tensor::zeros(&[batch], (Kind::Int64, Device::Cpu));
         let old_log_probs = Tensor::full(&[batch], -0.5, (Kind::Float, Device::Cpu));
