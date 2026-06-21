@@ -368,7 +368,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - checkpoint save/load for actor–critic weights (file format documented; round-trip test restores forward pass outputs on CPU)
   - hook to feed rollouts from [`Env::ingest_event`](crates/trolly-gym/src/env.rs) / [`Env::step`](crates/trolly-gym/src/env.rs) (reward still stub ok) without requiring live Binance streams in CI
   - `cargo test -p trolly-gym --features torch` includes checkpoint round-trip and short end-to-end train loop test
-- notes: inference hot-path integration with `trolly-strategy` egress and production reward shaping remain follow-on after WP-014 / WP-015 order placement.
+- notes: `src/train/` adds `OnPolicyRolloutBuffer`, `WolfPpoTrainingDriver`, safetensors+JSON checkpoint I/O, `collect_env_rollout` hook; torch tests cover checkpoint round-trip and short end-to-end train loop. Inference hot-path integration with `trolly-strategy` egress remains follow-on.
 
 ## Integration test reference
 
