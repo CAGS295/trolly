@@ -65,9 +65,46 @@ cargo test -p trolly-gym --features torch
 - **Actions** — discrete [`Action`](src/action.rs) values map to [`OutboundMessage`](https://github.com/CAGS295/trolly/tree/main/crates/trolly-strategy) commands and dispatch through [`StreamEgress`](https://github.com/CAGS295/trolly/tree/main/crates/trolly-strategy).
 - **Replay** — [`ReplayBuffer`](src/replay.rs) ring buffer stores flattened observation windows and step transitions (training loop stub).
 - **PPO / WoLF-PPO** — optional [`ppo`](src/ppo/) module (`--features torch`) for on-policy actor–critic updates; see above.
+- **Matrix games** — optional [`games`](src/games/) module validates PPO and WoLF-PPO against known Nash equilibria from Ratcliffe et al. (2019); see below.
 - **Env** — [`Env`](src/env.rs) ties ingest → window → step → egress; see `tests/smoke.rs` for an offline mock flow.
 
-Training drivers, matrix-game harnesses, and checkpoint I/O are follow-on work (WP-019 / WP-020).
+Checkpoint I/O and stream-backed training drivers are follow-on work (WP-020).
+
+## Matrix-game validation harness (WP-019)
+
+Offline two-player zero-sum matrix games reproduce the paper’s experimental setup before stream latency and reward engineering:
+
+| Game | Variant | Known NES |
+|------|---------|-----------|
+| Matching Pennies | standard | `P(H) = 0.5` |
+| Matching Pennies | weighted (Table IIa) | `P(H) = 0.4` |
+| Rock–Paper–Scissors | standard | uniform `1/3` |
+| Rock–Paper–Scissors | weighted (Table IIb) | `P(R)=0.2`, `P(P)=0.4` |
+
+Self-play drives [`PpoTrainer`](src/ppo/trainer.rs) and [`WolfPpoTrainer`](src/ppo/trainer.rs) with shared hyperparameters (SGD, hidden `[20, 20]`, clip ε=`0.2`). The harness reports **Euclidean distance** of the learned policy from the known NES; per run it takes the **max distance over the last 10 policy updates** (paper Table I), then averages over independent seeds (50-run capability; CI uses fewer).
+
+Pure game definitions and metrics compile without libtorch:
+
+```bash
+cargo test -p trolly-gym --test matrix_games
+```
+
+Self-play smoke and benchmarks require the `torch` feature:
+
+```bash
+export LIBTORCH=/path/to/libtorch   # or LIBTORCH_USE_PYTORCH=1
+cargo test -p trolly-gym --features torch --test matrix_games
+```
+
+Extended benchmark (weighted Matching Pennies, reproduces Table I trend — WoLF-PPO closer to NES than PPO):
+
+```bash
+export LIBTORCH=/path/to/libtorch
+# optional: full paper 50-run average
+export TROLLY_MATRIX_BENCHMARK_RUNS=50
+cargo test -p trolly-gym --features torch --test matrix_games \
+  weighted_matching_pennies_wolf_closer_to_nes_than_ppo -- --ignored --nocapture
+```
 
 ## RL toolchain analysis (WP-016)
 

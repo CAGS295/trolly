@@ -7,6 +7,7 @@
 
 mod action;
 mod env;
+pub mod games;
 mod observation;
 mod replay;
 
@@ -25,6 +26,13 @@ pub use replay::{FeatureRingBuffer, ReplayBuffer, Transition};
 pub use ppo::{
     losses_are_finite, ppo_loss, ActorCritic, OptimizerKind, PpoConfig, PpoLossBreakdown,
     PpoTrainer, RolloutBatch, WolfPpoConfig, WolfPpoTrainer,
+};
+
+#[cfg(feature = "torch")]
+pub use games::{
+    benchmark_ppo_vs_wolf, run_ppo_self_play, run_wolf_ppo_self_play, BenchmarkSummary,
+    HarnessConfig, SelfPlayRunResult, DEFAULT_NUM_RUNS, DEFAULT_POLICY_UPDATES,
+    DEFAULT_ROLLOUT_BATCH_SIZE, DEFAULT_TRACK_LAST_N,
 };
 
 /// Whether the crate was built with libtorch support.
