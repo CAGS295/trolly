@@ -1,6 +1,12 @@
 //! libtorch.rs inference hooks (requires `--features torch` and a libtorch install).
+//!
+//! Training algorithms live in [`crate::ppo`] (`PpoTrainer`, `WolfPpoTrainer`).
 
 use tch::{Kind, Tensor};
+
+pub use crate::ppo::{
+    ActorCritic, PpoConfig, PpoTrainer, RolloutBatch, WolfPpoConfig, WolfPpoTrainer,
+};
 
 /// Wrap a flattened observation window as a CPU float tensor for model input.
 pub fn observation_tensor(flat: &[f32]) -> Tensor {
@@ -20,7 +26,7 @@ mod tests {
     fn observation_tensor_roundtrip() {
         let data = vec![1.0_f32, 2.0, 3.0];
         let tensor = observation_tensor(&data);
-        let out: Vec<f32> = Vec::from(tensor);
+        let out: Vec<f32> = Vec::try_from(&tensor).unwrap();
         assert_eq!(out, data);
     }
 }

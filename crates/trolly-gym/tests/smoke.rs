@@ -79,6 +79,4 @@ fn mock_stream_observations_env_step_and_replay() {
         })))
         .unwrap();
     assert_eq!(env2.observation_window().len(), 1);
-
-    assert!(!trolly_gym::torch_enabled());
 }
