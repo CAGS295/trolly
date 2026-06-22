@@ -33,6 +33,11 @@ impl EnvConfig {
             default_qty: "0.01".into(),
         }
     }
+
+    pub fn with_window_frames(mut self, window_frames: usize) -> Self {
+        self.window_frames = window_frames;
+        self
+    }
 }
 
 /// Training gym environment fed by normalized stream events.
@@ -94,6 +99,15 @@ where
 
     pub fn steps(&self) -> u64 {
         self.steps
+    }
+
+    /// Latest flattened observation vector (empty until the window has frames).
+    pub fn current_observation(&self) -> Vec<f32> {
+        if self.last_observation.is_empty() {
+            self.window.flattened()
+        } else {
+            self.last_observation.clone()
+        }
     }
 
     /// Consume one normalized stream event and update the observation window.

@@ -11,6 +11,28 @@ pub enum Action {
 }
 
 impl Action {
+    /// Number of discrete actions (Hold, Buy, Sell).
+    pub const COUNT: i64 = 3;
+
+    /// Map a discrete action to a categorical policy index.
+    pub fn to_index(self) -> i64 {
+        match self {
+            Self::Hold => 0,
+            Self::Buy => 1,
+            Self::Sell => 2,
+        }
+    }
+
+    /// Decode a policy index back to an action.
+    pub fn from_index(index: i64) -> Option<Self> {
+        match index {
+            0 => Some(Self::Hold),
+            1 => Some(Self::Buy),
+            2 => Some(Self::Sell),
+            _ => None,
+        }
+    }
+
     pub fn to_outbound(&self, symbol: &str, qty: &str, price: Option<&str>) -> OutboundMessage {
         match self {
             Self::Hold => OutboundMessage::Subscribe {

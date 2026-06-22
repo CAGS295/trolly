@@ -50,6 +50,11 @@ impl PpoTrainer {
         &self.vs
     }
 
+    /// Mutable variable store (checkpoint load).
+    pub fn var_store_mut(&mut self) -> &mut nn::VarStore {
+        &mut self.vs
+    }
+
     /// Set optimizer learning rate (used by WoLF-PPO dual-rate schedule).
     pub fn set_learning_rate(&mut self, lr: f64) {
         self.opt.set_lr(lr);
@@ -112,6 +117,14 @@ impl WolfPpoTrainer {
 
     pub fn actor_critic(&self) -> &ActorCritic {
         self.inner.actor_critic()
+    }
+
+    pub fn var_store(&self) -> &nn::VarStore {
+        self.inner.var_store()
+    }
+
+    pub fn var_store_mut(&mut self) -> &mut nn::VarStore {
+        self.inner.var_store_mut()
     }
 
     /// Rolling average payoff used as the estimated NES payoff (WoLF-PHC analogue).

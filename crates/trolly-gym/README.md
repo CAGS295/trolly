@@ -63,12 +63,25 @@ cargo test -p trolly-gym --features torch
 
 - **Observations** — normalized [`StreamEvent`](https://github.com/CAGS295/trolly/tree/main/crates/trolly-strategy) values from `trolly-stream` ingress are converted to feature vectors and kept in a rolling [`ObservationWindow`](src/observation.rs).
 - **Actions** — discrete [`Action`](src/action.rs) values map to [`OutboundMessage`](https://github.com/CAGS295/trolly/tree/main/crates/trolly-strategy) commands and dispatch through [`StreamEgress`](https://github.com/CAGS295/trolly/tree/main/crates/trolly-strategy).
-- **Replay** — [`ReplayBuffer`](src/replay.rs) ring buffer stores flattened observation windows and step transitions (training loop stub).
+- **Replay** — [`ReplayBuffer`](src/replay.rs) ring buffer stores flattened observation windows and step transitions; [`RolloutCollector`](src/replay.rs) holds on-policy PPO trajectories (log-prob + value).
 - **PPO / WoLF-PPO** — optional [`ppo`](src/ppo/) module (`--features torch`) for on-policy actor–critic updates; see above.
 - **Matrix games** — optional [`games`](src/games/) module validates PPO and WoLF-PPO against known Nash equilibria from Ratcliffe et al. (2019); see below.
 - **Env** — [`Env`](src/env.rs) ties ingest → window → step → egress; see `tests/smoke.rs` for an offline mock flow.
 
-Checkpoint I/O and stream-backed training drivers are follow-on work (WP-020).
+## Training loop and checkpoint I/O (WP-020)
+
+On-policy rollout collection, training drivers, and actor–critic checkpoint save/load (`torch` feature):
+
+- [`RolloutStep`](src/replay.rs) / [`RolloutCollector`](src/replay.rs) — parallel on-policy buffer alongside [`ReplayBuffer`](src/replay.rs) [`Transition`](src/replay.rs) rows; stores observation, action, behaviour log-prob, value, reward, and done for PPO updates.
+- [`rollout_collector_to_batch`](src/train/collector.rs) — converts collected steps into [`RolloutBatch`](src/ppo/batch.rs) (returns = rewards, advantages = returns − value).
+- [`collect_env_rollout_step`](src/train/env_rollout.rs) — samples from [`ActorCritic`](src/ppo/actor_critic.rs), calls [`Env::step`](src/env.rs), and appends to a collector (mock stream events via [`Env::ingest_event`](src/env.rs); reward stub unchanged).
+- [`WolfPpoTrainingDriver`](src/train/driver.rs) / [`PpoTrainingDriver`](src/train/driver.rs) — collect rollouts → multi-epoch PPO/WoLF-PPO updates → [`TrainStepMetrics`](src/train/driver.rs) (policy loss, value loss, entropy, mean reward, active WoLF LR, optional NES distance).
+- **Checkpoint format** — libtorch [`VarStore`](https://docs.rs/tch/latest/tch/nn/struct.VarStore.html) binary (`.ot`); [`save_checkpoint`](src/train/checkpoint.rs) / [`load_checkpoint`](src/train/checkpoint.rs) on [`PpoTrainer`](src/ppo/trainer.rs) and [`WolfPpoTrainer`](src/ppo/trainer.rs). Round-trip restores forward-pass outputs on CPU.
+
+```bash
+export LIBTORCH=/path/to/libtorch   # or LIBTORCH_USE_PYTORCH=1
+cargo test -p trolly-gym --features torch
+```
 
 ## Matrix-game validation harness (WP-019)
 

@@ -14,3 +14,4 @@ torch = ["dep:tch"]
 
 [dev-dependencies]
 trolly-strategy = { path = "../trolly-strategy" }
+tempfile = "3"

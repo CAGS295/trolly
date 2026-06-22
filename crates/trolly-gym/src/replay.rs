@@ -1,4 +1,8 @@
 //! Ring-buffer replay store for stream-derived feature windows (stub).
+//!
+//! [`ReplayBuffer`] stores off-policy [`Transition`] rows (observation, action, reward, done).
+//! [`RolloutCollector`] is the on-policy parallel buffer used by PPO / WoLF-PPO: it also
+//! records behaviour-policy log-probabilities and value estimates for each step.
 
 use crate::action::Action;
 use crate::observation::FeatureVector;
@@ -10,6 +14,72 @@ pub struct Transition {
     pub action: Action,
     pub reward: f32,
     pub done: bool,
+}
+
+/// One on-policy rollout step (behaviour policy log-prob and value included).
+///
+/// Compatible with [`RolloutBatch`](crate::ppo::RolloutBatch) when the `torch` feature is enabled.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RolloutStep {
+    pub observation: Vec<f32>,
+    pub action: Action,
+    pub log_prob: f32,
+    pub value: f32,
+    pub reward: f32,
+    pub done: bool,
+}
+
+impl RolloutStep {
+    pub fn action_index(&self) -> i64 {
+        self.action.to_index()
+    }
+}
+
+/// In-memory collector for on-policy trajectories before a PPO update.
+#[derive(Debug, Clone, Default)]
+pub struct RolloutCollector {
+    steps: Vec<RolloutStep>,
+}
+
+impl RolloutCollector {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            steps: Vec::with_capacity(capacity),
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.steps.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.steps.is_empty()
+    }
+
+    pub fn steps(&self) -> &[RolloutStep] {
+        &self.steps
+    }
+
+    pub fn push(&mut self, step: RolloutStep) {
+        self.steps.push(step);
+    }
+
+    pub fn clear(&mut self) {
+        self.steps.clear();
+    }
+
+    /// Mean step reward in the collected trajectory (WoLF current payoff).
+    pub fn mean_reward(&self) -> f64 {
+        if self.steps.is_empty() {
+            return 0.0;
+        }
+        let sum: f64 = self.steps.iter().map(|s| f64::from(s.reward)).sum();
+        sum / self.steps.len() as f64
+    }
 }
 
 /// Fixed-capacity ring buffer of transitions (training replay stub).
@@ -165,5 +235,28 @@ mod tests {
         assert_eq!(snap[0].observation, vec![2.0]);
         assert_eq!(snap[1].observation, vec![3.0]);
         assert!(snap[1].done);
+    }
+
+    #[test]
+    fn rollout_collector_tracks_mean_reward() {
+        let mut collector = RolloutCollector::with_capacity(4);
+        collector.push(RolloutStep {
+            observation: vec![1.0],
+            action: Action::Hold,
+            log_prob: -0.5,
+            value: 0.1,
+            reward: 1.0,
+            done: false,
+        });
+        collector.push(RolloutStep {
+            observation: vec![2.0],
+            action: Action::Buy,
+            log_prob: -0.3,
+            value: 0.2,
+            reward: -1.0,
+            done: false,
+        });
+        assert_eq!(collector.len(), 2);
+        assert!((collector.mean_reward() - 0.0).abs() < f64::EPSILON);
     }
 }

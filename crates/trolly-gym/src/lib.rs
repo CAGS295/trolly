@@ -17,10 +17,13 @@ pub mod libtorch;
 #[cfg(feature = "torch")]
 pub mod ppo;
 
+#[cfg(feature = "torch")]
+pub mod train;
+
 pub use action::Action;
 pub use env::{Env, EnvConfig, StepResult};
 pub use observation::{features_from_event, FeatureVector, ObservationWindow};
-pub use replay::{FeatureRingBuffer, ReplayBuffer, Transition};
+pub use replay::{FeatureRingBuffer, ReplayBuffer, RolloutCollector, RolloutStep, Transition};
 
 #[cfg(feature = "torch")]
 pub use ppo::{
@@ -33,6 +36,12 @@ pub use games::{
     benchmark_ppo_vs_wolf, run_ppo_self_play, run_wolf_ppo_self_play, BenchmarkSummary,
     HarnessConfig, SelfPlayRunResult, DEFAULT_NUM_RUNS, DEFAULT_POLICY_UPDATES,
     DEFAULT_ROLLOUT_BATCH_SIZE, DEFAULT_TRACK_LAST_N,
+};
+
+#[cfg(feature = "torch")]
+pub use train::{
+    collect_env_rollout_step, load_checkpoint, rollout_collector_to_batch, save_checkpoint,
+    CheckpointError, PpoTrainingDriver, TrainConfig, TrainStepMetrics, WolfPpoTrainingDriver,
 };
 
 /// Whether the crate was built with libtorch support.
