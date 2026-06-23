@@ -344,7 +344,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-019 — Matrix-game validation harness (WoLF-PPO paper reproduction)
 
-- status: in_progress
+- status: done
 - repos: trolly
 - depends_on: [WP-018]
 - scope: crates/trolly-gym/src/games/, crates/trolly-gym/tests/matrix_games.rs, crates/trolly-gym/README.md
@@ -356,10 +356,11 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - `#[ignore]` extended benchmark (optional): reproduce paper trend — WoLF-PPO closer to NES than PPO on **weighted** Matching Pennies at `α_LOSE ∈ {0.1, 0.01}`; document how to run locally
   - `cargo test -p trolly-gym` passes default; matrix-game tests that need `tch` gated behind `torch` feature
 - notes: validates algorithm before stream latency and reward engineering. Weighted games are the critical regression case (NES ≠ max-entropy policy).
+- worker (2026-06-23): `games/` module with matrix games, NES policies, self-play loop, NES distance metric; smoke + `#[ignore]` benchmark; README matrix-game section.
 
 ### WP-020 — WoLF-PPO training loop and checkpoint I/O (`trolly-gym`)
 
-- status: todo
+- status: in_progress
 - repos: trolly
 - depends_on: [WP-018, WP-019]
 - scope: crates/trolly-gym/src/train/, crates/trolly-gym/src/replay.rs, crates/trolly-gym/README.md
