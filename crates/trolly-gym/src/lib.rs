@@ -14,6 +14,9 @@ mod replay;
 pub mod libtorch;
 
 #[cfg(feature = "torch")]
+pub mod games;
+
+#[cfg(feature = "torch")]
 pub mod ppo;
 
 pub use action::Action;

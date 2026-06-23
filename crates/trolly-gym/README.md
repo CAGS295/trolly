@@ -104,6 +104,61 @@ assert!(metrics.wolf_lr.lr > 0.0);
 }
 ```
 
+## Matrix-game validation harness (`games` module)
+
+When built with `--features torch`, `trolly_gym::games` implements the offline
+two-player zero-sum matrix games from the WoLF-PPO paper for algorithm validation
+before stream-backed trading policies (WP-019).
+
+### Games
+
+| Variant | NES (row player) |
+|---------|------------------|
+| Matching Pennies (standard) | `P(H) = P(T) = 0.5` |
+| Matching Pennies (weighted, Table IIa) | `P(H) = 0.4` |
+| Rock–Paper–Scissors (standard) | uniform `1/3` |
+| Rock–Paper–Scissors (weighted, Table IIb) | `P(R)=0.2`, `P(P)=0.4`, `P(S)=0.4` |
+
+### Self-play loop
+
+[`run_self_play`](src/games/self_play.rs) drives two learning agents (row and column)
+with shared [`PpoTrainer`](src/ppo/trainer.rs) or [`WolfPpoTrainer`](src/ppo/trainer.rs)
+configuration. Each policy update collects on-policy rollouts against the opponent's
+current policy and applies the WP-018 update step. The harness supports up to 50 independent
+seeds via [`run_benchmark`](src/games/self_play.rs) (CI may use fewer).
+
+### NES distance metric
+
+Following paper Table I: after each update, compute the Euclidean distance between the
+row player's learned action probabilities and the known NES. Report the **maximum**
+distance over the last 10 policy updates per run; aggregate with the mean over runs.
+
+### Tests
+
+Default CI (no libtorch):
+
+```bash
+cargo test -p trolly-gym
+```
+
+Matrix-game smoke and unit tests (offline, requires libtorch):
+
+```bash
+export LIBTORCH_USE_PYTORCH=1   # or LIBTORCH=/path/to/libtorch
+cargo test -p trolly-gym --features torch
+```
+
+Optional extended benchmark (reproduces paper trend — WoLF-PPO closer to NES than PPO
+on **weighted** matching pennies at `α_LOSE ∈ {0.1, 0.01}`):
+
+```bash
+export LIBTORCH_USE_PYTORCH=1
+cargo test -p trolly-gym --features torch matrix_games -- --ignored --test-threads=1
+```
+
+The benchmark uses fewer runs than the paper's 50 for local practicality; increase
+`NUM_RUNS` in [`tests/matrix_games.rs`](tests/matrix_games.rs) for tighter reproduction.
+
 ## Architecture
 
 - **Observations** — normalized [`StreamEvent`](https://github.com/CAGS295/trolly/tree/main/crates/trolly-strategy) values from `trolly-stream` ingress are converted to feature vectors and kept in a rolling [`ObservationWindow`](src/observation.rs).
