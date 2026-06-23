@@ -360,7 +360,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-020 — WoLF-PPO training loop and checkpoint I/O (`trolly-gym`)
 
-- status: in_progress
+- status: done
 - repos: trolly
 - depends_on: [WP-018, WP-019]
 - scope: crates/trolly-gym/src/train/, crates/trolly-gym/src/replay.rs, crates/trolly-gym/README.md
@@ -371,6 +371,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - hook to feed rollouts from [`Env::ingest_event`](crates/trolly-gym/src/env.rs) / [`Env::step`](crates/trolly-gym/src/env.rs) (reward still stub ok) without requiring live Binance streams in CI
   - `cargo test -p trolly-gym --features torch` includes checkpoint round-trip and short end-to-end train loop test
 - notes: inference hot-path integration with `trolly-strategy` egress and production reward shaping remain follow-on after WP-014 / WP-015 order placement.
+- worker (2026-06-23): `train/` module with rollout collection, `WolfPpoTrainLoop` driver, checkpoint save/load, `collect_env_rollout` Env hook; README training section.
 
 ## Integration test reference
 
