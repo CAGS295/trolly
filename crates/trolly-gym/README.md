@@ -64,7 +64,58 @@ and `S` is the policy entropy bonus.
 | [`ActorCritic`](src/ppo/actor_critic.rs) | Shared-trunk MLP; default hidden `[20, 20]`; categorical policy + value head |
 | [`PpoTrainer`](src/ppo/trainer.rs) | Multi-epoch vanilla PPO `policy_update` |
 | [`WolfPpoTrainer`](src/ppo/trainer.rs) | WoLF learning-rate selection + PPO update |
-| [`RolloutBatch`](src/ppo/rollout.rs) | On-policy tensors for one update step (WP-020 will collect these) |
+| [`RolloutBatch`](src/ppo/rollout.rs) | On-policy tensors for one update step |
+
+### Training loop (`train` module, WP-020)
+
+When built with `--features torch`, [`train`](src/train/mod.rs) wires rollout
+collection, the WoLF-PPO driver, checkpoint I/O, and stream [`Env`](src/env.rs) hooks.
+
+| Type | Role |
+|------|------|
+| [`OnPolicyRolloutBuffer`](src/replay.rs) | Ephemeral on-policy store: obs, action, log-prob, value, reward, done |
+| [`ReplayBuffer`](src/replay.rs) | Offline ring buffer (no log-prob/value); prefill from stream ingest |
+| [`RolloutCollector`](src/train/rollout.rs) | Sample actions, record steps, build [`RolloutBatch`](src/ppo/rollout.rs) |
+| [`WolfPpoTrainLoop`](src/train/driver.rs) | Collect → multi-epoch update → log policy/value/entropy/WoLF LR metrics |
+| [`collect_env_rollout`](src/train/env_rollout.rs) | Mock-stream path: `Env::ingest_event` + `Env::step` without live Binance |
+| [`save_actor_critic_checkpoint`](src/train/checkpoint.rs) | Persist actor–critic weights |
+| [`load_actor_critic_checkpoint`](src/train/checkpoint.rs) | Restore weights for forward pass / resume |
+
+[`OnPolicyRolloutBuffer`](src/replay.rs) is the parallel on-policy buffer required
+by PPO; [`ReplayBuffer`](src/replay.rs) remains the offline transition ring used
+for stream prefill and future export.
+
+#### Checkpoint format
+
+Checkpoints use [`tch::nn::VarStore::save`](https://docs.rs/tch/latest/tch/nn/struct.VarStore.html)
+(binary PyTorch pickle-style tensor map) containing all actor–critic parameters
+(`fc_*`, `policy`, `value`). Optimizer moments and WoLF NES payoff estimate are
+**not** saved. Load into a trainer with the same `obs_dim`, `n_actions`, and
+`hidden_layers` before calling `load_actor_critic_checkpoint`.
+
+```rust
+use trolly_gym::train::{
+    collect_env_rollout, save_actor_critic_checkpoint, WolfPpoTrainLoop,
+};
+use trolly_gym::ppo::{WolfPpoConfig, WolfPpoTrainer};
+
+let mut driver = WolfPpoTrainLoop::with_trainer(
+    WolfPpoTrainer::new(obs_dim, n_actions, WolfPpoConfig::default()),
+);
+let rollout = collect_env_rollout(driver.trainer(), &mut env, &events, &Default::default());
+let metrics = driver.train_on_rollout(&rollout, None);
+save_actor_critic_checkpoint(driver.trainer(), "actor_critic.pt")?;
+```
+
+#### Tests
+
+```bash
+export LIBTORCH=/path/to/libtorch   # or LIBTORCH_USE_PYTORCH=1
+cargo test -p trolly-gym --features torch
+```
+
+Includes checkpoint round-trip (`train::checkpoint`), short end-to-end train
+loop (`train::driver`), and env rollout collection (`train::env_rollout`).
 
 **Optimizer:** SGD is the default (paper choice). Set `PpoConfig.optimizer = OptimizerKind::Adam`
 for Adam; note that Adam’s adaptive moments can interact with WoLF’s explicit LR switching.
@@ -163,10 +214,11 @@ The benchmark uses fewer runs than the paper's 50 for local practicality; increa
 
 - **Observations** — normalized [`StreamEvent`](https://github.com/CAGS295/trolly/tree/main/crates/trolly-strategy) values from `trolly-stream` ingress are converted to feature vectors and kept in a rolling [`ObservationWindow`](src/observation.rs).
 - **Actions** — discrete [`Action`](src/action.rs) values map to [`OutboundMessage`](https://github.com/CAGS295/trolly/tree/main/crates/trolly-strategy) commands and dispatch through [`StreamEgress`](https://github.com/CAGS295/trolly/tree/main/crates/trolly-strategy).
-- **Replay** — [`ReplayBuffer`](src/replay.rs) ring buffer stores flattened observation windows and step transitions (training loop stub).
+- **Replay** — [`ReplayBuffer`](src/replay.rs) ring buffer stores flattened observation windows and step transitions; with `torch`, [`OnPolicyRolloutBuffer`](src/replay.rs) holds PPO rollout metadata.
 - **Env** — [`Env`](src/env.rs) ties ingest → window → step → egress; see `tests/smoke.rs` for an offline mock flow.
+- **Training** — with `torch`, [`train`](src/train/mod.rs) provides WoLF-PPO rollout collection, driver loop, checkpoint I/O, and [`collect_env_rollout`](src/train/env_rollout.rs) for stream-fed rollouts without live Binance.
 
-Training loops, checkpoints, and GPU policies are out of scope for this crate scaffold.
+Training loops and checkpoints require `--features torch`. GPU policies and production inference remain follow-on work.
 
 ## RL toolchain analysis (WP-016)
 

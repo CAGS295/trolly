@@ -11,6 +11,9 @@ mod observation;
 mod replay;
 
 #[cfg(feature = "torch")]
+pub mod train;
+
+#[cfg(feature = "torch")]
 pub mod libtorch;
 
 #[cfg(feature = "torch")]
@@ -23,6 +26,9 @@ pub use action::Action;
 pub use env::{Env, EnvConfig, StepResult};
 pub use observation::{features_from_event, FeatureVector, ObservationWindow};
 pub use replay::{FeatureRingBuffer, ReplayBuffer, Transition};
+
+#[cfg(feature = "torch")]
+pub use replay::{OnPolicyRolloutBuffer, OnPolicyTransition};
 
 /// Whether the crate was built with libtorch support.
 pub fn torch_enabled() -> bool {

@@ -96,6 +96,11 @@ impl PpoTrainer {
         &self.vs
     }
 
+    /// Mutable variable store for checkpoint load (WP-020).
+    pub fn var_store_mut(&mut self) -> &mut nn::VarStore {
+        &mut self.vs
+    }
+
     /// Current PPO hyperparameters.
     pub fn config(&self) -> &PpoConfig {
         &self.config
@@ -170,6 +175,11 @@ impl WolfPpoTrainer {
     /// Expose variable store for checkpoint I/O (WP-020).
     pub fn var_store(&self) -> &nn::VarStore {
         self.inner.var_store()
+    }
+
+    /// Mutable variable store for checkpoint load (WP-020).
+    pub fn var_store_mut(&mut self) -> &mut nn::VarStore {
+        self.inner.var_store_mut()
     }
 }
 

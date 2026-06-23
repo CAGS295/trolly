@@ -1,4 +1,9 @@
 //! Ring-buffer replay store for stream-derived feature windows (stub).
+//!
+//! [`ReplayBuffer`] stores offline transitions `(obs, action, reward, done)` from
+//! [`crate::Env`] without policy metadata. When the `torch` feature is enabled,
+//! [`OnPolicyRolloutBuffer`] holds the on-policy fields required by PPO
+//! (`log_prob`, `value`) and converts to [`crate::ppo::RolloutBatch`].
 
 use crate::action::Action;
 use crate::observation::FeatureVector;
@@ -10,6 +15,63 @@ pub struct Transition {
     pub action: Action,
     pub reward: f32,
     pub done: bool,
+}
+
+/// On-policy transition with behavior-policy metadata for PPO updates.
+///
+/// Parallel to [`Transition`]: same observation/action/reward/done fields, plus
+/// `log_prob` and `value` captured at collection time. [`ReplayBuffer`] remains
+/// the offline ring buffer for stream prefill; [`OnPolicyRolloutBuffer`] is
+/// ephemeral storage for one rollout slice before a policy update.
+#[cfg(feature = "torch")]
+#[derive(Debug, Clone, PartialEq)]
+pub struct OnPolicyTransition {
+    pub observation: Vec<f32>,
+    pub action: Action,
+    pub log_prob: f32,
+    pub value: f32,
+    pub reward: f32,
+    pub done: bool,
+}
+
+/// Append-only on-policy rollout store for one PPO update batch.
+#[cfg(feature = "torch")]
+#[derive(Debug, Clone, Default)]
+pub struct OnPolicyRolloutBuffer {
+    steps: Vec<OnPolicyTransition>,
+}
+
+#[cfg(feature = "torch")]
+impl OnPolicyRolloutBuffer {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            steps: Vec::with_capacity(capacity),
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.steps.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.steps.is_empty()
+    }
+
+    pub fn clear(&mut self) {
+        self.steps.clear();
+    }
+
+    pub fn push(&mut self, step: OnPolicyTransition) {
+        self.steps.push(step);
+    }
+
+    pub fn steps(&self) -> &[OnPolicyTransition] {
+        &self.steps
+    }
 }
 
 /// Fixed-capacity ring buffer of transitions (training replay stub).
