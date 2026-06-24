@@ -12,6 +12,7 @@ use futures_util::TryFutureExt;
 pub use grpc::{limit_order_book_service_client, Pair};
 use hyper::body::Incoming;
 use hyper_util::rt::{TokioExecutor, TokioIo};
+use arc_swap::ArcSwap;
 use left_right::ReadHandleFactory;
 use lob::LimitOrderBook;
 use std::collections::HashMap;
@@ -21,7 +22,16 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use tower::Service;
 use tracing::{error, info, warn};
 
-pub type BookRegistry = Arc<Mutex<HashMap<String, ReadHandleFactory<LimitOrderBook>>>>;
+pub type BookRegistry = Arc<Mutex<HashMap<String, BookHandle>>>;
+
+/// Snapshot source for gRPC / SCALE lookup.
+#[derive(Clone)]
+pub enum BookHandle {
+    /// Per-source depth stream (left-right).
+    LeftRight(ReadHandleFactory<LimitOrderBook>),
+    /// Canonical merged instrument (atomic Arc swap).
+    Merged(Arc<ArcSwap<LimitOrderBook>>),
+}
 
 pub fn new_registry() -> BookRegistry {
     Arc::new(Mutex::new(HashMap::new()))
@@ -39,15 +49,21 @@ impl Hook {
         self.0
             .lock()
             .expect("book registry lock")
-            .insert(key.into().to_uppercase(), factory);
+            .insert(key.into().to_uppercase(), BookHandle::LeftRight(factory));
     }
 
-    async fn get(&self, pair: &str) -> Option<LimitOrderBook> {
-        let factory = {
+    async fn get(&self, pair: &str) -> Option<Arc<LimitOrderBook>> {
+        let handle = {
             let guard = self.0.lock().expect("book registry lock");
             guard.get(&pair.to_uppercase())?.clone()
         };
-        factory.handle().enter().map(|guard| guard.clone())
+        match handle {
+            BookHandle::LeftRight(factory) => factory
+                .handle()
+                .enter()
+                .map(|guard| Arc::new(guard.clone())),
+            BookHandle::Merged(swap) => Some(swap.load_full()),
+        }
     }
 }
 
@@ -157,7 +173,7 @@ pub fn start_background(registry: BookRegistry, port: u16) -> std::thread::JoinH
 
 #[cfg(test)]
 mod test {
-    use super::Hook;
+    use super::{BookHandle, Hook};
     use crate::monitor::order_book::Operations;
     use left_right::WriteHandle;
     use lob::LimitOrderBook;
@@ -176,7 +192,7 @@ mod test {
             registry
                 .lock()
                 .expect("lock")
-                .insert(key.to_string(), r.factory());
+                .insert(key.to_string(), BookHandle::LeftRight(r.factory()));
             writers.push(w);
         }
         TestBooks {

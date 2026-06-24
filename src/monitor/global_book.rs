@@ -15,33 +15,14 @@ use super::{
     order_book::{Operations, OrderBook},
     parse_book_sources, BookSource, Depth, Provider,
 };
-use left_right::{Absorb, ReadHandle, ReadHandleFactory, WriteHandle};
+use arc_swap::ArcSwap;
+use left_right::ReadHandleFactory;
 use lob::{DepthUpdate, LimitOrderBook};
 use tokio_tungstenite::tungstenite::Message;
 use tracing::{instrument, warn};
 
-#[derive(Debug)]
-pub(crate) enum MergedOp {
-    Replace(LimitOrderBook),
-}
-
-impl Absorb<MergedOp> for LimitOrderBook {
-    fn absorb_first(&mut self, op: &mut MergedOp, _other: &Self) {
-        match op {
-            MergedOp::Replace(next) => {
-                *self = std::mem::replace(next, LimitOrderBook::default());
-            }
-        }
-    }
-
-    fn sync_with(&mut self, first: &Self) {
-        *self = first.clone();
-    }
-}
-
 struct MergedLane {
-    merged: WriteHandle<LimitOrderBook, MergedOp>,
-    _merged_read: ReadHandle<LimitOrderBook>,
+    swap: Arc<ArcSwap<LimitOrderBook>>,
 }
 
 struct HubInner {
@@ -92,22 +73,22 @@ impl GlobalBookHub {
         let Some(registry) = &self.serve else {
             return;
         };
-        let Some(factory) = self.merged_factory_for(instrument) else {
+        let Some(swap) = self.merged_swap_for(instrument) else {
             return;
         };
         registry
             .lock()
             .expect("book registry lock")
-            .insert(instrument.to_uppercase(), factory);
+            .insert(instrument.to_uppercase(), crate::servers::BookHandle::Merged(swap));
     }
 
-    /// Merged book for one instrument (all [`BookSource`]s sharing [`BookSource::canonical_instrument`]).
-    pub fn merged_factory_for(&self, instrument: &str) -> Option<ReadHandleFactory<LimitOrderBook>> {
+    /// ArcSwap handle for the merged canonical instrument snapshot.
+    pub fn merged_swap_for(&self, instrument: &str) -> Option<Arc<ArcSwap<LimitOrderBook>>> {
         let inner = self.inner.lock().expect("hub lock");
         inner
             .merged_by_instrument
             .get(&instrument.to_uppercase())
-            .map(|lane| lane._merged_read.factory())
+            .map(|lane| lane.swap.clone())
     }
 
     /// Snapshot handles keyed by [`BookSource::stream_id`].
@@ -139,11 +120,8 @@ impl GlobalBookHub {
         inner.factories.insert(stream_id, factory);
         use std::collections::hash_map::Entry;
         if let Entry::Vacant(e) = inner.merged_by_instrument.entry(key.clone()) {
-            let (mut w, r) = left_right::new::<LimitOrderBook, MergedOp>();
-            w.publish();
             e.insert(MergedLane {
-                merged: w,
-                _merged_read: r,
+                swap: Arc::new(ArcSwap::from_pointee(LimitOrderBook::default())),
             });
         }
         drop(inner);
@@ -190,16 +168,18 @@ impl GlobalBookHub {
             .max()
             .unwrap_or(0);
 
-        let mut inner = self.inner.lock().expect("hub lock");
-        let Some(lane) = inner.merged_by_instrument.get_mut(&key) else {
-            return;
+        let swap = {
+            let inner = self.inner.lock().expect("hub lock");
+            inner
+                .merged_by_instrument
+                .get(&key)
+                .map(|lane| lane.swap.clone())
         };
-        lane.merged
-            .append(MergedOp::Replace(merged))
-            .publish();
-
-        #[cfg(feature = "prometheus")]
-        crate::servers::metrics::record_merge_refresh(&key);
+        if let Some(swap) = swap {
+            swap.store(Arc::new(merged));
+            #[cfg(feature = "prometheus")]
+            crate::servers::metrics::record_merge_refresh(&key);
+        }
     }
 }
 
@@ -264,6 +244,7 @@ impl EventHandler<Depth> for GlobalBookShard {
         hub.register_factory(stream_id.clone(), factory, &instrument);
 
         w.append(Operations::Initialize(lob));
+        w.publish();
         hub.refresh_merged_for(&instrument);
 
         Ok((
@@ -416,20 +397,16 @@ mod tests {
         hub.refresh_merged_for("BTCUSDT");
         hub.refresh_merged_for("RPI:BTCUSDT");
 
-        let merged_std = hub
-            .merged_factory_for("BTCUSDT")
+        let merged_std = (*hub
+            .merged_swap_for("BTCUSDT")
             .unwrap()
-            .handle()
-            .enter()
+            .load_full())
+        .clone();
+        let merged_rpi = (*hub
+            .merged_swap_for("RPI:BTCUSDT")
             .unwrap()
-            .clone();
-        let merged_rpi = hub
-            .merged_factory_for("RPI:BTCUSDT")
-            .unwrap()
-            .handle()
-            .enter()
-            .unwrap()
-            .clone();
+            .load_full())
+        .clone();
 
         assert_eq!(merged_std.update_id, 10);
         assert_eq!(merged_rpi.update_id, 20);

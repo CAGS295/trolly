@@ -41,6 +41,7 @@ lob = { git = "https://github.com/CAGS295/lob.git", default-features = false, fe
 serde_json = "*"
 serde = "*"
 left-right = "0.11.5"
+arc-swap = "1.7"
 tonic = { version = "^0.12", optional = true }
 prost = { version = "^0.13", optional = true }
 hyper = { version = "^1" }

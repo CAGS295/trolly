@@ -122,6 +122,7 @@ impl EventHandler<Depth> for OrderBook {
         }
 
         w.append(Operations::Initialize(lob));
+        w.publish();
         Ok((symbol, OrderBook::from(w)))
     }
 }
