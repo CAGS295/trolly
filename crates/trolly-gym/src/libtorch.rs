@@ -20,7 +20,7 @@ mod tests {
     fn observation_tensor_roundtrip() {
         let data = vec![1.0_f32, 2.0, 3.0];
         let tensor = observation_tensor(&data);
-        let out: Vec<f32> = Vec::from(tensor);
+        let out: Vec<f32> = Vec::<f32>::try_from(&tensor).unwrap();
         assert_eq!(out, data);
     }
 }

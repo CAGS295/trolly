@@ -12,5 +12,9 @@ tch = { version = "0.16", optional = true }
 default = []
 torch = ["dep:tch"]
 
+[[test]]
+name = "ppo_torch"
+required-features = ["torch"]
+
 [dev-dependencies]
 trolly-strategy = { path = "../trolly-strategy" }

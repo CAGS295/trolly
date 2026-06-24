@@ -13,10 +13,17 @@ mod replay;
 #[cfg(feature = "torch")]
 pub mod libtorch;
 
+#[cfg(feature = "torch")]
+pub mod ppo;
+
 pub use action::Action;
 pub use env::{Env, EnvConfig, StepResult};
 pub use observation::{features_from_event, FeatureVector, ObservationWindow};
-pub use replay::{FeatureRingBuffer, ReplayBuffer, Transition};
+#[cfg(feature = "torch")]
+pub use ppo::{
+    compute_advantages, new_actor_critic, cpu_device, ActorCritic, PpoConfig, PpoTrainer,
+    RolloutBatch, UpdateMetrics, WolfPpoConfig, WolfPpoTrainer,
+};
 
 /// Whether the crate was built with libtorch support.
 pub fn torch_enabled() -> bool {

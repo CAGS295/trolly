@@ -13,7 +13,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: 2026-06-13
+- last_run: 2026-06-24
 - max_parallel: 3
 
 ## Orchestrator notes
@@ -326,7 +326,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-018 — WoLF-PPO core algorithm (`trolly-gym`)
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-011, WP-016]
 - scope: crates/trolly-gym/src/ppo/, crates/trolly-gym/src/libtorch.rs, crates/trolly-gym/README.md
@@ -340,6 +340,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - default `cargo test -p trolly-gym` unchanged (no libtorch); `cargo test -p trolly-gym --features torch` passes
   - README section documents WoLF-PPO rationale (NES convergence), hyperparameters, and paper citation
 - notes: primary stack is `tch`/libtorch.rs per WP-011 scaffold; WP-016 ADR may adjust fallback only. Does not include full training driver or market `Env` wiring — see WP-019 / WP-020.
+  - **Delivered:** `crates/trolly-gym/src/ppo/` — `PpoConfig`, `WolfPpoConfig`, `ActorCritic` MLP `[20,20]`, clipped surrogate + value + entropy losses, `PpoTrainer` / `WolfPpoTrainer::policy_update` with α_WIN = α_LOSE/4 payoff switching; torch-gated tests in `src/ppo/` and `tests/ppo_torch.rs`.
 
 ### WP-019 — Matrix-game validation harness (WoLF-PPO paper reproduction)
 
