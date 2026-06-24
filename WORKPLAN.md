@@ -13,7 +13,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: 2026-06-13
+- last_run: 2026-06-20
 - max_parallel: 3
 
 ## Orchestrator notes
@@ -326,7 +326,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-018 — WoLF-PPO core algorithm (`trolly-gym`)
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-011, WP-016]
 - scope: crates/trolly-gym/src/ppo/, crates/trolly-gym/src/libtorch.rs, crates/trolly-gym/README.md
@@ -340,10 +340,11 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - default `cargo test -p trolly-gym` unchanged (no libtorch); `cargo test -p trolly-gym --features torch` passes
   - README section documents WoLF-PPO rationale (NES convergence), hyperparameters, and paper citation
 - notes: primary stack is `tch`/libtorch.rs per WP-011 scaffold; WP-016 ADR may adjust fallback only. Does not include full training driver or market `Env` wiring — see WP-019 / WP-020.
+- worker (2026-06-20): `crates/trolly-gym/src/ppo/` — PpoConfig, WolfPpoConfig, ActorCritic MLP [20,20], PpoTrainer (L^CLIP − c1·L^VF + c2·S), WolfPpoTrainer (rolling NES payoff, α_WIN = α_LOSE/4). README WoLF-PPO section. Default tests pass without libtorch; `--features torch` requires LIBTORCH (see README).
 
 ### WP-019 — Matrix-game validation harness (WoLF-PPO paper reproduction)
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-018]
 - scope: crates/trolly-gym/src/games/, crates/trolly-gym/tests/matrix_games.rs, crates/trolly-gym/README.md
@@ -355,10 +356,11 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - `#[ignore]` extended benchmark (optional): reproduce paper trend — WoLF-PPO closer to NES than PPO on **weighted** Matching Pennies at `α_LOSE ∈ {0.1, 0.01}`; document how to run locally
   - `cargo test -p trolly-gym` passes default; matrix-game tests that need `tch` gated behind `torch` feature
 - notes: validates algorithm before stream latency and reward engineering. Weighted games are the critical regression case (NES ≠ max-entropy policy).
+- worker (2026-06-20): `crates/trolly-gym/src/games/` — Matching Pennies + RPS (standard/weighted), NES distance metric, self-play trainer for PPO/WoLF-PPO; `tests/matrix_games.rs` smoke + `#[ignore]` benchmark. Detached `old_log_probs` in rollout batch for multi-epoch PPO stability.
 
 ### WP-020 — WoLF-PPO training loop and checkpoint I/O (`trolly-gym`)
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-018, WP-019]
 - scope: crates/trolly-gym/src/train/, crates/trolly-gym/src/replay.rs, crates/trolly-gym/README.md
@@ -369,6 +371,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - hook to feed rollouts from [`Env::ingest_event`](crates/trolly-gym/src/env.rs) / [`Env::step`](crates/trolly-gym/src/env.rs) (reward still stub ok) without requiring live Binance streams in CI
   - `cargo test -p trolly-gym --features torch` includes checkpoint round-trip and short end-to-end train loop test
 - notes: inference hot-path integration with `trolly-strategy` egress and production reward shaping remain follow-on after WP-014 / WP-015 order placement.
+- worker (2026-06-20): `crates/trolly-gym/src/train/` — RolloutCollector + GAE, WolfPpoTrainDriver with TrainMetrics, checkpoint save/load via VarStore (safetensors). Env step hook via StepOutput closure. README training/checkpoint sections.
 
 ## Integration test reference
 

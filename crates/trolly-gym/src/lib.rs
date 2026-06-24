@@ -13,6 +13,15 @@ mod replay;
 #[cfg(feature = "torch")]
 pub mod libtorch;
 
+#[cfg(feature = "torch")]
+pub mod ppo;
+
+#[cfg(feature = "torch")]
+pub mod games;
+
+#[cfg(feature = "torch")]
+pub mod train;
+
 pub use action::Action;
 pub use env::{Env, EnvConfig, StepResult};
 pub use observation::{features_from_event, FeatureVector, ObservationWindow};
