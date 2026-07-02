@@ -15,9 +15,11 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 - owner: Daily workplan orchestrator
 - last_run: 2026-06-20
 - max_parallel: 3
+- ship_branch: integrate/orchestrator-branches
 
 ## Orchestrator notes
 
+- **Git ship workflow (no PRs):** checkout `ship_branch` from Meta (`integrate/orchestrator-branches`). At run start, `git fetch origin` and rebase (or reset) onto current `origin/main` so the branch is fresh. All commits from this run land on the ship branch. Push `ship_branch` to origin at end of run. Do **not** open pull requests, run `gh pr create`, or create `cursor/workplan-orchestrator-process-*` branches.
 - Build the **ready set**: items with `status: todo` and all `depends_on` entries `done`.
 - Schedule up to `max_parallel` items per wave with **disjoint** `scope` paths.
 - Mark selected items `in_progress` before spawning workers; only the orchestrator sets `done` or `blocked` after acceptance checks.
@@ -27,7 +29,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
   1. **Comment in** — uncomment the `[patch."https://github.com/CAGS295/lob.git"]` block so `lob = { path = "./patches/lob" }` is active before `cargo test` / `cargo check`.
   2. **Submodule commit** — commit and push lob changes on **`patches/lob` `main`**, then bump the submodule pointer in trolly (`git add patches/lob`).
   3. **Comment out** — re-comment the `[patch]` block before closing the item (default branch builds against git `lob`; patch-in is for local/submodule development only).
-  4. **Commit in trolly** — include `Cargo.toml` (patch commented out) and `patches/lob` pointer in the same commit or PR as the work item; do not leave submodule bumps or patch toggles unstaged.
+  4. **Commit in trolly** — include `Cargo.toml` (patch commented out) and `patches/lob` pointer in the same commit on `ship_branch` as the work item; do not leave submodule bumps or patch toggles unstaged.
   Orchestrator acceptance: verify `[patch]` is commented out on `main`, submodule pointer matches lob `main` when lob changed, and `git submodule update --init patches/lob && cargo test` passes.
 
 ## Crate architecture
@@ -372,6 +374,22 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - `cargo test -p trolly-gym --features torch` includes checkpoint round-trip and short end-to-end train loop test
 - notes: inference hot-path integration with `trolly-strategy` egress and production reward shaping remain follow-on after WP-014 / WP-015 order placement.
 - worker (2026-06-20): `crates/trolly-gym/src/train/` — RolloutCollector + GAE, WolfPpoTrainDriver with TrainMetrics, checkpoint save/load via VarStore (safetensors). Env step hook via StepOutput closure. README training/checkpoint sections.
+
+### WP-021 — Liquid Neural Network policy head (`trolly-gym`)
+
+- status: todo
+- repos: trolly
+- depends_on: [WP-018, WP-019, WP-020]
+- scope: crates/trolly-gym/src/ (new LNN actor-critic module), crates/trolly-gym/tests/matrix_games.rs, crates/trolly-gym/README.md
+- acceptance:
+  - implement a **Liquid Neural Network (LNN)** actor–critic as an alternative to the existing MLP policy head; keep the MLP-based model unchanged and selectable alongside LNN
+  - shared training harness: both MLP and LNN variants train through the same WoLF-PPO / matrix-game self-play path (`run_wolf_ppo_self_play`, `WolfPpoTrainDriver`, checkpoint I/O)
+  - train MLP and LNN **in parallel** (separate runs / configs) on the same matrix-game benchmark suite (Matching Pennies + RPS, standard + weighted)
+  - both variants must pass the **correctness game**: short smoke runs produce finite NES distances; extended benchmark trend (WoLF-PPO closer to NES than PPO on weighted Matching Pennies) holds for LNN or is documented with rationale if not
+  - checkpoint save/load round-trip works for LNN weights (architecture metadata sidecar or equivalent)
+  - `cargo test -p trolly-gym --features torch` includes LNN smoke tests; default `cargo test -p trolly-gym` unchanged
+  - README documents LNN vs MLP trade-offs, selection API, and how to run parallel training
+- notes: LNN is exploratory — do not remove or replace the MLP model. Primary validation remains the WP-019 matrix-game harness before stream-backed trading policies. Parallel training means independent experiment configs/seeds, not necessarily a single multi-GPU job.
 
 ## Integration test reference
 
