@@ -7,6 +7,7 @@ Project journal for shipped work. Active backlog lives in [`WORKPLAN.md`](WORKPL
 - Add more exchange providers beyond Binance spot + USDM (stub scaffold landed; full venues remain).
 
 ## change log
++ Orchestrator run (2026-07-02): ready set empty — WP-001–WP-020 all done; no worker wave scheduled.
 + Orchestrator run (2026-06-30): ready set empty — WP-001–WP-020 all done; `cargo test --workspace --locked` pass.
 + `trolly-gym`: WoLF-PPO training loop, rollout collection, checkpoint I/O (WP-020).
 + `trolly-gym`: matrix-game validation harness for WoLF-PPO paper reproduction (WP-019).
