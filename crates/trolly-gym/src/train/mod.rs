@@ -36,7 +36,9 @@
 pub mod checkpoint;
 pub mod driver;
 pub mod rollout;
+pub mod smoke;
 
 pub use checkpoint::{load_checkpoint, save_checkpoint};
 pub use driver::{TrainDriverConfig, TrainMetrics, WolfPpoTrainDriver};
 pub use rollout::{OnPolicyTransition, RolloutCollector, StepOutput, compute_gae};
+pub use smoke::{smoke_train_loop, SmokeTrainConfig};

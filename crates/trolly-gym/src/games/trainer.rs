@@ -1,5 +1,8 @@
 //! Self-play training harness for two-player zero-sum matrix games.
 //!
+//! Use [`run_wolf_ppo_self_play_with_checkpoints`] for short development runs
+//! that persist row-player weights after each update.
+//!
 //! Drives PPO and WoLF-PPO agents (from WP-018 `crate::ppo`) on matrix games
 //! and measures convergence to the known Nash Equilibrium Strategy (NES).
 //!
@@ -17,9 +20,12 @@
 //! 6. The reported metric is **max distance over the last 10 updates** per run
 //!    (paper Table I methodology).
 
+use std::path::{Path, PathBuf};
+
 use tch::{Device, Kind, Tensor};
 
 use crate::ppo::{ActorCritic, PpoConfig, PpoTrainer, RolloutBatch, WolfPpoConfig, WolfPpoTrainer};
+use crate::train::checkpoint::save_checkpoint;
 use super::matrix_game::MatrixGame;
 use super::metrics::euclidean_distance_to_nes;
 
@@ -126,6 +132,54 @@ pub fn run_wolf_ppo_self_play(
     }
 
     to_result(&p1.inner.actor_critic, distances)
+}
+
+/// Train with WoLF-PPO and save the row player's weights after each update.
+///
+/// Checkpoints are written to `{checkpoint_dir}/update_{n}.safetensors`.
+/// Returns the training result and the list of checkpoint paths.
+pub fn run_wolf_ppo_self_play_with_checkpoints(
+    game: &MatrixGame,
+    nes: &[f64],
+    config: SelfPlayConfig,
+    wolf_config: WolfPpoConfig,
+    checkpoint_dir: impl AsRef<Path>,
+) -> (SelfPlayResult, Vec<PathBuf>) {
+    let checkpoint_dir = checkpoint_dir.as_ref();
+    std::fs::create_dir_all(checkpoint_dir).expect("create checkpoint dir");
+
+    let num_actions = game.num_row_actions as i64;
+    let mut p1 = WolfPpoTrainer::new(OBS_DIM, num_actions, wolf_config.clone());
+    let mut p2 = WolfPpoTrainer::new(OBS_DIM, num_actions, wolf_config);
+    let mut distances = Vec::with_capacity(config.num_updates);
+    let mut checkpoint_paths = Vec::with_capacity(config.num_updates);
+
+    for update in 0..config.num_updates {
+        let (batch1, batch2) = collect_rollout(
+            game,
+            &p1.inner.actor_critic,
+            &p2.inner.actor_critic,
+            config.batch_size,
+        );
+
+        let p1_return = batch1.returns.mean(Kind::Float).double_value(&[]);
+        let p2_return = batch2.returns.mean(Kind::Float).double_value(&[]);
+
+        p1.policy_update(&batch1, p1_return);
+        p2.policy_update(&batch2, p2_return);
+
+        let probs = policy_probs(&p1.inner.actor_critic);
+        distances.push(euclidean_distance_to_nes(&probs, nes));
+
+        let path = checkpoint_dir.join(format!("update_{update}.safetensors"));
+        save_checkpoint(&p1.inner.vs, &path).expect("save matrix-game checkpoint");
+        checkpoint_paths.push(path);
+    }
+
+    (
+        to_result(&p1.inner.actor_critic, distances),
+        checkpoint_paths,
+    )
 }
 
 // ── Internal helpers ─────────────────────────────────────────────────────────

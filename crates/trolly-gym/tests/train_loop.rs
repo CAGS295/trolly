@@ -1,8 +1,15 @@
-//! End-to-end training loop and checkpoint tests (WP-020/WP-021, `torch` feature).
+//! End-to-end training loop and checkpoint tests (WP-020/WP-021/WP-022, `torch` feature).
 
+use std::path::PathBuf;
+
+use trolly_gym::games::{
+    matching_pennies::{matching_pennies_weighted, WEIGHTED_NES},
+    run_wolf_ppo_self_play_with_checkpoints, SelfPlayConfig,
+};
 use trolly_gym::ppo::{ActorCritic, ActorCriticArchitecture, PpoConfig, WolfPpoConfig};
 use trolly_gym::train::{
-    load_checkpoint, save_checkpoint, StepOutput, TrainDriverConfig, WolfPpoTrainDriver,
+    load_checkpoint, save_checkpoint, smoke_train_loop, SmokeTrainConfig, StepOutput,
+    TrainDriverConfig, WolfPpoTrainDriver,
 };
 use trolly_gym::{Action, Env, EnvConfig};
 use trolly_strategy::{DepthUpdate, PriceLevel, RecordingEgress, StreamEvent};
@@ -45,11 +52,8 @@ fn checkpoint_roundtrip_restores_forward_pass() {
     let obs = Tensor::randn(&[3, obs_dim], (Kind::Float, device));
     let (logits1, values1) = model1.forward(&obs);
 
-    let dir = std::env::temp_dir().join(format!("trolly_gym_it_ckpt_{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = temp_dir("checkpoint_roundtrip");
     let path = dir.join("policy.safetensors");
-
     save_checkpoint(&vs1, &path).unwrap();
 
     let mut vs2 = nn::VarStore::new(device);
@@ -162,4 +166,70 @@ fn liquid_train_loop_driver_smoke() {
     assert!(metrics.value_loss.is_finite());
     assert!(metrics.entropy.is_finite());
     assert!(metrics.nes_distance.unwrap().is_finite());
+}
+
+#[test]
+fn short_matrix_game_train_saves_checkpoints() {
+    let game = matching_pennies_weighted();
+    let nes = &WEIGHTED_NES;
+    let config = SelfPlayConfig {
+        num_updates: 3,
+        batch_size: 8,
+        ppo_config: PpoConfig {
+            ppo_epochs: 1,
+            ..Default::default()
+        },
+    };
+    let dir = temp_dir("matrix_game_checkpoints");
+
+    let (result, paths) = run_wolf_ppo_self_play_with_checkpoints(
+        &game,
+        nes,
+        config,
+        WolfPpoConfig::default(),
+        &dir,
+    );
+
+    assert_eq!(paths.len(), 3);
+    for path in &paths {
+        assert!(path.exists(), "missing checkpoint: {}", path.display());
+    }
+    assert!(result.max_distance_last_10.is_finite());
+    assert_eq!(result.distances_per_update.len(), 3);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn smoke_train_loop_driver() {
+    let dir = temp_dir("smoke_train_loop");
+    let (log, paths) = smoke_train_loop(SmokeTrainConfig {
+        num_steps: 3,
+        checkpoint_dir: Some(dir.clone()),
+        ..Default::default()
+    });
+
+    assert_eq!(log.len(), 3);
+    assert_eq!(paths.len(), 3);
+    assert!(log.last().unwrap().policy_loss.is_finite());
+    for path in &paths {
+        assert!(path.exists(), "missing checkpoint: {}", path.display());
+    }
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+fn temp_dir(label: &str) -> PathBuf {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!(
+        "trolly_gym_{label}_{}_{nanos}",
+        label = label,
+        nanos = nanos,
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    dir
 }

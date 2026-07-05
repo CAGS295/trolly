@@ -161,6 +161,45 @@ load_checkpoint(&mut trainer2.vs, "/tmp/actor_critic.safetensors").unwrap();
   same `hidden_sizes`, and the same `liquid_steps` before loading.
 - Device: saved/loaded on CPU in the current implementation.
 
+### Short training runs with checkpoints
+
+For development smoke tests, use [`smoke_train_loop`](src/train/smoke.rs) (generic
+env-step hook) or [`run_wolf_ppo_self_play_with_checkpoints`](src/games/trainer.rs)
+(matrix-game harness). Both write one checkpoint file per step/update:
+
+```rust
+use trolly_gym::games::{
+    matching_pennies::{matching_pennies_weighted, WEIGHTED_NES},
+    run_wolf_ppo_self_play_with_checkpoints, SelfPlayConfig,
+};
+use trolly_gym::ppo::WolfPpoConfig;
+use trolly_gym::train::{smoke_train_loop, SmokeTrainConfig};
+
+// Matrix-game correctness benchmark — 3 updates, checkpoints in /tmp/mp_ckpt/
+let (result, paths) = run_wolf_ppo_self_play_with_checkpoints(
+    &matching_pennies_weighted(),
+    &WEIGHTED_NES,
+    SelfPlayConfig { num_updates: 3, batch_size: 8, ..Default::default() },
+    WolfPpoConfig::default(),
+    "/tmp/mp_ckpt",
+);
+
+// Generic driver smoke — synthetic rewards, checkpoints in temp dir
+let (metrics, paths) = smoke_train_loop(SmokeTrainConfig {
+    num_steps: 3,
+    checkpoint_dir: Some("/tmp/driver_ckpt".into()),
+    ..Default::default()
+});
+```
+
+Run the integration tests:
+
+```bash
+export LIBTORCH=/path/to/libtorch
+export LD_LIBRARY_PATH=$LIBTORCH/lib:$LD_LIBRARY_PATH
+cargo test -p trolly-gym --features torch --test train_loop
+```
+
 ### Env integration hook
 
 `RolloutCollector::collect` accepts any `FnMut(Vec<f32>, i64) -> StepOutput`
