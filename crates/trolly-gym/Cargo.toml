@@ -20,3 +20,7 @@ trolly-strategy = { path = "../trolly-strategy" }
 [[test]]
 name = "train_loop"
 required-features = ["torch"]
+
+[[example]]
+name = "matrix_train_snapshots"
+required-features = ["torch"]
