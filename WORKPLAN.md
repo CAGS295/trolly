@@ -379,20 +379,36 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 - status: done
 - repos: trolly
-- depends_on: [WP-018, WP-019, WP-020]
-- scope: crates/trolly-gym/src/ (new LNN actor-critic module), crates/trolly-gym/tests/matrix_games.rs, crates/trolly-gym/README.md
+- depends_on: [WP-018, WP-019, WP-020, WP-022]
+- scope: crates/trolly-gym/src/ (new LNN actor-critic module), crates/trolly-gym/tests/matrix_games.rs, crates/trolly-gym/tests/microstructure_train.rs, crates/trolly-gym/README.md
 - acceptance:
   - implement a **Liquid Neural Network (LNN)** actor–critic as an alternative to the existing MLP policy head; keep the MLP-based model unchanged and selectable alongside LNN
-  - shared training harness: both MLP and LNN variants train through the same WoLF-PPO / matrix-game self-play path (`run_wolf_ppo_self_play`, `WolfPpoTrainDriver`, checkpoint I/O)
-  - train MLP and LNN **in parallel** (separate runs / configs) on the same matrix-game benchmark suite (Matching Pennies + RPS, standard + weighted)
+  - shared training harness: both MLP and LNN variants train through the same WoLF-PPO / matrix-game self-play path (`run_wolf_ppo_self_play`, `WolfPpoTrainDriver`, checkpoint I/O) **and** the WP-022 microstructure benchmark (`run_microstructure_train_with_checkpoints`)
+  - train MLP and LNN **in parallel** (separate runs / configs) on the matrix-game benchmark suite (Matching Pennies + RPS, standard + weighted) **and** the synthetic microstructure env
   - both variants must pass the **correctness game**: short smoke runs produce finite NES distances; extended benchmark trend (WoLF-PPO closer to NES than PPO on weighted Matching Pennies) holds for LNN or is documented with rationale if not
   - checkpoint save/load round-trip works for LNN weights (architecture metadata sidecar or equivalent)
   - `cargo test -p trolly-gym --features torch` includes LNN smoke tests; default `cargo test -p trolly-gym` unchanged
   - README documents LNN vs MLP trade-offs, selection API, and how to run parallel training
 - notes: |
-    LNN is exploratory — do not remove or replace the MLP model. Primary validation remains the WP-019 matrix-game harness before stream-backed trading policies. Parallel training means independent experiment configs/seeds, not necessarily a single multi-GPU job.
+    LNN is exploratory — do not remove or replace the MLP model. Primary WoLF-PPO validation remains WP-019 matrix games; WP-022 microstructure validates the stream-shaped training pipeline with real rewards. Parallel training means independent experiment configs/seeds, not necessarily a single multi-GPU job.
     Worker/orchestrator (2026-07-07): added selectable `ActorCriticArchitecture::{Mlp,Liquid}`, fixed-step `LiquidActorCritic`, LNN checkpoint round-trip, train-driver smoke, matrix-game LNN correctness coverage across Matching Pennies + RPS, and ignored LNN trend benchmark. Updated stale torch train-loop integration test to current `ppo`/`train` APIs.
     Acceptance: `cargo test -p trolly-gym` passes. `cargo +stable test -p trolly-gym --features torch --locked` passes with `LIBTORCH_USE_PYTORCH=1`, `LIBTORCH_BYPASS_VERSION_CHECK=1`, `CXX=g++`, PyTorch 2.3.0, and `LD_LIBRARY_PATH` pointing at Python torch libs (VM default Cargo 1.83 lacks edition-2024 support for locked `time-core`; VM default `c++`/latest PyTorch were incompatible with `torch-sys 0.16.1`).
+
+### WP-022 — Synthetic microstructure training benchmark (`trolly-gym`)
+
+- status: done
+- repos: trolly
+- depends_on: [WP-020]
+- scope: crates/trolly-gym/src/sim/, crates/trolly-gym/src/train/microstructure.rs, crates/trolly-gym/tests/microstructure_train.rs, crates/trolly-gym/examples/microstructure_train_snapshots.rs, crates/trolly-gym/README.md
+- acceptance:
+  - offline [`MicrostructureSim`](crates/trolly-gym/src/sim/microstructure.rs): latent mid random walk, fixed half-spread, unit position `{-1,0,1}` on hold/buy/sell, mark-to-market reward minus trade cost
+  - observations use the same depth feature layout as stream [`Env`](crates/trolly-gym/src/env.rs) (`features_from_event` / 7 features per frame)
+  - episodic `done` at configurable horizon; deterministic seed for tests
+  - [`run_microstructure_train_with_checkpoints`](crates/trolly-gym/src/train/microstructure.rs) drives `WolfPpoTrainDriver` and saves safetensors after each update
+  - default `cargo test -p trolly-gym` includes sim unit tests (no libtorch); `cargo test -p trolly-gym --features torch --test microstructure_train` passes
+  - README documents microstructure vs matrix-game roles; example binary for timed checkpoint runs
+- notes: bridges WP-019 (algorithm correctness) and stream-backed trading. Complements matrix games — not a replacement for WoLF-PPO NES validation. CartPole intentionally skipped in favour of stream-shaped obs.
+- worker (2026-07-06): `sim/microstructure`, `train/microstructure`, tests + example.
 
 ## Integration test reference
 

@@ -377,6 +377,57 @@ The always-run tests verify NES arithmetic and the distance metric with no
 libtorch dependency. The torch-gated smoke tests prove a WoLF-PPO training
 step completes and returns a finite NES distance.
 
+---
+
+## Synthetic microstructure benchmark (WP-022)
+
+Offline training benchmark with **stream-shaped observations** and **real
+mark-to-market rewards** — bridges matrix-game WoLF-PPO validation (WP-019) and
+the live stream [`Env`](src/env.rs).
+
+| Role | Matrix games (WP-019) | Microstructure (WP-022) |
+|------|----------------------|-------------------------|
+| WoLF-PPO / NES correctness | ✅ primary | ❌ single-agent |
+| Rollout + GAE + checkpoints | partial | ✅ full episodic MDP |
+| Observation layout | constant scalar | depth features (7/frame) |
+| Reward | in-game payoff | position × Δmid − spread cost |
+
+### Public API
+
+Sim types are always available (no libtorch):
+
+```rust
+use trolly_gym::sim::{MicrostructureConfig, MicrostructureSim};
+use trolly_gym::action::Action;
+
+let mut sim = MicrostructureSim::new(MicrostructureConfig::default());
+let obs = sim.reset();
+let step = sim.step(Action::Buy);
+```
+
+Training driver (`--features torch`):
+
+```rust
+use trolly_gym::train::{run_microstructure_train_with_checkpoints, MicrostructureTrainConfig};
+
+let (metrics, stats, paths) = run_microstructure_train_with_checkpoints(
+    MicrostructureTrainConfig::default(),
+);
+```
+
+### Tests and timed runs
+
+```bash
+cargo test -p trolly-gym                              # includes sim unit tests
+cargo test -p trolly-gym --features torch --test microstructure_train
+
+export LIBTORCH=/path/to/libtorch
+export LD_LIBRARY_PATH=$LIBTORCH/lib:$LD_LIBRARY_PATH
+cargo run -p trolly-gym --features torch --example microstructure_train_snapshots
+```
+
+---
+
 ### Extended benchmark (`#[ignore]`)
 
 Reproduce the paper trend: WoLF-PPO converges closer to the NES than standard

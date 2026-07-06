@@ -9,6 +9,7 @@ mod action;
 mod env;
 mod observation;
 mod replay;
+pub mod sim;
 
 #[cfg(feature = "torch")]
 pub mod libtorch;

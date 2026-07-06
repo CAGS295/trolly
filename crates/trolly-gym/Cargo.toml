@@ -24,3 +24,11 @@ required-features = ["torch"]
 [[example]]
 name = "matrix_train_snapshots"
 required-features = ["torch"]
+
+[[example]]
+name = "microstructure_train_snapshots"
+required-features = ["torch"]
+
+[[test]]
+name = "microstructure_train"
+required-features = ["torch"]
