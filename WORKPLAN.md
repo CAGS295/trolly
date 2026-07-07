@@ -377,7 +377,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-021 — Liquid Neural Network policy head (`trolly-gym`)
 
-- status: todo
+- status: in_progress
 - repos: trolly
 - depends_on: [WP-018, WP-019, WP-020]
 - scope: crates/trolly-gym/src/ (new LNN actor-critic module), crates/trolly-gym/tests/matrix_games.rs, crates/trolly-gym/README.md
