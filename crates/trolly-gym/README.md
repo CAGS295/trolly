@@ -156,7 +156,9 @@ load_checkpoint(&mut trainer2.vs, "/tmp/actor_critic.safetensors").unwrap();
 > when *loading* — causing a format mismatch and a runtime error.
 
 - Architecture must match: variable names and tensor shapes are fixed at
-  network construction time and must align with the checkpoint.
+  network construction time and must align with the checkpoint. For LNN
+  checkpoints, recreate the model with `ActorCriticArchitecture::Liquid`, the
+  same `hidden_sizes`, and the same `liquid_steps` before loading.
 - Device: saved/loaded on CPU in the current implementation.
 
 ### Env integration hook
@@ -229,8 +231,60 @@ Both players are initialised with independent networks. At each update step:
 3. PPO (or WoLF-PPO) gradient steps are applied to each player independently.
 4. The row player's policy probabilities are recorded and compared to the NES.
 
+The actor-critic backend is selected through `PpoConfig::architecture`. The
+default is `ActorCriticArchitecture::Mlp`; use
+`ActorCriticArchitecture::Liquid` to run the LNN policy/value backend.
+
 The column player's payoff is `−row_payoff` (zero-sum); WoLF-PPO's episode
 return is the mean batch payoff for that player.
+
+### MLP vs LNN policy heads (WP-021)
+
+The MLP actor-critic remains the default and is the baseline for reproducing
+the WP-019 matrix-game results. `ActorCriticArchitecture::Liquid` selects a
+fixed-step liquid neural network (LNN) backend with the same categorical
+policy/value heads and the same PPO/WoLF-PPO update API.
+
+| Backend | Strengths | Trade-offs |
+|---------|-----------|------------|
+| `Mlp` | Small, deterministic baseline; fastest checkpoint and matrix-game smoke path. | Less temporal inductive bias; stream history must be encoded in the observation window. |
+| `Liquid` | Recurrent-style state update inside each forward pass; useful for testing adaptive dynamics before stream-backed policies. | More parameters and liquid-step hyperparameters; convergence trend is exploratory until extended benchmarks are run locally. |
+
+Run MLP and LNN as independent experiment configs over the same game suite:
+
+```rust
+use trolly_gym::games::{
+    matching_pennies::{matching_pennies_weighted, WEIGHTED_NES},
+    run_wolf_ppo_self_play, SelfPlayConfig,
+};
+use trolly_gym::ppo::{ActorCriticArchitecture, PpoConfig, WolfPpoConfig};
+
+let game = matching_pennies_weighted();
+
+let mlp = run_wolf_ppo_self_play(
+    &game,
+    &WEIGHTED_NES,
+    SelfPlayConfig::default(),
+    WolfPpoConfig::default(),
+);
+
+let lnn_cfg = WolfPpoConfig {
+    ppo: PpoConfig {
+        architecture: ActorCriticArchitecture::Liquid,
+        ..Default::default()
+    },
+    ..Default::default()
+};
+let lnn = run_wolf_ppo_self_play(&game, &WEIGHTED_NES, SelfPlayConfig::default(), lnn_cfg);
+
+println!("MLP max NES distance: {:.4}", mlp.max_distance_last_10);
+println!("LNN max NES distance: {:.4}", lnn.max_distance_last_10);
+```
+
+These runs are parallel in the experiment sense: separate model initialisation,
+optimizer state, configs, and seeds. They can be executed concurrently by a
+caller or benchmark harness, but the crate does not require multi-GPU or a
+shared parallel-training runtime.
 
 ### Public API
 
@@ -241,7 +295,7 @@ use trolly_gym::games::{
     matching_pennies::{matching_pennies_weighted, WEIGHTED_NES},
     run_wolf_ppo_self_play, run_ppo_self_play, SelfPlayConfig,
 };
-use trolly_gym::ppo::WolfPpoConfig;
+use trolly_gym::ppo::{ActorCriticArchitecture, PpoConfig, WolfPpoConfig};
 
 let game = matching_pennies_weighted();
 
@@ -253,6 +307,21 @@ let result = run_wolf_ppo_self_play(
     WolfPpoConfig::default().with_alpha_lose(0.1),
 );
 println!("max NES distance (last 10): {:.4}", result.max_distance_last_10);
+
+// WoLF-PPO with the liquid neural network actor-critic
+let lnn_cfg = WolfPpoConfig {
+    ppo: PpoConfig {
+        architecture: ActorCriticArchitecture::Liquid,
+        ..Default::default()
+    },
+    ..Default::default()
+};
+let _lnn_result = run_wolf_ppo_self_play(
+    &game,
+    &WEIGHTED_NES,
+    SelfPlayConfig::default(),
+    lnn_cfg,
+);
 
 // Standard PPO
 let ppo_result = run_ppo_self_play(&game, &WEIGHTED_NES, SelfPlayConfig::default());
@@ -284,6 +353,18 @@ cargo test -p trolly-gym --features torch -- --include-ignored \
 
 Expected output: `WoLF-PPO (0.1)` and/or `WoLF-PPO (0.01)` mean max-distance
 ≤ PPO mean max-distance over 10 seeds × 200 updates.
+
+The LNN exploratory trend check uses the same setup with
+`ActorCriticArchitecture::Liquid`:
+
+```bash
+cargo test -p trolly-gym --features torch -- --include-ignored \
+    benchmark_lnn_wolf_ppo_closer_to_nes_weighted_matching_pennies
+```
+
+If the LNN trend differs from the MLP baseline, keep the run output with the
+experiment notes; the LNN head is intentionally additive and does not replace
+the validated MLP path.
 
 ---
 
@@ -319,10 +400,13 @@ multi-agent trading environments.
    Smaller `α_WIN` prevents overshooting at equilibrium; larger `α_LOSE`
    allows fast recovery when losing.
 
-3. **Actor-critic MLP** — shared trunk with tanh activations, categorical
-   policy head (softmax over discrete actions), scalar value head.
-   Default hidden sizes `[20, 20]` match the matrix-game experiments in
-   Ratcliffe et al.
+3. **Selectable actor-critic** — the default remains the shared MLP trunk with
+   tanh activations, categorical policy head (softmax over discrete actions),
+   and scalar value head. `ActorCriticArchitecture::Liquid` selects an LNN
+   backend: a fixed-step liquid state update followed by the same policy/value
+   heads. Default hidden sizes `[20, 20]` match the matrix-game experiments in
+   Ratcliffe et al.; for the LNN, the first hidden size is the liquid state
+   width and remaining sizes are readout layers.
 
 ### Hyperparameters
 
@@ -332,7 +416,9 @@ multi-agent trading environments.
 | `entropy_coef` (c2) | `f64` | `0.01` | Entropy bonus weight |
 | `value_coef` (c1) | `f64` | `0.5` | Value loss weight |
 | `ppo_epochs` | `usize` | `4` | Gradient epochs per rollout |
-| `hidden_sizes` | `Vec<i64>` | `[20, 20]` | Shared MLP hidden layer widths |
+| `architecture` | `ActorCriticArchitecture` | `Mlp` | Selects MLP or liquid actor-critic |
+| `hidden_sizes` | `Vec<i64>` | `[20, 20]` | MLP layers, or LNN state width plus readout layers |
+| `liquid_steps` | `usize` | `4` | Fixed liquid update steps when using `Liquid` |
 | `lr` | `f64` | `0.01` | Base learning rate (PPO-only mode) |
 | `use_adam` | `bool` | `false` | Adam optimizer; default is SGD |
 | `alpha_lose` | `f64` | `0.01` | WoLF losing-regime learning rate |

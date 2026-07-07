@@ -72,8 +72,16 @@ fn rps_weighted_nes_sums_to_one() {
 fn weighted_matching_pennies_nes_verified() {
     let payoff = [[2.0_f64, -1.0], [-1.0, 1.0]];
     let q_star = [0.4_f64, 0.6];
-    let ev_h: f64 = payoff[0].iter().zip(q_star.iter()).map(|(a, q)| a * q).sum();
-    let ev_t: f64 = payoff[1].iter().zip(q_star.iter()).map(|(a, q)| a * q).sum();
+    let ev_h: f64 = payoff[0]
+        .iter()
+        .zip(q_star.iter())
+        .map(|(a, q)| a * q)
+        .sum();
+    let ev_t: f64 = payoff[1]
+        .iter()
+        .zip(q_star.iter())
+        .map(|(a, q)| a * q)
+        .sum();
     assert!(
         (ev_h - ev_t).abs() < 1e-12,
         "NES indifference: EV(H)={ev_h:.4}, EV(T)={ev_t:.4}"
@@ -88,11 +96,7 @@ fn weighted_matching_pennies_nes_verified() {
 ///   EV(S) = (−2)·0.2 + 1·0.4 + 0·0.4 = 0  ← all equal ✓
 #[test]
 fn weighted_rps_nes_verified() {
-    let payoff = [
-        [0.0_f64, -2.0, 2.0],
-        [2.0, 0.0, -1.0],
-        [-2.0, 1.0, 0.0],
-    ];
+    let payoff = [[0.0_f64, -2.0, 2.0], [2.0, 0.0, -1.0], [-2.0, 1.0, 0.0]];
     let q_star = [0.2_f64, 0.4, 0.4];
     let evs: Vec<f64> = payoff
         .iter()
@@ -113,9 +117,9 @@ mod torch_tests {
     use trolly_gym::games::{
         matching_pennies::{self, matching_pennies_weighted},
         rock_paper_scissors::{self, rps_weighted},
-        run_ppo_self_play, run_wolf_ppo_self_play, SelfPlayConfig,
+        run_ppo_self_play, run_wolf_ppo_self_play, MatrixGame, SelfPlayConfig,
     };
-    use trolly_gym::ppo::{PpoConfig, WolfPpoConfig};
+    use trolly_gym::ppo::{ActorCriticArchitecture, PpoConfig, WolfPpoConfig};
 
     fn short_config() -> SelfPlayConfig {
         SelfPlayConfig {
@@ -125,14 +129,61 @@ mod torch_tests {
         }
     }
 
+    fn short_config_with_architecture(architecture: ActorCriticArchitecture) -> SelfPlayConfig {
+        SelfPlayConfig {
+            num_updates: 6,
+            batch_size: 12,
+            ppo_config: PpoConfig {
+                architecture,
+                ppo_epochs: 1,
+                ..Default::default()
+            },
+        }
+    }
+
+    fn wolf_config_with_architecture(architecture: ActorCriticArchitecture) -> WolfPpoConfig {
+        WolfPpoConfig {
+            ppo: PpoConfig {
+                architecture,
+                ppo_epochs: 1,
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
+    fn matrix_game_cases() -> Vec<(&'static str, MatrixGame, &'static [f64])> {
+        vec![
+            (
+                "matching pennies standard",
+                matching_pennies::matching_pennies_standard(),
+                &matching_pennies::STANDARD_NES,
+            ),
+            (
+                "matching pennies weighted",
+                matching_pennies_weighted(),
+                &matching_pennies::WEIGHTED_NES,
+            ),
+            (
+                "rock-paper-scissors standard",
+                rock_paper_scissors::rps_standard(),
+                &rock_paper_scissors::STANDARD_NES,
+            ),
+            (
+                "rock-paper-scissors weighted",
+                rps_weighted(),
+                &rock_paper_scissors::WEIGHTED_NES,
+            ),
+        ]
+    }
+
     /// Smoke test: WoLF-PPO on weighted Matching Pennies completes and produces
     /// a finite NES distance — proves the training step works end-to-end.
     #[test]
     fn wolf_ppo_weighted_mp_training_step_finite() {
         let game = matching_pennies_weighted();
         let nes = &matching_pennies::WEIGHTED_NES;
-        let result =
-            run_wolf_ppo_self_play(&game, nes, short_config(), WolfPpoConfig::default());
+        let result = run_wolf_ppo_self_play(&game, nes, short_config(), WolfPpoConfig::default());
         assert!(
             result.max_distance_last_10.is_finite(),
             "WoLF-PPO max NES distance must be finite, got {}",
@@ -156,8 +207,7 @@ mod torch_tests {
         use trolly_gym::games::matching_pennies::{matching_pennies_standard, STANDARD_NES};
         let game = matching_pennies_standard();
         let nes = &STANDARD_NES;
-        let result =
-            run_wolf_ppo_self_play(&game, nes, short_config(), WolfPpoConfig::default());
+        let result = run_wolf_ppo_self_play(&game, nes, short_config(), WolfPpoConfig::default());
         assert!(result.max_distance_last_10.is_finite());
     }
 
@@ -179,8 +229,7 @@ mod torch_tests {
     fn wolf_ppo_weighted_rps_training_step_finite() {
         let game = rps_weighted();
         let nes = &rock_paper_scissors::WEIGHTED_NES;
-        let result =
-            run_wolf_ppo_self_play(&game, nes, short_config(), WolfPpoConfig::default());
+        let result = run_wolf_ppo_self_play(&game, nes, short_config(), WolfPpoConfig::default());
         assert!(result.max_distance_last_10.is_finite());
     }
 
@@ -202,6 +251,84 @@ mod torch_tests {
         );
         for (i, &d) in result.distances_per_update.iter().enumerate() {
             assert!(d.is_finite(), "distance at step {i} is not finite: {d}");
+        }
+    }
+
+    /// Explicitly selecting the existing MLP model remains valid.
+    #[test]
+    fn ppo_explicit_mlp_weighted_mp_training_step_finite() {
+        let game = matching_pennies_weighted();
+        let nes = &matching_pennies::WEIGHTED_NES;
+        let result = run_ppo_self_play(
+            &game,
+            nes,
+            short_config_with_architecture(ActorCriticArchitecture::Mlp),
+        );
+        assert!(result.max_distance_last_10.is_finite());
+        assert!(result.final_policy_probs.iter().all(|&p| p.is_finite()));
+    }
+
+    /// WoLF-PPO can use the LNN actor-critic backend for matrix-game training.
+    #[test]
+    fn wolf_ppo_lnn_weighted_mp_training_step_finite() {
+        let game = matching_pennies_weighted();
+        let nes = &matching_pennies::WEIGHTED_NES;
+        let result = run_wolf_ppo_self_play(
+            &game,
+            nes,
+            short_config_with_architecture(ActorCriticArchitecture::Liquid),
+            wolf_config_with_architecture(ActorCriticArchitecture::Liquid),
+        );
+        assert!(result.max_distance_last_10.is_finite());
+        assert!(
+            result.final_policy_probs.iter().all(|&p| p.is_finite()),
+            "all LNN final policy probs must be finite: {:?}",
+            result.final_policy_probs
+        );
+        let prob_sum: f64 = result.final_policy_probs.iter().sum();
+        assert!(
+            (prob_sum - 1.0).abs() < 1e-5,
+            "LNN final policy must sum to 1.0, got {prob_sum}"
+        );
+    }
+
+    /// Standard PPO can also train the LNN backend through the shared harness.
+    #[test]
+    fn ppo_lnn_weighted_mp_training_step_finite() {
+        let game = matching_pennies_weighted();
+        let nes = &matching_pennies::WEIGHTED_NES;
+        let result = run_ppo_self_play(
+            &game,
+            nes,
+            short_config_with_architecture(ActorCriticArchitecture::Liquid),
+        );
+        assert!(result.max_distance_last_10.is_finite());
+        assert!(result.final_policy_probs.iter().all(|&p| p.is_finite()));
+    }
+
+    /// LNN correctness smoke: Matching Pennies + RPS, standard + weighted.
+    #[test]
+    fn wolf_ppo_lnn_all_matrix_games_training_step_finite() {
+        for (name, game, nes) in matrix_game_cases() {
+            let result = run_wolf_ppo_self_play(
+                &game,
+                nes,
+                short_config_with_architecture(ActorCriticArchitecture::Liquid),
+                wolf_config_with_architecture(ActorCriticArchitecture::Liquid),
+            );
+            assert!(
+                result.max_distance_last_10.is_finite(),
+                "{name}: max NES distance must be finite"
+            );
+            assert!(
+                result.final_policy_probs.iter().all(|&p| p.is_finite()),
+                "{name}: final policy probabilities must be finite"
+            );
+            let prob_sum: f64 = result.final_policy_probs.iter().sum();
+            assert!(
+                (prob_sum - 1.0).abs() < 1e-5,
+                "{name}: final policy must sum to 1.0, got {prob_sum}"
+            );
         }
     }
 
@@ -293,6 +420,80 @@ mod torch_tests {
         assert!(
             wolf_01_mean <= ppo_mean || wolf_001_mean <= ppo_mean,
             "Expected WoLF-PPO closer to NES than PPO on weighted MP:\n\
+             PPO={ppo_mean:.4}, WoLF-0.1={wolf_01_mean:.4}, WoLF-0.01={wolf_001_mean:.4}"
+        );
+    }
+
+    /// LNN version of the weighted Matching Pennies trend check. This is kept
+    /// ignored because it is exploratory and depends on local libtorch setup.
+    #[test]
+    #[ignore]
+    fn benchmark_lnn_wolf_ppo_closer_to_nes_weighted_matching_pennies() {
+        use trolly_gym::games::matching_pennies::{matching_pennies_weighted, WEIGHTED_NES};
+
+        const NUM_SEEDS: usize = 10;
+        const NUM_UPDATES: usize = 200;
+        const BATCH_SIZE: usize = 64;
+
+        let game = matching_pennies_weighted();
+        let nes = &WEIGHTED_NES;
+        let base_cfg = || SelfPlayConfig {
+            num_updates: NUM_UPDATES,
+            batch_size: BATCH_SIZE,
+            ppo_config: PpoConfig {
+                architecture: ActorCriticArchitecture::Liquid,
+                ..Default::default()
+            },
+        };
+
+        let mut ppo_dists = Vec::with_capacity(NUM_SEEDS);
+        let mut wolf_dists_01 = Vec::with_capacity(NUM_SEEDS);
+        let mut wolf_dists_001 = Vec::with_capacity(NUM_SEEDS);
+
+        for seed_idx in 0..NUM_SEEDS {
+            let ppo_result = run_ppo_self_play(&game, nes, base_cfg());
+            ppo_dists.push(ppo_result.max_distance_last_10);
+
+            let wolf_result_01 = run_wolf_ppo_self_play(
+                &game,
+                nes,
+                base_cfg(),
+                wolf_config_with_architecture(ActorCriticArchitecture::Liquid).with_alpha_lose(0.1),
+            );
+            wolf_dists_01.push(wolf_result_01.max_distance_last_10);
+
+            let wolf_result_001 = run_wolf_ppo_self_play(
+                &game,
+                nes,
+                base_cfg(),
+                wolf_config_with_architecture(ActorCriticArchitecture::Liquid)
+                    .with_alpha_lose(0.01),
+            );
+            wolf_dists_001.push(wolf_result_001.max_distance_last_10);
+
+            println!(
+                "LNN seed {seed_idx:2}: PPO={:.4}  WoLF-0.1={:.4}  WoLF-0.01={:.4}",
+                ppo_result.max_distance_last_10,
+                wolf_result_01.max_distance_last_10,
+                wolf_result_001.max_distance_last_10,
+            );
+        }
+
+        let mean = |v: &[f64]| v.iter().sum::<f64>() / v.len() as f64;
+        let ppo_mean = mean(&ppo_dists);
+        let wolf_01_mean = mean(&wolf_dists_01);
+        let wolf_001_mean = mean(&wolf_dists_001);
+
+        println!();
+        println!("=== LNN Benchmark: Weighted Matching Pennies  NES = [0.4, 0.6] ===");
+        println!("PPO            mean max-distance: {ppo_mean:.4}");
+        println!("WoLF-PPO (0.1) mean max-distance: {wolf_01_mean:.4}");
+        println!("WoLF-PPO(0.01) mean max-distance: {wolf_001_mean:.4}");
+        println!();
+
+        assert!(
+            wolf_01_mean <= ppo_mean || wolf_001_mean <= ppo_mean,
+            "Expected LNN WoLF-PPO closer to NES than LNN PPO on weighted MP:\n\
              PPO={ppo_mean:.4}, WoLF-0.1={wolf_01_mean:.4}, WoLF-0.01={wolf_001_mean:.4}"
         );
     }

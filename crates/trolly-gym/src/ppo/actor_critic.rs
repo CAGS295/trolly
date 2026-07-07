@@ -1,17 +1,31 @@
-//! Actor-critic MLP for discrete action spaces.
+//! Actor-critic model selector for discrete action spaces.
 
 use tch::{nn, nn::Module, Kind, Tensor};
 
-use super::config::PpoConfig;
+use super::config::{ActorCriticArchitecture, PpoConfig};
+use super::lnn_actor_critic::LiquidActorCritic;
 
-/// Actor-critic MLP: shared trunk → categorical policy logits + scalar value.
+enum ActorCriticBackend {
+    Mlp(MlpActorCritic),
+    Liquid(LiquidActorCritic),
+}
+
+/// Actor-critic wrapper: categorical policy logits + scalar value.
+///
+/// The concrete backend is selected by [`PpoConfig::architecture`]. The default
+/// remains the existing MLP architecture.
+pub struct ActorCritic {
+    backend: ActorCriticBackend,
+}
+
+/// Actor-critic MLP: shared trunk -> categorical policy logits + scalar value.
 ///
 /// Architecture (tanh activations on shared layers):
 /// ```text
-/// obs → [hidden_sizes] → policy_head → logits [num_actions]
-///                      ↘ value_head  → value  [1]
+/// obs -> [hidden_sizes] -> policy_head -> logits [num_actions]
+///                       \-> value_head  -> value  [1]
 /// ```
-pub struct ActorCritic {
+struct MlpActorCritic {
     shared: Vec<nn::Linear>,
     policy_head: nn::Linear,
     value_head: nn::Linear,
@@ -23,6 +37,50 @@ impl ActorCritic {
     /// - `obs_dim`: flattened observation size.
     /// - `num_actions`: discrete action count (policy logits dimension).
     pub fn new(vs: &nn::VarStore, obs_dim: i64, num_actions: i64, config: &PpoConfig) -> Self {
+        let backend = match config.architecture {
+            ActorCriticArchitecture::Mlp => {
+                ActorCriticBackend::Mlp(MlpActorCritic::new(vs, obs_dim, num_actions, config))
+            }
+            ActorCriticArchitecture::Liquid => {
+                ActorCriticBackend::Liquid(LiquidActorCritic::new(vs, obs_dim, num_actions, config))
+            }
+        };
+        Self { backend }
+    }
+
+    /// Forward pass.
+    ///
+    /// Returns `(logits [batch, num_actions], values [batch])`.
+    pub fn forward(&self, obs: &Tensor) -> (Tensor, Tensor) {
+        match &self.backend {
+            ActorCriticBackend::Mlp(model) => model.forward(obs),
+            ActorCriticBackend::Liquid(model) => model.forward(obs),
+        }
+    }
+
+    /// Sample one action per observation and return its log-probability.
+    ///
+    /// Returns `(actions [batch], log_probs [batch])`.
+    pub fn action_and_log_prob(&self, obs: &Tensor) -> (Tensor, Tensor) {
+        match &self.backend {
+            ActorCriticBackend::Mlp(model) => model.action_and_log_prob(obs),
+            ActorCriticBackend::Liquid(model) => model.action_and_log_prob(obs),
+        }
+    }
+
+    /// Evaluate log-probabilities and per-sample entropy for a batch of actions.
+    ///
+    /// Returns `(action_log_probs [batch], entropy [batch])`.
+    pub fn evaluate_actions(&self, obs: &Tensor, actions: &Tensor) -> (Tensor, Tensor) {
+        match &self.backend {
+            ActorCriticBackend::Mlp(model) => model.evaluate_actions(obs, actions),
+            ActorCriticBackend::Liquid(model) => model.evaluate_actions(obs, actions),
+        }
+    }
+}
+
+impl MlpActorCritic {
+    fn new(vs: &nn::VarStore, obs_dim: i64, num_actions: i64, config: &PpoConfig) -> Self {
         let p = vs.root();
         let mut shared = Vec::new();
         let mut in_dim = obs_dim;
@@ -44,10 +102,7 @@ impl ActorCritic {
         }
     }
 
-    /// Forward pass.
-    ///
-    /// Returns `(logits [batch, num_actions], values [batch])`.
-    pub fn forward(&self, obs: &Tensor) -> (Tensor, Tensor) {
+    fn forward(&self, obs: &Tensor) -> (Tensor, Tensor) {
         let mut x = obs.to_kind(Kind::Float);
         for layer in &self.shared {
             x = layer.forward(&x).tanh();
@@ -57,10 +112,7 @@ impl ActorCritic {
         (logits, value)
     }
 
-    /// Sample one action per observation and return its log-probability.
-    ///
-    /// Returns `(actions [batch], log_probs [batch])`.
-    pub fn action_and_log_prob(&self, obs: &Tensor) -> (Tensor, Tensor) {
+    fn action_and_log_prob(&self, obs: &Tensor) -> (Tensor, Tensor) {
         let (logits, _) = self.forward(obs);
         let action = logits
             .softmax(-1, Kind::Float)
@@ -73,10 +125,7 @@ impl ActorCritic {
         (action, log_prob)
     }
 
-    /// Evaluate log-probabilities and per-sample entropy for a batch of actions.
-    ///
-    /// Returns `(action_log_probs [batch], entropy [batch])`.
-    pub fn evaluate_actions(&self, obs: &Tensor, actions: &Tensor) -> (Tensor, Tensor) {
+    fn evaluate_actions(&self, obs: &Tensor, actions: &Tensor) -> (Tensor, Tensor) {
         let (logits, _) = self.forward(obs);
         let log_probs = logits.log_softmax(-1, Kind::Float);
         let action_log_probs = log_probs
@@ -96,6 +145,14 @@ mod tests {
 
     fn default_config() -> PpoConfig {
         PpoConfig::default()
+    }
+
+    fn liquid_config() -> PpoConfig {
+        PpoConfig {
+            architecture: ActorCriticArchitecture::Liquid,
+            ppo_epochs: 1,
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -146,5 +203,25 @@ mod tests {
             entropy.isfinite().all().int64_value(&[]) != 0,
             "non-finite entropy detected"
         );
+    }
+
+    #[test]
+    fn liquid_forward_shapes_batch() {
+        let vs = nn::VarStore::new(Device::Cpu);
+        let ac = ActorCritic::new(&vs, 4, 3, &liquid_config());
+        let obs = Tensor::zeros(&[8, 4], (Kind::Float, Device::Cpu));
+        let (logits, values) = ac.forward(&obs);
+        assert_eq!(logits.size(), vec![8, 3], "logits shape mismatch");
+        assert_eq!(values.size(), vec![8], "values shape mismatch");
+    }
+
+    #[test]
+    fn liquid_action_log_prob_shapes() {
+        let vs = nn::VarStore::new(Device::Cpu);
+        let ac = ActorCritic::new(&vs, 4, 3, &liquid_config());
+        let obs = Tensor::zeros(&[5, 4], (Kind::Float, Device::Cpu));
+        let (action, log_prob) = ac.action_and_log_prob(&obs);
+        assert_eq!(action.size(), vec![5]);
+        assert_eq!(log_prob.size(), vec![5]);
     }
 }

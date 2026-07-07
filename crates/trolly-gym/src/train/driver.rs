@@ -194,9 +194,14 @@ fn compute_diagnostics(ac: &ActorCritic, batch: &RolloutBatch) -> (f64, f64) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ppo::WolfPpoConfig;
+    use crate::ppo::{ActorCriticArchitecture, PpoConfig, WolfPpoConfig};
 
-    fn make_driver(obs_dim: i64, num_actions: i64, horizon: usize) -> WolfPpoTrainDriver {
+    fn make_driver_with_config(
+        obs_dim: i64,
+        num_actions: i64,
+        horizon: usize,
+        wolf_config: WolfPpoConfig,
+    ) -> WolfPpoTrainDriver {
         let driver_cfg = TrainDriverConfig {
             obs_dim,
             num_actions,
@@ -204,7 +209,11 @@ mod tests {
             gamma: 0.99,
             gae_lambda: 0.95,
         };
-        WolfPpoTrainDriver::new(driver_cfg, WolfPpoConfig::default())
+        WolfPpoTrainDriver::new(driver_cfg, wolf_config)
+    }
+
+    fn make_driver(obs_dim: i64, num_actions: i64, horizon: usize) -> WolfPpoTrainDriver {
+        make_driver_with_config(obs_dim, num_actions, horizon, WolfPpoConfig::default())
     }
 
     #[test]
@@ -245,6 +254,42 @@ mod tests {
     }
 
     #[test]
+    fn liquid_train_step_metrics_are_finite() {
+        let obs_dim = 4_i64;
+        let num_actions = 3_i64;
+        let horizon = 12;
+        let wolf_config = WolfPpoConfig {
+            ppo: PpoConfig {
+                architecture: ActorCriticArchitecture::Liquid,
+                ppo_epochs: 1,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut driver = make_driver_with_config(obs_dim, num_actions, horizon, wolf_config);
+
+        let metrics = driver.train_step(
+            vec![0.0_f32; obs_dim as usize],
+            |obs, action| StepOutput {
+                next_observation: obs,
+                reward: if action == 0 { 1.0 } else { -0.25 },
+                done: false,
+            },
+            0.0,
+            Some(&[1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0]),
+        );
+
+        assert!(metrics.policy_loss.is_finite());
+        assert!(metrics.value_loss.is_finite());
+        assert!(metrics.entropy.is_finite());
+        assert_eq!(metrics.steps_collected, horizon);
+        assert!(metrics
+            .nes_distance
+            .expect("liquid driver should report NES distance")
+            .is_finite());
+    }
+
+    #[test]
     fn train_step_with_nes_target_produces_distance() {
         let obs_dim = 4_i64;
         let num_actions = 3_i64;
@@ -263,7 +308,10 @@ mod tests {
         );
 
         let dist = metrics.nes_distance.expect("expected NES distance");
-        assert!(dist.is_finite() && dist >= 0.0, "invalid NES distance: {dist}");
+        assert!(
+            dist.is_finite() && dist >= 0.0,
+            "invalid NES distance: {dist}"
+        );
     }
 
     #[test]
@@ -276,7 +324,11 @@ mod tests {
         // After first step, current == rolling → losing
         let m = driver.train_step(
             vec![0.0_f32; obs_dim as usize],
-            |obs, _a| StepOutput { next_observation: obs, reward: 1.0, done: false },
+            |obs, _a| StepOutput {
+                next_observation: obs,
+                reward: 1.0,
+                done: false,
+            },
             0.0,
             None,
         );

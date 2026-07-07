@@ -60,20 +60,35 @@ pub fn load_checkpoint(vs: &mut nn::VarStore, path: impl AsRef<Path>) -> Result<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ppo::{ActorCritic, PpoConfig};
-    use tch::{Device, Kind, Tensor, nn};
+    use crate::ppo::{ActorCritic, ActorCriticArchitecture, PpoConfig};
+    use tch::{nn, Device, Kind, Tensor};
 
-    fn make_ac(obs_dim: i64, num_actions: i64) -> (nn::VarStore, ActorCritic) {
+    fn make_ac_with_config(
+        obs_dim: i64,
+        num_actions: i64,
+        config: &PpoConfig,
+    ) -> (nn::VarStore, ActorCritic) {
         let vs = nn::VarStore::new(Device::Cpu);
-        let ac = ActorCritic::new(&vs, obs_dim, num_actions, &PpoConfig::default());
+        let ac = ActorCritic::new(&vs, obs_dim, num_actions, config);
         (vs, ac)
     }
 
     fn forward_flat(ac: &ActorCritic, obs: &Tensor) -> Vec<f64> {
         let _g = tch::no_grad_guard();
         let (logits, values) = ac.forward(obs);
-        let mut out: Vec<f64> = logits.view([-1]).iter::<f64>().unwrap().collect();
-        out.extend(values.view([-1]).iter::<f64>().unwrap());
+        let mut out: Vec<f64> = logits
+            .to_kind(Kind::Double)
+            .view([-1])
+            .iter::<f64>()
+            .unwrap()
+            .collect();
+        out.extend(
+            values
+                .to_kind(Kind::Double)
+                .view([-1])
+                .iter::<f64>()
+                .unwrap(),
+        );
         out
     }
 
@@ -83,22 +98,65 @@ mod tests {
         let obs_dim = 4_i64;
         let num_actions = 3_i64;
         let obs = Tensor::randn(&[2, obs_dim], (Kind::Float, Device::Cpu));
+        let config = PpoConfig::default();
 
-        let (vs_orig, ac_orig) = make_ac(obs_dim, num_actions);
+        let (vs_orig, ac_orig) = make_ac_with_config(obs_dim, num_actions, &config);
         let outputs_before = forward_flat(&ac_orig, &obs);
 
         let path = std::env::temp_dir().join("trolly_gym_checkpoint_test.safetensors");
         save_checkpoint(&vs_orig, &path).expect("save_checkpoint failed");
 
-        let (mut vs_new, ac_new) = make_ac(obs_dim, num_actions);
+        let (mut vs_new, ac_new) = make_ac_with_config(obs_dim, num_actions, &config);
         load_checkpoint(&mut vs_new, &path).expect("load_checkpoint failed");
         let outputs_after = forward_flat(&ac_new, &obs);
 
-        assert_eq!(outputs_before.len(), outputs_after.len(), "output length mismatch");
+        assert_eq!(
+            outputs_before.len(),
+            outputs_after.len(),
+            "output length mismatch"
+        );
         for (i, (a, b)) in outputs_before.iter().zip(outputs_after.iter()).enumerate() {
             assert!(
                 (a - b).abs() < 1e-6,
                 "forward pass mismatch at index {i}: {a} != {b}"
+            );
+        }
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// LNN checkpoints use the same VarStore save/load path. The caller must
+    /// rebuild the matching architecture before loading, as documented above.
+    #[test]
+    fn liquid_checkpoint_round_trip_safetensors() {
+        let obs_dim = 4_i64;
+        let num_actions = 3_i64;
+        let obs = Tensor::randn(&[2, obs_dim], (Kind::Float, Device::Cpu));
+        let config = PpoConfig {
+            architecture: ActorCriticArchitecture::Liquid,
+            ppo_epochs: 1,
+            ..Default::default()
+        };
+
+        let (vs_orig, ac_orig) = make_ac_with_config(obs_dim, num_actions, &config);
+        let outputs_before = forward_flat(&ac_orig, &obs);
+
+        let path = std::env::temp_dir().join("trolly_gym_liquid_checkpoint_test.safetensors");
+        save_checkpoint(&vs_orig, &path).expect("save liquid checkpoint failed");
+
+        let (mut vs_new, ac_new) = make_ac_with_config(obs_dim, num_actions, &config);
+        load_checkpoint(&mut vs_new, &path).expect("load liquid checkpoint failed");
+        let outputs_after = forward_flat(&ac_new, &obs);
+
+        assert_eq!(
+            outputs_before.len(),
+            outputs_after.len(),
+            "output length mismatch"
+        );
+        for (i, (a, b)) in outputs_before.iter().zip(outputs_after.iter()).enumerate() {
+            assert!(
+                (a - b).abs() < 1e-6,
+                "liquid forward pass mismatch at index {i}: {a} != {b}"
             );
         }
 
@@ -112,18 +170,23 @@ mod tests {
         let obs_dim = 4_i64;
         let num_actions = 3_i64;
         let obs = Tensor::randn(&[2, obs_dim], (Kind::Float, Device::Cpu));
+        let config = PpoConfig::default();
 
-        let (vs_orig, ac_orig) = make_ac(obs_dim, num_actions);
+        let (vs_orig, ac_orig) = make_ac_with_config(obs_dim, num_actions, &config);
         let outputs_before = forward_flat(&ac_orig, &obs);
 
         let path = std::env::temp_dir().join("trolly_gym_checkpoint_test.ckpt");
         save_checkpoint(&vs_orig, &path).expect("save_checkpoint failed");
 
-        let (mut vs_new, ac_new) = make_ac(obs_dim, num_actions);
+        let (mut vs_new, ac_new) = make_ac_with_config(obs_dim, num_actions, &config);
         load_checkpoint(&mut vs_new, &path).expect("load_checkpoint failed");
         let outputs_after = forward_flat(&ac_new, &obs);
 
-        assert_eq!(outputs_before.len(), outputs_after.len(), "output length mismatch");
+        assert_eq!(
+            outputs_before.len(),
+            outputs_after.len(),
+            "output length mismatch"
+        );
         for (i, (a, b)) in outputs_before.iter().zip(outputs_after.iter()).enumerate() {
             assert!(
                 (a - b).abs() < 1e-6,
@@ -136,7 +199,7 @@ mod tests {
 
     #[test]
     fn load_nonexistent_file_returns_error() {
-        let (mut vs, _ac) = make_ac(4, 3);
+        let (mut vs, _ac) = make_ac_with_config(4, 3, &PpoConfig::default());
         let result = load_checkpoint(&mut vs, "/tmp/__trolly_gym_nonexistent_12345.safetensors");
         assert!(result.is_err(), "expected error for missing file");
     }

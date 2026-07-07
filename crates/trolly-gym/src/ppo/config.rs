@@ -1,5 +1,20 @@
 //! Hyperparameter structs for PPO and WoLF-PPO.
 
+/// Actor-critic network architecture used by PPO trainers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActorCriticArchitecture {
+    /// Existing shared MLP trunk with policy and value heads.
+    Mlp,
+    /// Liquid neural network cell with policy and value heads.
+    Liquid,
+}
+
+impl Default for ActorCriticArchitecture {
+    fn default() -> Self {
+        Self::Mlp
+    }
+}
+
 /// PPO hyperparameters.
 ///
 /// Defaults match a small-MLP regime suitable for matrix-game experiments:
@@ -14,9 +29,19 @@ pub struct PpoConfig {
     pub value_coef: f64,
     /// Gradient update epochs per rollout batch.
     pub ppo_epochs: usize,
-    /// Hidden layer sizes for the shared actor-critic MLP.
+    /// Actor-critic architecture. Defaults to the existing MLP.
+    pub architecture: ActorCriticArchitecture,
+    /// Hidden layer sizes for the shared actor-critic network.
+    ///
+    /// For [`ActorCriticArchitecture::Mlp`], every entry is a tanh MLP layer.
+    /// For [`ActorCriticArchitecture::Liquid`], the first entry is the liquid
+    /// state width and any remaining entries are tanh readout layers.
     /// Default `[20, 20]` per Ratcliffe et al. matrix-game experiments.
     pub hidden_sizes: Vec<i64>,
+    /// Fixed Euler-style liquid cell steps per forward pass.
+    ///
+    /// Ignored by the MLP architecture.
+    pub liquid_steps: usize,
     /// Base learning rate (PPO only; WoLF-PPO overrides with dual rates).
     pub lr: f64,
     /// Use Adam optimizer when true; SGD is the default.
@@ -30,7 +55,9 @@ impl Default for PpoConfig {
             entropy_coef: 0.01,
             value_coef: 0.5,
             ppo_epochs: 4,
+            architecture: ActorCriticArchitecture::Mlp,
             hidden_sizes: vec![20, 20],
+            liquid_steps: 4,
             lr: 0.01,
             use_adam: false,
         }
@@ -51,7 +78,7 @@ impl Default for PpoConfig {
 /// Ratio constraint: `α_WIN = α_LOSE / 4`.
 #[derive(Debug, Clone)]
 pub struct WolfPpoConfig {
-    /// Base PPO config (shared MLP architecture and loss coefficients).
+    /// Base PPO config (actor-critic architecture and loss coefficients).
     pub ppo: PpoConfig,
     /// Learning rate when losing (current payoff ≤ rolling estimate).
     pub alpha_lose: f64,
