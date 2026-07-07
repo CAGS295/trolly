@@ -13,7 +13,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: 2026-07-06
+- last_run: 2026-07-07
 - max_parallel: 3
 - ship_branch: integrate/orchestrator-branches
 
@@ -377,7 +377,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-021 — Liquid Neural Network policy head (`trolly-gym`)
 
-- status: in_progress
+- status: done
 - repos: trolly
 - depends_on: [WP-018, WP-019, WP-020]
 - scope: crates/trolly-gym/src/ (new LNN actor-critic module), crates/trolly-gym/tests/matrix_games.rs, crates/trolly-gym/README.md
@@ -389,7 +389,10 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - checkpoint save/load round-trip works for LNN weights (architecture metadata sidecar or equivalent)
   - `cargo test -p trolly-gym --features torch` includes LNN smoke tests; default `cargo test -p trolly-gym` unchanged
   - README documents LNN vs MLP trade-offs, selection API, and how to run parallel training
-- notes: LNN is exploratory — do not remove or replace the MLP model. Primary validation remains the WP-019 matrix-game harness before stream-backed trading policies. Parallel training means independent experiment configs/seeds, not necessarily a single multi-GPU job.
+- notes: |
+    LNN is exploratory — do not remove or replace the MLP model. Primary validation remains the WP-019 matrix-game harness before stream-backed trading policies. Parallel training means independent experiment configs/seeds, not necessarily a single multi-GPU job.
+    Worker/orchestrator (2026-07-07): added selectable `ActorCriticArchitecture::{Mlp,Liquid}`, fixed-step `LiquidActorCritic`, LNN checkpoint round-trip, train-driver smoke, matrix-game LNN correctness coverage across Matching Pennies + RPS, and ignored LNN trend benchmark. Updated stale torch train-loop integration test to current `ppo`/`train` APIs.
+    Acceptance: `cargo test -p trolly-gym` passes. `cargo +stable test -p trolly-gym --features torch --locked` passes with `LIBTORCH_USE_PYTORCH=1`, `LIBTORCH_BYPASS_VERSION_CHECK=1`, `CXX=g++`, PyTorch 2.3.0, and `LD_LIBRARY_PATH` pointing at Python torch libs (VM default Cargo 1.83 lacks edition-2024 support for locked `time-core`; VM default `c++`/latest PyTorch were incompatible with `torch-sys 0.16.1`).
 
 ## Integration test reference
 

@@ -7,6 +7,7 @@ Project journal for shipped work. Active backlog lives in [`WORKPLAN.md`](WORKPL
 - Add more exchange providers beyond Binance spot + USDM (stub scaffold landed; full venues remain).
 
 ## change log
++ `trolly-gym`: Liquid Neural Network actor-critic backend for WoLF-PPO, LNN matrix-game/checkpoint/train-loop smoke coverage, and MLP-vs-LNN docs (WP-021).
 + Orchestrator run (2026-07-06): ready set empty — WP-001–WP-020 all done; no worker wave scheduled.
 + Orchestrator run (2026-07-05): ready set empty — WP-001–WP-020 all done; no worker wave scheduled.
 + Orchestrator run (2026-07-04): ready set empty — WP-001–WP-020 all done; no worker wave scheduled.
