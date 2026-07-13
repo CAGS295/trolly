@@ -34,9 +34,18 @@
 //! load_checkpoint(&mut trainer2.vs, "/tmp/model.safetensors").unwrap();
 //! ```
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use tch::nn;
+
+/// Primary row-player / policy checkpoint written after each update.
+pub const LATEST_CHECKPOINT: &str = "latest.safetensors";
+/// Opponent checkpoint for two-player self-play resume.
+pub const LATEST_OPPONENT_CHECKPOINT: &str = "latest_opponent.safetensors";
+/// Copy of the latest weights at the end of a timed run.
+pub const FINAL_CHECKPOINT: &str = "final.safetensors";
+/// Matrix-game alias kept for existing snapshot paths.
+pub const FINAL_ROW_CHECKPOINT: &str = "final_row_player.safetensors";
 
 /// Save all named variables in `vs` to `path`.
 ///
@@ -55,6 +64,28 @@ pub fn save_checkpoint(vs: &nn::VarStore, path: impl AsRef<Path>) -> Result<(), 
 /// all other extensions use the libtorch C++ module format.
 pub fn load_checkpoint(vs: &mut nn::VarStore, path: impl AsRef<Path>) -> Result<(), tch::TchError> {
     vs.load(path)
+}
+
+/// Load weights when `path` exists; returns whether a checkpoint was applied.
+pub fn load_checkpoint_if_exists(vs: &mut nn::VarStore, path: impl AsRef<Path>) -> bool {
+    let path = path.as_ref();
+    if !path.exists() {
+        return false;
+    }
+    load_checkpoint(vs, path).expect("load existing checkpoint");
+    true
+}
+
+/// Prefer `latest.safetensors`, then `final.safetensors`, then `final_row_player.safetensors`.
+pub fn resolve_resume_checkpoint(dir: impl AsRef<Path>) -> Option<PathBuf> {
+    let dir = dir.as_ref();
+    for name in [LATEST_CHECKPOINT, FINAL_CHECKPOINT, FINAL_ROW_CHECKPOINT] {
+        let path = dir.join(name);
+        if path.exists() {
+            return Some(path);
+        }
+    }
+    None
 }
 
 #[cfg(test)]

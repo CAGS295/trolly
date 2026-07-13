@@ -36,5 +36,5 @@ pub use metrics::euclidean_distance_to_nes;
 pub use rock_paper_scissors::{rps_standard, rps_weighted};
 pub use trainer::{
     run_ppo_self_play, run_wolf_ppo_self_play, run_wolf_ppo_self_play_with_checkpoints,
-    SelfPlayConfig, SelfPlayResult,
+    SelfPlayConfig, SelfPlayResult, WolfPpoSelfPlaySession,
 };

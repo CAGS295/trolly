@@ -1,5 +1,8 @@
 //! Time-bounded microstructure training with checkpoint snapshots.
 //!
+//! Trains both MLP and Liquid (LNN) backends on the synthetic order-book env.
+//! Each run resumes from `latest.safetensors` when present.
+//!
 //! ```bash
 //! export LIBTORCH=/path/to/libtorch
 //! export LD_LIBRARY_PATH=$LIBTORCH/lib:$LD_LIBRARY_PATH
@@ -9,18 +12,19 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use trolly_gym::ppo::{ActorCriticArchitecture, PpoConfig, WolfPpoConfig};
 use trolly_gym::sim::MicrostructureConfig;
 use trolly_gym::train::{
-    run_microstructure_train_with_checkpoints, MicrostructureTrainConfig, TrainDriverConfig,
+    checkpoint::LATEST_CHECKPOINT, MicrostructureTrainConfig, MicrostructureTrainSession,
+    TrainDriverConfig,
 };
-use trolly_gym::ppo::WolfPpoConfig;
 
 fn main() {
     let duration = Duration::from_secs(
         std::env::var("TRAIN_DURATION_SECS")
             .ok()
             .and_then(|s| s.parse().ok())
-            .unwrap_or(60),
+            .unwrap_or(90),
     );
     let root: PathBuf = std::env::var("CHECKPOINT_DIR")
         .map(PathBuf::from)
@@ -36,37 +40,67 @@ fn main() {
         ..Default::default()
     };
 
-    let start = Instant::now();
-    let mut update = 0_u64;
-
-    println!(
-        "=== microstructure: training for {}s (obs_dim={}) ===",
-        duration.as_secs(),
-        driver.obs_dim
-    );
-
-    while start.elapsed() < duration {
-        let batch_dir = root.join(format!("update_{update:04}"));
-        let (_metrics, stats, paths) = run_microstructure_train_with_checkpoints(
-            MicrostructureTrainConfig {
-                sim: sim.clone(),
-                driver: driver.clone(),
-                wolf: WolfPpoConfig::default(),
-                num_updates: 1,
-                checkpoint_dir: Some(batch_dir.clone()),
-            },
-        );
-        update += 1;
-        if let Some(last) = stats.last() {
-            println!(
-                "  update {update}: reward={:.4} steps={} pos={} checkpoint={}",
-                last.total_reward,
-                last.steps,
-                last.final_position,
-                paths[0].display(),
-            );
-        }
+    for (architecture, arch_name) in [
+        (ActorCriticArchitecture::Mlp, "mlp"),
+        (ActorCriticArchitecture::Liquid, "liquid"),
+    ] {
+        train_arch_timed(arch_name, architecture, &sim, &driver, duration, &root);
     }
 
     println!("Done. Checkpoints under {}", root.display());
+}
+
+fn train_arch_timed(
+    arch_name: &str,
+    architecture: ActorCriticArchitecture,
+    sim: &MicrostructureConfig,
+    driver: &TrainDriverConfig,
+    duration: Duration,
+    root: &PathBuf,
+) {
+    let out_root = root.join(arch_name);
+    std::fs::create_dir_all(&out_root).expect("create arch checkpoint dir");
+
+    let wolf = WolfPpoConfig {
+        ppo: PpoConfig {
+            architecture,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let train_config = MicrostructureTrainConfig {
+        sim: sim.clone(),
+        driver: driver.clone(),
+        wolf,
+        num_updates: 1,
+        checkpoint_dir: Some(out_root.clone()),
+    };
+
+    let resumed = out_root.join(LATEST_CHECKPOINT).exists();
+    let mut session = MicrostructureTrainSession::resume_from(&out_root, &train_config);
+
+    let start = Instant::now();
+
+    println!(
+        "=== microstructure/{arch_name}: training for {}s (obs_dim={}, {}) ===",
+        duration.as_secs(),
+        driver.obs_dim,
+        if resumed { "resumed" } else { "fresh" },
+    );
+
+    while start.elapsed() < duration {
+        let (_metrics, stats) = session.train_step();
+        session.save_checkpoint(&out_root, false);
+        println!(
+            "  update {}: reward={:.4} steps={} pos={}",
+            session.update_count,
+            stats.total_reward,
+            stats.steps,
+            stats.final_position,
+        );
+    }
+
+    session.finalize_checkpoints(&out_root);
+    println!("  final snapshot: {}/final.safetensors", out_root.display());
 }

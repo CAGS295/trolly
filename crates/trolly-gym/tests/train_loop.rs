@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use trolly_gym::games::{
     matching_pennies::{matching_pennies_weighted, WEIGHTED_NES},
-    run_wolf_ppo_self_play_with_checkpoints, SelfPlayConfig,
+    run_wolf_ppo_self_play_with_checkpoints, SelfPlayConfig, WolfPpoSelfPlaySession,
 };
 use trolly_gym::ppo::{ActorCritic, ActorCriticArchitecture, PpoConfig, WolfPpoConfig};
 use trolly_gym::train::{
@@ -198,6 +198,51 @@ fn short_matrix_game_train_saves_checkpoints() {
     assert_eq!(result.distances_per_update.len(), 3);
 
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn matrix_session_resumes_continuous_training() {
+    use tch::{Device, Kind, Tensor};
+
+    let game = matching_pennies_weighted();
+    let nes = &WEIGHTED_NES;
+    let config = SelfPlayConfig {
+        num_updates: 5,
+        batch_size: 8,
+        ppo_config: PpoConfig {
+            ppo_epochs: 1,
+            ..Default::default()
+        },
+    };
+    let wolf = WolfPpoConfig::default();
+    let dir = temp_dir("matrix_session_resume");
+
+    let mut first = WolfPpoSelfPlaySession::new(&game, &config, wolf.clone());
+    first.run_updates(&game, nes, 5, &dir, false);
+    let probs_after_first = policy_probs_from_session(&first);
+
+    let resumed = WolfPpoSelfPlaySession::resume_from(&dir, &game, &config, wolf.clone());
+    let probs_resumed = policy_probs_from_session(&resumed);
+    assert_eq!(probs_resumed, probs_after_first);
+
+    let mut continued = resumed;
+    continued.run_updates(&game, nes, 5, &dir, false);
+    let probs_after_more = policy_probs_from_session(&continued);
+    assert_ne!(probs_after_more, probs_resumed);
+    assert!(dir.join("latest.safetensors").exists());
+    assert!(dir.join("latest_opponent.safetensors").exists());
+
+    let _ = std::fs::remove_dir_all(&dir);
+
+    fn policy_probs_from_session(session: &WolfPpoSelfPlaySession) -> Vec<f64> {
+        let obs = Tensor::zeros(&[1, 1], (Kind::Float, Device::Cpu));
+        let (logits, _) = session.p1.inner.actor_critic.forward(&obs);
+        let probs = logits.softmax(-1, Kind::Float).squeeze();
+        let n = probs.size()[0] as usize;
+        (0..n)
+            .map(|i| probs.double_value(&[i as i64]))
+            .collect()
+    }
 }
 
 #[test]

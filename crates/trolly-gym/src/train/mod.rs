@@ -39,10 +39,13 @@ pub mod microstructure;
 pub mod rollout;
 pub mod smoke;
 
-pub use checkpoint::{load_checkpoint, save_checkpoint};
+pub use checkpoint::{
+    load_checkpoint, load_checkpoint_if_exists, resolve_resume_checkpoint, save_checkpoint,
+    FINAL_CHECKPOINT, FINAL_ROW_CHECKPOINT, LATEST_CHECKPOINT, LATEST_OPPONENT_CHECKPOINT,
+};
 pub use driver::{TrainDriverConfig, TrainMetrics, WolfPpoTrainDriver};
 pub use rollout::{OnPolicyTransition, RolloutCollector, StepOutput, compute_gae};
 pub use microstructure::{
-    run_microstructure_train_with_checkpoints, MicrostructureTrainConfig,
+    run_microstructure_train_with_checkpoints, MicrostructureTrainConfig, MicrostructureTrainSession,
 };
 pub use smoke::{smoke_train_loop, SmokeTrainConfig};

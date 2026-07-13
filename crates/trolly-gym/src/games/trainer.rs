@@ -25,7 +25,10 @@ use std::path::{Path, PathBuf};
 use tch::{Device, Kind, Tensor};
 
 use crate::ppo::{ActorCritic, PpoConfig, PpoTrainer, RolloutBatch, WolfPpoConfig, WolfPpoTrainer};
-use crate::train::checkpoint::save_checkpoint;
+use crate::train::checkpoint::{
+    load_checkpoint_if_exists, resolve_resume_checkpoint, save_checkpoint, FINAL_CHECKPOINT,
+    FINAL_ROW_CHECKPOINT, LATEST_CHECKPOINT, LATEST_OPPONENT_CHECKPOINT,
+};
 use super::matrix_game::MatrixGame;
 use super::metrics::euclidean_distance_to_nes;
 
@@ -138,6 +141,9 @@ pub fn run_wolf_ppo_self_play(
 ///
 /// Checkpoints are written to `{checkpoint_dir}/update_{n}.safetensors`.
 /// Returns the training result and the list of checkpoint paths.
+///
+/// Each call starts from scratch. For continuous training across timed loops,
+/// use [`WolfPpoSelfPlaySession`].
 pub fn run_wolf_ppo_self_play_with_checkpoints(
     game: &MatrixGame,
     nes: &[f64],
@@ -148,38 +154,124 @@ pub fn run_wolf_ppo_self_play_with_checkpoints(
     let checkpoint_dir = checkpoint_dir.as_ref();
     std::fs::create_dir_all(checkpoint_dir).expect("create checkpoint dir");
 
-    let num_actions = game.num_row_actions as i64;
-    let mut p1 = WolfPpoTrainer::new(OBS_DIM, num_actions, wolf_config.clone());
-    let mut p2 = WolfPpoTrainer::new(OBS_DIM, num_actions, wolf_config);
-    let mut distances = Vec::with_capacity(config.num_updates);
-    let mut checkpoint_paths = Vec::with_capacity(config.num_updates);
+    let mut session = WolfPpoSelfPlaySession::new(game, &config, wolf_config);
+    let distances = session.run_updates(game, nes, config.num_updates, checkpoint_dir, true);
+    let checkpoint_paths: Vec<PathBuf> = (0..config.num_updates)
+        .map(|update| checkpoint_dir.join(format!("update_{update}.safetensors")))
+        .collect();
 
-    for update in 0..config.num_updates {
-        let (batch1, batch2) = collect_rollout(
-            game,
-            &p1.inner.actor_critic,
-            &p2.inner.actor_critic,
-            config.batch_size,
-        );
+    (to_result(&session.p1.inner.actor_critic, distances), checkpoint_paths)
+}
 
-        let p1_return = batch1.returns.mean(Kind::Float).double_value(&[]);
-        let p2_return = batch2.returns.mean(Kind::Float).double_value(&[]);
+/// Long-lived WoLF-PPO self-play session that can resume from checkpoints.
+///
+/// Saves `latest.safetensors` (row player) and `latest_opponent.safetensors`
+/// after each update. On resume, loads both when present.
+pub struct WolfPpoSelfPlaySession {
+    pub p1: WolfPpoTrainer,
+    pub p2: WolfPpoTrainer,
+    batch_size: usize,
+    pub update_count: usize,
+}
 
-        p1.policy_update(&batch1, p1_return);
-        p2.policy_update(&batch2, p2_return);
-
-        let probs = policy_probs(&p1.inner.actor_critic);
-        distances.push(euclidean_distance_to_nes(&probs, nes));
-
-        let path = checkpoint_dir.join(format!("update_{update}.safetensors"));
-        save_checkpoint(&p1.inner.vs, &path).expect("save matrix-game checkpoint");
-        checkpoint_paths.push(path);
+impl WolfPpoSelfPlaySession {
+    /// Create a fresh session with new row and column players.
+    pub fn new(
+        game: &MatrixGame,
+        config: &SelfPlayConfig,
+        wolf_config: WolfPpoConfig,
+    ) -> Self {
+        let num_actions = game.num_row_actions as i64;
+        Self {
+            p1: WolfPpoTrainer::new(OBS_DIM, num_actions, wolf_config.clone()),
+            p2: WolfPpoTrainer::new(OBS_DIM, num_actions, wolf_config),
+            batch_size: config.batch_size,
+            update_count: 0,
+        }
     }
 
-    (
-        to_result(&p1.inner.actor_critic, distances),
-        checkpoint_paths,
-    )
+    /// Create a session and load `latest` / `final` row weights plus opponent
+    /// weights from `checkpoint_dir` when those files exist.
+    pub fn resume_from(
+        checkpoint_dir: impl AsRef<Path>,
+        game: &MatrixGame,
+        config: &SelfPlayConfig,
+        wolf_config: WolfPpoConfig,
+    ) -> Self {
+        let checkpoint_dir = checkpoint_dir.as_ref();
+        std::fs::create_dir_all(checkpoint_dir).expect("create checkpoint dir");
+        let mut session = Self::new(game, config, wolf_config);
+        if let Some(path) = resolve_resume_checkpoint(checkpoint_dir) {
+            load_checkpoint_if_exists(&mut session.p1.inner.vs, &path);
+        }
+        let opponent = checkpoint_dir.join(LATEST_OPPONENT_CHECKPOINT);
+        load_checkpoint_if_exists(&mut session.p2.inner.vs, &opponent);
+        session
+    }
+
+    /// Run `num_updates` policy updates, optionally saving numbered checkpoints.
+    ///
+    /// Always writes `latest.safetensors` and `latest_opponent.safetensors`.
+    pub fn run_updates(
+        &mut self,
+        game: &MatrixGame,
+        nes: &[f64],
+        num_updates: usize,
+        checkpoint_dir: &Path,
+        save_numbered: bool,
+    ) -> Vec<f64> {
+        std::fs::create_dir_all(checkpoint_dir).expect("create checkpoint dir");
+        let mut distances = Vec::with_capacity(num_updates);
+
+        for _ in 0..num_updates {
+            let (batch1, batch2) = collect_rollout(
+                game,
+                &self.p1.inner.actor_critic,
+                &self.p2.inner.actor_critic,
+                self.batch_size,
+            );
+
+            let p1_return = batch1.returns.mean(Kind::Float).double_value(&[]);
+            let p2_return = batch2.returns.mean(Kind::Float).double_value(&[]);
+
+            self.p1.policy_update(&batch1, p1_return);
+            self.p2.policy_update(&batch2, p2_return);
+
+            let probs = policy_probs(&self.p1.inner.actor_critic);
+            distances.push(euclidean_distance_to_nes(&probs, nes));
+            self.update_count += 1;
+
+            if save_numbered {
+                let path = checkpoint_dir
+                    .join(format!("update_{}.safetensors", self.update_count - 1));
+                save_checkpoint(&self.p1.inner.vs, &path).expect("save numbered checkpoint");
+            }
+
+            save_checkpoint(
+                &self.p1.inner.vs,
+                &checkpoint_dir.join(LATEST_CHECKPOINT),
+            )
+            .expect("save latest row checkpoint");
+            save_checkpoint(
+                &self.p2.inner.vs,
+                &checkpoint_dir.join(LATEST_OPPONENT_CHECKPOINT),
+            )
+            .expect("save latest opponent checkpoint");
+        }
+
+        distances
+    }
+
+    /// Copy latest row weights to `final.safetensors` and `final_row_player.safetensors`.
+    pub fn finalize_checkpoints(&self, checkpoint_dir: &Path) {
+        let latest = checkpoint_dir.join(LATEST_CHECKPOINT);
+        if !latest.exists() {
+            return;
+        }
+        for name in [FINAL_CHECKPOINT, FINAL_ROW_CHECKPOINT] {
+            std::fs::copy(&latest, checkpoint_dir.join(name)).expect("copy final checkpoint");
+        }
+    }
 }
 
 // ── Internal helpers ─────────────────────────────────────────────────────────

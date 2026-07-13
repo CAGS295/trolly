@@ -1,12 +1,15 @@
 //! WoLF-PPO training on [`MicrostructureSim`](crate::sim::MicrostructureSim).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use crate::ppo::WolfPpoConfig;
+use crate::ppo::{ActorCritic, WolfPpoConfig};
 use crate::replay::action_from_index;
 use crate::sim::{MicrostructureConfig, MicrostructureSim, MicrostructureStats};
 
-use super::checkpoint::save_checkpoint;
+use super::checkpoint::{
+    load_checkpoint_if_exists, resolve_resume_checkpoint, save_checkpoint, FINAL_CHECKPOINT,
+    LATEST_CHECKPOINT,
+};
 use super::driver::{TrainDriverConfig, TrainMetrics, WolfPpoTrainDriver};
 use super::rollout::StepOutput;
 
@@ -38,29 +41,46 @@ impl Default for MicrostructureTrainConfig {
     }
 }
 
-/// Train on [`MicrostructureSim`] and save row-player weights after each update.
-pub fn run_microstructure_train_with_checkpoints(
-    config: MicrostructureTrainConfig,
-) -> (Vec<TrainMetrics>, Vec<MicrostructureStats>, Vec<PathBuf>) {
-    let checkpoint_dir = config.checkpoint_dir.unwrap_or_else(|| {
-        std::env::temp_dir().join(format!(
-            "trolly_gym_microstructure_{}",
-            std::process::id()
-        ))
-    });
-    std::fs::create_dir_all(&checkpoint_dir).expect("create checkpoint dir");
+/// Long-lived microstructure training session with checkpoint resume.
+pub struct MicrostructureTrainSession {
+    driver: WolfPpoTrainDriver,
+    sim_config: MicrostructureConfig,
+    pub update_count: usize,
+}
 
-    let mut sim = MicrostructureSim::new(config.sim.clone());
-    let mut driver = WolfPpoTrainDriver::new(config.driver.clone(), config.wolf.clone());
-    let mut metrics_log = Vec::with_capacity(config.num_updates);
-    let mut stats_log = Vec::with_capacity(config.num_updates);
-    let mut checkpoint_paths = Vec::with_capacity(config.num_updates);
+impl MicrostructureTrainSession {
+    /// Create a fresh driver and simulation config.
+    pub fn new(config: &MicrostructureTrainConfig) -> Self {
+        Self {
+            driver: WolfPpoTrainDriver::new(config.driver.clone(), config.wolf.clone()),
+            sim_config: config.sim.clone(),
+            update_count: 0,
+        }
+    }
 
-    for update in 0..config.num_updates {
+    /// Create a session and load weights from `checkpoint_dir` when present.
+    pub fn resume_from(checkpoint_dir: impl AsRef<Path>, config: &MicrostructureTrainConfig) -> Self {
+        let checkpoint_dir = checkpoint_dir.as_ref();
+        std::fs::create_dir_all(checkpoint_dir).expect("create checkpoint dir");
+        let mut session = Self::new(config);
+        if let Some(path) = resolve_resume_checkpoint(checkpoint_dir) {
+            load_checkpoint_if_exists(&mut session.driver.trainer.inner.vs, &path);
+        }
+        session
+    }
+
+    /// Borrow the inner actor-critic for inference or tests.
+    pub fn actor_critic(&self) -> &ActorCritic {
+        self.driver.actor_critic()
+    }
+
+    /// Run one collect-and-update step on a fresh episode.
+    pub fn train_step(&mut self) -> (TrainMetrics, MicrostructureStats) {
+        let mut sim = MicrostructureSim::new(self.sim_config.clone());
         let mut obs = sim.reset();
         let mut last_stats = MicrostructureStats::default();
 
-        let metrics = driver.train_step(
+        let metrics = self.driver.train_step(
             obs.clone(),
             |current_obs, action_idx| {
                 let _ = current_obs;
@@ -81,12 +101,63 @@ pub fn run_microstructure_train_with_checkpoints(
             None,
         );
 
-        metrics_log.push(metrics);
-        stats_log.push(last_stats);
+        self.update_count += 1;
+        (metrics, last_stats)
+    }
 
-        let path = checkpoint_dir.join(format!("update_{update}.safetensors"));
-        save_checkpoint(&driver.trainer.inner.vs, &path).expect("save microstructure checkpoint");
-        checkpoint_paths.push(path);
+    /// Persist latest weights and optionally a numbered snapshot.
+    pub fn save_checkpoint(&self, checkpoint_dir: &Path, save_numbered: bool) {
+        std::fs::create_dir_all(checkpoint_dir).expect("create checkpoint dir");
+        if save_numbered {
+            let path = checkpoint_dir.join(format!("update_{}.safetensors", self.update_count - 1));
+            save_checkpoint(&self.driver.trainer.inner.vs, &path)
+                .expect("save numbered microstructure checkpoint");
+        }
+        save_checkpoint(
+            &self.driver.trainer.inner.vs,
+            &checkpoint_dir.join(LATEST_CHECKPOINT),
+        )
+        .expect("save latest microstructure checkpoint");
+    }
+
+    /// Copy `latest.safetensors` to `final.safetensors`.
+    pub fn finalize_checkpoints(&self, checkpoint_dir: &Path) {
+        let latest = checkpoint_dir.join(LATEST_CHECKPOINT);
+        if !latest.exists() {
+            return;
+        }
+        std::fs::copy(&latest, checkpoint_dir.join(FINAL_CHECKPOINT)).expect("copy final checkpoint");
+    }
+}
+
+/// Train on [`MicrostructureSim`] and save row-player weights after each update.
+///
+/// Resumes from existing checkpoints in `checkpoint_dir` when present.
+pub fn run_microstructure_train_with_checkpoints(
+    config: MicrostructureTrainConfig,
+) -> (Vec<TrainMetrics>, Vec<MicrostructureStats>, Vec<PathBuf>) {
+    let checkpoint_dir = config
+        .checkpoint_dir
+        .clone()
+        .unwrap_or_else(|| {
+            std::env::temp_dir().join(format!(
+                "trolly_gym_microstructure_{}",
+                std::process::id()
+            ))
+        });
+    let mut session = MicrostructureTrainSession::resume_from(&checkpoint_dir, &config);
+    let mut metrics_log = Vec::with_capacity(config.num_updates);
+    let mut stats_log = Vec::with_capacity(config.num_updates);
+    let mut checkpoint_paths = Vec::with_capacity(config.num_updates);
+
+    for _ in 0..config.num_updates {
+        let (metrics, stats) = session.train_step();
+        metrics_log.push(metrics);
+        stats_log.push(stats);
+        session.save_checkpoint(&checkpoint_dir, true);
+        checkpoint_paths.push(
+            checkpoint_dir.join(format!("update_{}.safetensors", session.update_count - 1)),
+        );
     }
 
     (metrics_log, stats_log, checkpoint_paths)
