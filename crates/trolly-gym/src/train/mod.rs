@@ -50,8 +50,9 @@ pub use microstructure::{
     run_microstructure_train_with_checkpoints, MicrostructureTrainConfig, MicrostructureTrainSession,
 };
 pub use microstructure_completion::{
-    baseline_meets_criteria, evaluate_policy_greedy, MicrostructureCompletionCriteria,
-    MicrostructureCompletionRecord, MicrostructureCompletionState, MicrostructureEvalSummary,
-    COMPLETED_MARKER,
+    baseline_meets_criteria, evaluate_policy_greedy, refresh_completed_manifest,
+    CompletedModelEntry, MicrostructureCompletionCriteria, MicrostructureCompletionRecord,
+    MicrostructureCompletionState, MicrostructureEvalSummary, TrainingCompletedManifest,
+    COMPLETED_MARKER, COMPLETED_MODELS_MANIFEST,
 };
 pub use smoke::{smoke_train_loop, SmokeTrainConfig};

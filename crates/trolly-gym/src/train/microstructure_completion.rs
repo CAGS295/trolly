@@ -15,6 +15,9 @@ use crate::sim::{
 /// Sidecar written when a model satisfies completion criteria.
 pub const COMPLETED_MARKER: &str = "completed.json";
 
+/// Aggregated list of all completed models under a checkpoint root.
+pub const COMPLETED_MODELS_MANIFEST: &str = "completed_models.json";
+
 /// Thresholds and eval protocol for declaring a model trained.
 #[derive(Debug, Clone)]
 pub struct MicrostructureCompletionCriteria {
@@ -124,6 +127,65 @@ pub struct MicrostructureCompletionRecord {
     pub eval_std: f32,
     pub update_count: usize,
     pub eval_seeds: Vec<u64>,
+}
+
+/// One entry in the aggregated completed-models manifest.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CompletedModelEntry {
+    pub benchmark: String,
+    pub architecture: String,
+    pub checkpoint_dir: String,
+    #[serde(flatten)]
+    pub record: MicrostructureCompletionRecord,
+}
+
+/// All completed microstructure models under a checkpoint tree.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TrainingCompletedManifest {
+    pub updated_at: String,
+    pub models: Vec<CompletedModelEntry>,
+}
+
+/// Scan `checkpoints_root` and rewrite `completed_models.json`.
+pub fn refresh_completed_manifest(checkpoints_root: impl AsRef<Path>) {
+    let checkpoints_root = checkpoints_root.as_ref();
+    let micro_root = checkpoints_root.join("microstructure_train");
+    let mut models = Vec::new();
+
+    for arch in ["mlp", "liquid"] {
+        let dir = micro_root.join(arch);
+        if let Some(record) = MicrostructureCompletionState::load_marker(&dir) {
+            if record.completed {
+                models.push(CompletedModelEntry {
+                    benchmark: "microstructure".into(),
+                    architecture: arch.into(),
+                    checkpoint_dir: dir.display().to_string(),
+                    record,
+                });
+            }
+        }
+    }
+
+    models.sort_by(|a, b| {
+        (&a.benchmark, &a.architecture).cmp(&(&b.benchmark, &b.architecture))
+    });
+
+    let manifest = TrainingCompletedManifest {
+        updated_at: chrono_lite_timestamp(),
+        models,
+    };
+    let path = checkpoints_root.join(COMPLETED_MODELS_MANIFEST);
+    let text = serde_json::to_string_pretty(&manifest).expect("serialize completed_models.json");
+    std::fs::write(path, text).expect("write completed_models.json");
+}
+
+fn chrono_lite_timestamp() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    format!("{secs}")
 }
 
 /// Tracks eval history and completion state for a training session.

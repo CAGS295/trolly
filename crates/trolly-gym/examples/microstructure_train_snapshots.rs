@@ -21,8 +21,9 @@ use std::time::{Duration, Instant};
 use trolly_gym::ppo::{ActorCriticArchitecture, PpoConfig, WolfPpoConfig};
 use trolly_gym::sim::MicrostructureConfig;
 use trolly_gym::train::{
-    checkpoint::LATEST_CHECKPOINT, MicrostructureCompletionCriteria, MicrostructureTrainConfig,
-    MicrostructureTrainSession, TrainDriverConfig, COMPLETED_MARKER,
+    checkpoint::LATEST_CHECKPOINT, refresh_completed_manifest, MicrostructureCompletionCriteria,
+    MicrostructureTrainConfig, MicrostructureTrainSession, TrainDriverConfig, COMPLETED_MARKER,
+    COMPLETED_MODELS_MANIFEST,
 };
 
 fn main() {
@@ -65,6 +66,14 @@ fn main() {
     ] {
         train_arch_timed(arch_name, architecture, &sim, &driver, duration, &root);
     }
+
+    let manifest_root = root.parent().unwrap_or(&root);
+    refresh_completed_manifest(manifest_root);
+    println!(
+        "Completed manifest: {}/{}",
+        manifest_root.display(),
+        COMPLETED_MODELS_MANIFEST
+    );
 
     println!("Done. Checkpoints under {}", root.display());
 }

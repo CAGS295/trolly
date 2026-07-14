@@ -146,6 +146,40 @@ fn session_skips_training_when_completed_marker_present() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[test]
+fn refresh_completed_manifest_lists_markers() {
+    use trolly_gym::train::{refresh_completed_manifest, COMPLETED_MODELS_MANIFEST};
+
+    let root = temp_dir("microstructure_manifest");
+    let mlp_dir = root.join("microstructure_train").join("mlp");
+    std::fs::create_dir_all(&mlp_dir).expect("create mlp dir");
+    let record = MicrostructureCompletionRecord {
+        completed: true,
+        tier: "drift".into(),
+        mean_eval_reward: 11.5,
+        oracle_reward: 12.3,
+        hold_baseline_reward: 0.0,
+        mean_trades: 1.0,
+        eval_std: 0.0,
+        update_count: 20,
+        eval_seeds: vec![2000],
+    };
+    std::fs::write(
+        mlp_dir.join(COMPLETED_MARKER),
+        serde_json::to_string_pretty(&record).expect("serialize"),
+    )
+    .expect("write marker");
+
+    refresh_completed_manifest(&root);
+    let manifest_path = root.join(COMPLETED_MODELS_MANIFEST);
+    assert!(manifest_path.exists());
+    let text = std::fs::read_to_string(&manifest_path).expect("read manifest");
+    assert!(text.contains("microstructure"));
+    assert!(text.contains("mlp"));
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 fn temp_dir(label: &str) -> PathBuf {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

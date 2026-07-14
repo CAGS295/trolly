@@ -163,6 +163,9 @@ impl MicrostructureTrainSession {
                     MicrostructureCompletionCriteria::tier_name(&self.sim_config).into();
             }
             self.completion.save_marker(checkpoint_dir);
+            if let Some(parent) = checkpoint_dir.parent().and_then(|p| p.parent()) {
+                super::microstructure_completion::refresh_completed_manifest(parent);
+            }
         }
         Some((summary, completed))
     }
