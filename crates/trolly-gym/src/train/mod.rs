@@ -36,6 +36,7 @@
 pub mod checkpoint;
 pub mod driver;
 pub mod microstructure;
+pub mod microstructure_completion;
 pub mod rollout;
 pub mod smoke;
 
@@ -47,5 +48,10 @@ pub use driver::{TrainDriverConfig, TrainMetrics, WolfPpoTrainDriver};
 pub use rollout::{OnPolicyTransition, RolloutCollector, StepOutput, compute_gae};
 pub use microstructure::{
     run_microstructure_train_with_checkpoints, MicrostructureTrainConfig, MicrostructureTrainSession,
+};
+pub use microstructure_completion::{
+    baseline_meets_criteria, evaluate_policy_greedy, MicrostructureCompletionCriteria,
+    MicrostructureCompletionRecord, MicrostructureCompletionState, MicrostructureEvalSummary,
+    COMPLETED_MARKER,
 };
 pub use smoke::{smoke_train_loop, SmokeTrainConfig};

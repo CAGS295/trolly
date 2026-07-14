@@ -68,6 +68,112 @@ pub struct MicrostructureStats {
     pub final_position: i8,
 }
 
+/// Eval stats including position-change count (for completion checks).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct MicrostructureEvalStats {
+    pub total_reward: f32,
+    pub steps: usize,
+    pub trades: usize,
+    pub final_position: i8,
+}
+
+/// Fixed baseline policies for oracle / hold comparisons.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BaselinePolicy {
+    Hold,
+    Long,
+    Short,
+    Oracle,
+    Random,
+}
+
+/// Analytic oracle reward: enter once in the drift direction, then hold.
+pub fn oracle_reward_estimate(config: &MicrostructureConfig) -> f32 {
+    if config.mid_drift.abs() <= f32::EPSILON {
+        0.0
+    } else {
+        config.episode_steps as f32 * config.mid_drift.abs() - config.trade_cost
+    }
+}
+
+/// Run a full episode with a baseline policy and eval seed.
+pub fn run_baseline_episode(
+    config: &MicrostructureConfig,
+    seed: u64,
+    policy: BaselinePolicy,
+) -> MicrostructureEvalStats {
+    run_episode_with_actions(config, seed, |step, _obs| baseline_action(config, policy, step))
+}
+
+/// Run a full episode; `choose` receives `(step_index, observation)`.
+pub fn run_episode_with_actions<F>(
+    config: &MicrostructureConfig,
+    seed: u64,
+    mut choose: F,
+) -> MicrostructureEvalStats
+where
+    F: FnMut(usize, &[f32]) -> Action,
+{
+    let mut cfg = config.clone();
+    cfg.seed = seed;
+    let mut sim = MicrostructureSim::new(cfg);
+    let mut obs = sim.reset();
+    let mut trades = 0usize;
+    let mut step_idx = 0usize;
+
+    loop {
+        let action = choose(step_idx, &obs);
+        let old_position = sim.position();
+        let result = sim.step(action);
+        if sim.position() != old_position {
+            trades += 1;
+        }
+        step_idx += 1;
+        obs = result.observation.clone();
+        if result.done {
+            let stats = sim.finish_episode();
+            return MicrostructureEvalStats {
+                total_reward: stats.total_reward,
+                steps: stats.steps,
+                trades,
+                final_position: stats.final_position,
+            };
+        }
+    }
+}
+
+fn baseline_action(config: &MicrostructureConfig, policy: BaselinePolicy, step: usize) -> Action {
+    match policy {
+        BaselinePolicy::Hold => Action::Hold,
+        BaselinePolicy::Long => Action::Buy,
+        BaselinePolicy::Short => Action::Sell,
+        BaselinePolicy::Oracle => {
+            if step == 0 {
+                if config.mid_drift > 0.0 {
+                    Action::Buy
+                } else if config.mid_drift < 0.0 {
+                    Action::Sell
+                } else {
+                    Action::Hold
+                }
+            } else {
+                Action::Hold
+            }
+        }
+        BaselinePolicy::Random => {
+            let mut state = config.seed.wrapping_add(step as u64 + 1);
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1);
+            match state % 3 {
+                0 => Action::Hold,
+                1 => Action::Buy,
+                _ => Action::Sell,
+            }
+        }
+    }
+}
+
 /// Synthetic single-instrument order book with unit position {-1, 0, 1}.
 #[derive(Debug, Clone)]
 pub struct MicrostructureSim {
@@ -255,5 +361,33 @@ mod tests {
         assert_eq!(obs.len(), FEATURES_PER_FRAME);
         assert!((obs[4] - 2.0).abs() < f32::EPSILON); // spread
         assert!((obs[5] - 200.0).abs() < f32::EPSILON); // mid
+    }
+
+    #[test]
+    fn hold_baseline_zero_reward_on_zero_drift() {
+        let config = MicrostructureConfig {
+            episode_steps: 64,
+            mid_noise: 0.0,
+            ..Default::default()
+        };
+        let stats = run_baseline_episode(&config, 1000, BaselinePolicy::Hold);
+        assert_eq!(stats.steps, 64);
+        assert_eq!(stats.trades, 0);
+        assert!((stats.total_reward).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn oracle_matches_analytic_estimate_without_noise() {
+        let config = MicrostructureConfig {
+            episode_steps: 128,
+            mid_drift: 0.1,
+            mid_noise: 0.0,
+            trade_cost: 0.5,
+            ..Default::default()
+        };
+        let stats = run_baseline_episode(&config, 2000, BaselinePolicy::Oracle);
+        let expected = oracle_reward_estimate(&config);
+        assert!((stats.total_reward - expected).abs() < 0.05, "{} vs {expected}", stats.total_reward);
+        assert_eq!(stats.trades, 1);
     }
 }

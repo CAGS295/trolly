@@ -4,7 +4,8 @@ use std::path::PathBuf;
 
 use trolly_gym::sim::MicrostructureConfig;
 use trolly_gym::train::{
-    run_microstructure_train_with_checkpoints, MicrostructureTrainConfig, MicrostructureTrainSession,
+    run_microstructure_train_with_checkpoints, MicrostructureCompletionRecord,
+    MicrostructureTrainConfig, MicrostructureTrainSession, COMPLETED_MARKER,
 };
 
 #[test]
@@ -95,6 +96,54 @@ fn microstructure_session_resumes_continuous_training() {
             .unwrap()
             .collect()
     }
+}
+
+#[test]
+fn session_skips_training_when_completed_marker_present() {
+    let dir = temp_dir("microstructure_completed_marker");
+    let sim = MicrostructureConfig {
+        episode_steps: 32,
+        window_frames: 1,
+        ..Default::default()
+    };
+    let config = MicrostructureTrainConfig {
+        sim: sim.clone(),
+        driver: trolly_gym::train::TrainDriverConfig {
+            obs_dim: sim.obs_dim(),
+            num_actions: 3,
+            horizon: 32,
+            ..Default::default()
+        },
+        num_updates: 1,
+        checkpoint_dir: Some(dir.clone()),
+        ..Default::default()
+    };
+
+    let record = MicrostructureCompletionRecord {
+        completed: true,
+        tier: "zero_drift".into(),
+        mean_eval_reward: 0.0,
+        oracle_reward: 0.0,
+        hold_baseline_reward: 0.0,
+        mean_trades: 0.0,
+        eval_std: 0.0,
+        update_count: 10,
+        eval_seeds: vec![1000],
+    };
+    let marker_path = dir.join(COMPLETED_MARKER);
+    std::fs::write(
+        &marker_path,
+        serde_json::to_string_pretty(&record).expect("serialize"),
+    )
+    .expect("write marker");
+
+    let mut session = MicrostructureTrainSession::resume_from(&dir, &config);
+    assert!(session.is_completed());
+    let (metrics, _) = session.train_step();
+    assert_eq!(metrics.steps_collected, 0);
+    assert_eq!(session.update_count, 0);
+
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 fn temp_dir(label: &str) -> PathBuf {

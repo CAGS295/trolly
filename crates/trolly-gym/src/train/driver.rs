@@ -35,6 +35,20 @@ pub struct TrainMetrics {
     pub steps_collected: usize,
 }
 
+impl TrainMetrics {
+    /// Placeholder metrics when training is skipped (e.g. model already complete).
+    pub fn idle() -> Self {
+        Self {
+            policy_loss: 0.0,
+            value_loss: 0.0,
+            entropy: 0.0,
+            nes_distance: None,
+            active_lr: 0.0,
+            steps_collected: 0,
+        }
+    }
+}
+
 /// Training driver configuration.
 #[derive(Debug, Clone)]
 pub struct TrainDriverConfig {
