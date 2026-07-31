@@ -7,6 +7,7 @@ Project journal for shipped work. Active backlog lives in [`WORKPLAN.md`](WORKPL
 - Add more exchange providers beyond Binance spot + USDM (stub scaffold landed; full venues remain).
 
 ## change log
++ Orchestrator run (2026-07-31): ready set empty - WP-001-WP-022 all done; no worker wave scheduled.
 + Orchestrator run (2026-07-30): ready set empty - WP-001-WP-022 all done; no worker wave scheduled.
 + Orchestrator run (2026-07-28): ready set empty - WP-001-WP-022 all done; no worker wave scheduled.
 + Orchestrator run (2026-07-27): ready set empty - WP-001-WP-022 all done; no worker wave scheduled.
