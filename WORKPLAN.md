@@ -13,7 +13,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: 2026-07-31
+- last_run: 2026-08-01
 - max_parallel: 3
 - ship_branch: integrate/orchestrator-branches
 
