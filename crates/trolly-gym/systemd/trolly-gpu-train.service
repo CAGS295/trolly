@@ -1,0 +1,22 @@
+[Unit]
+Description=trolly local GPU training orchestrator (weekday working hours)
+After=graphical-session.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/trolly
+Environment=TROLLY_TRAIN_DEVICE=auto
+Environment=TROLLY_WORK_START=09:00
+Environment=TROLLY_WORK_END=17:00
+Environment=TROLLY_WORK_WEEKDAYS=1-5
+Environment=LIBTORCH_USE_PYTORCH=1
+Environment=LIBTORCH_BYPASS_VERSION_CHECK=1
+Environment=HSA_OVERRIDE_GFX_VERSION=11.0.2
+Environment=CXX=g++
+EnvironmentFile=-%h/trolly/.env.gpu
+# Script git-fetches (and rebases onto @{u} when the tree is clean) before --once.
+ExecStart=/bin/bash -lc 'export LD_LIBRARY_PATH="${HOME}/.local/lib/python3.10/site-packages/torch/lib:${LD_LIBRARY_PATH:-}"; exec "${HOME}/trolly/crates/trolly-gym/scripts/continue-training-locally.sh" --once'
+Nice=10
+
+[Install]
+WantedBy=default.target

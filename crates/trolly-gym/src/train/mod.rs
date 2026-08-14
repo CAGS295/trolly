@@ -42,7 +42,8 @@ pub mod smoke;
 
 pub use checkpoint::{
     load_checkpoint, load_checkpoint_if_exists, resolve_resume_checkpoint, save_checkpoint,
-    FINAL_CHECKPOINT, FINAL_ROW_CHECKPOINT, LATEST_CHECKPOINT, LATEST_OPPONENT_CHECKPOINT,
+    save_checkpoint_with_fingerprint, FINAL_CHECKPOINT, FINAL_ROW_CHECKPOINT, LATEST_CHECKPOINT,
+    LATEST_OPPONENT_CHECKPOINT,
 };
 pub use driver::{TrainDriverConfig, TrainMetrics, WolfPpoTrainDriver};
 pub use rollout::{OnPolicyTransition, RolloutCollector, StepOutput, compute_gae};

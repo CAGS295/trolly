@@ -77,6 +77,14 @@ impl ActorCritic {
             ActorCriticBackend::Liquid(model) => model.evaluate_actions(obs, actions),
         }
     }
+
+    /// Device of the registered parameters (CPU or CUDA/ROCm).
+    pub fn device(&self) -> tch::Device {
+        match &self.backend {
+            ActorCriticBackend::Mlp(model) => model.policy_head.ws.device(),
+            ActorCriticBackend::Liquid(model) => model.device(),
+        }
+    }
 }
 
 impl MlpActorCritic {

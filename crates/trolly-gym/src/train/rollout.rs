@@ -96,7 +96,8 @@ impl RolloutCollector {
         for _ in 0..self.horizon {
             let obs_t = Tensor::from_slice(&current_obs)
                 .unsqueeze(0)
-                .to_kind(Kind::Float);
+                .to_kind(Kind::Float)
+                .to_device(actor_critic.device());
 
             let (action, log_prob) = {
                 let _no_grad = tch::no_grad_guard();
@@ -136,6 +137,11 @@ impl RolloutCollector {
     /// `bootstrap_value`: critic estimate V(s_{T+1}) for the state after the
     /// last transition (0.0 if the last step was terminal).
     pub fn into_batch(&self, bootstrap_value: f32) -> RolloutBatch {
+        self.into_batch_on(bootstrap_value, Device::Cpu)
+    }
+
+    /// Convert accumulated transitions into a [`RolloutBatch`] on `device`.
+    pub fn into_batch_on(&self, bootstrap_value: f32, device: Device) -> RolloutBatch {
         let t = self.transitions.len();
         assert!(t > 0, "RolloutCollector: no transitions collected");
 
@@ -155,17 +161,17 @@ impl RolloutCollector {
             observations: Tensor::from_slice(&obs_flat)
                 .reshape(&[t as i64, obs_dim])
                 .to_kind(Kind::Float)
-                .to_device(Device::Cpu),
-            actions: Tensor::from_slice(&actions_vec).to_device(Device::Cpu),
+                .to_device(device),
+            actions: Tensor::from_slice(&actions_vec).to_device(device),
             old_log_probs: Tensor::from_slice(&log_probs_vec)
                 .to_kind(Kind::Float)
-                .to_device(Device::Cpu),
+                .to_device(device),
             returns: Tensor::from_slice(&returns)
                 .to_kind(Kind::Float)
-                .to_device(Device::Cpu),
+                .to_device(device),
             advantages: Tensor::from_slice(&advantages)
                 .to_kind(Kind::Float)
-                .to_device(Device::Cpu),
+                .to_device(device),
         }
     }
 

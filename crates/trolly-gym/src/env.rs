@@ -106,6 +106,7 @@ where
             self.last_observation = self.window.flattened();
             self.replay
                 .push_observation_window(&self.last_observation);
+            crate::ticks::try_ingest_event(event, "stream", "stream");
             true
         } else {
             false

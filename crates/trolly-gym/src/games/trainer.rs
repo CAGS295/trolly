@@ -26,8 +26,9 @@ use tch::{Device, Kind, Tensor};
 
 use crate::ppo::{ActorCritic, PpoConfig, PpoTrainer, RolloutBatch, WolfPpoConfig, WolfPpoTrainer};
 use crate::train::checkpoint::{
-    load_checkpoint_if_exists, resolve_resume_checkpoint, save_checkpoint, FINAL_CHECKPOINT,
-    FINAL_ROW_CHECKPOINT, LATEST_CHECKPOINT, LATEST_OPPONENT_CHECKPOINT,
+    load_checkpoint_if_exists, resolve_resume_checkpoint, save_checkpoint,
+    save_checkpoint_with_fingerprint, FINAL_CHECKPOINT, FINAL_ROW_CHECKPOINT, LATEST_CHECKPOINT,
+    LATEST_OPPONENT_CHECKPOINT,
 };
 use super::matrix_game::MatrixGame;
 use super::metrics::euclidean_distance_to_nes;
@@ -181,10 +182,20 @@ impl WolfPpoSelfPlaySession {
         config: &SelfPlayConfig,
         wolf_config: WolfPpoConfig,
     ) -> Self {
+        Self::new_on_device(game, config, wolf_config, Device::Cpu)
+    }
+
+    /// Create a fresh session with both players on `device`.
+    pub fn new_on_device(
+        game: &MatrixGame,
+        config: &SelfPlayConfig,
+        wolf_config: WolfPpoConfig,
+        device: Device,
+    ) -> Self {
         let num_actions = game.num_row_actions as i64;
         Self {
-            p1: WolfPpoTrainer::new(OBS_DIM, num_actions, wolf_config.clone()),
-            p2: WolfPpoTrainer::new(OBS_DIM, num_actions, wolf_config),
+            p1: WolfPpoTrainer::new_on_device(OBS_DIM, num_actions, wolf_config.clone(), device),
+            p2: WolfPpoTrainer::new_on_device(OBS_DIM, num_actions, wolf_config, device),
             batch_size: config.batch_size,
             update_count: 0,
         }
@@ -198,9 +209,19 @@ impl WolfPpoSelfPlaySession {
         config: &SelfPlayConfig,
         wolf_config: WolfPpoConfig,
     ) -> Self {
+        Self::resume_from_on_device(checkpoint_dir, game, config, wolf_config, Device::Cpu)
+    }
+
+    pub fn resume_from_on_device(
+        checkpoint_dir: impl AsRef<Path>,
+        game: &MatrixGame,
+        config: &SelfPlayConfig,
+        wolf_config: WolfPpoConfig,
+        device: Device,
+    ) -> Self {
         let checkpoint_dir = checkpoint_dir.as_ref();
         std::fs::create_dir_all(checkpoint_dir).expect("create checkpoint dir");
-        let mut session = Self::new(game, config, wolf_config);
+        let mut session = Self::new_on_device(game, config, wolf_config, device);
         if let Some(path) = resolve_resume_checkpoint(checkpoint_dir) {
             load_checkpoint_if_exists(&mut session.p1.inner.vs, &path);
         }
@@ -247,11 +268,13 @@ impl WolfPpoSelfPlaySession {
                 save_checkpoint(&self.p1.inner.vs, &path).expect("save numbered checkpoint");
             }
 
-            save_checkpoint(
+            save_checkpoint_with_fingerprint(
                 &self.p1.inner.vs,
                 &checkpoint_dir.join(LATEST_CHECKPOINT),
+                &format!("matrix:{}", checkpoint_dir.display()),
+                "wolf-ppo-self-play",
             )
-            .expect("save latest row checkpoint");
+            .expect("save latest row checkpoint + fingerprint");
             save_checkpoint(
                 &self.p2.inner.vs,
                 &checkpoint_dir.join(LATEST_OPPONENT_CHECKPOINT),
@@ -288,7 +311,8 @@ fn collect_rollout(
     batch_size: usize,
 ) -> (RolloutBatch, RolloutBatch) {
     let t = batch_size as i64;
-    let obs = Tensor::zeros(&[t, OBS_DIM], (Kind::Float, Device::Cpu));
+    let device = p1_ac.device();
+    let obs = Tensor::zeros(&[t, OBS_DIM], (Kind::Float, device));
 
     let (p1_actions, p1_log_probs) = p1_ac.action_and_log_prob(&obs);
     let (p2_actions, p2_log_probs) = p2_ac.action_and_log_prob(&obs);
@@ -303,8 +327,8 @@ fn collect_rollout(
         p2_pay[i] = -r;
     }
 
-    let p1_ret = Tensor::from_slice(&p1_pay);
-    let p2_ret = Tensor::from_slice(&p2_pay);
+    let p1_ret = Tensor::from_slice(&p1_pay).to_device(device);
+    let p2_ret = Tensor::from_slice(&p2_pay).to_device(device);
     let p1_adv = centred_advantage(&p1_ret);
     let p2_adv = centred_advantage(&p2_ret);
 
@@ -337,7 +361,7 @@ fn centred_advantage(returns: &Tensor) -> Tensor {
 
 /// Extract softmax policy probabilities from the actor for the single zero state.
 fn policy_probs(ac: &ActorCritic) -> Vec<f64> {
-    let obs = Tensor::zeros(&[1, OBS_DIM], (Kind::Float, Device::Cpu));
+    let obs = Tensor::zeros(&[1, OBS_DIM], (Kind::Float, ac.device()));
     let (logits, _) = ac.forward(&obs);
     let probs = logits.softmax(-1, Kind::Float).squeeze();
     let n = probs.size()[0] as usize;

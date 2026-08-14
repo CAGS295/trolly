@@ -13,6 +13,7 @@
 //! Optional env vars:
 //! - `TRAIN_DURATION_SECS` (default 90) — wall-clock budget per game × architecture
 //! - `CHECKPOINT_DIR` (default `./checkpoints/matrix_train`) — output root
+//! - `TROLLY_TRAIN_DEVICE` (`auto`/`cpu`/`cuda`/`cuda:N`) — default `auto`
 
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -85,7 +86,9 @@ fn train_game_timed(
     };
 
     let resumed = out_dir.join(LATEST_CHECKPOINT).exists();
-    let mut session = WolfPpoSelfPlaySession::resume_from(&out_dir, game, &config, wolf);
+    let device = trolly_gym::device::resolve_training_device().unwrap_or(tch::Device::Cpu);
+    let mut session =
+        WolfPpoSelfPlaySession::resume_from_on_device(&out_dir, game, &config, wolf, device);
 
     let start = Instant::now();
     let mut batch = 0_u64;

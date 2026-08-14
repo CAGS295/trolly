@@ -39,6 +39,12 @@ fn microstructure_train_saves_checkpoints() {
     }
     assert!(metrics.last().unwrap().policy_loss.is_finite());
     assert!(stats.last().unwrap().total_reward.is_finite());
+    let fp = dir.join("latest.fingerprint.json");
+    assert!(fp.exists(), "missing fingerprint sidecar: {}", fp.display());
+    let body = std::fs::read_to_string(&fp).unwrap();
+    assert!(body.contains("weights_sha256"));
+    assert!(body.contains("data_window_sha256"));
+    assert!(body.contains("config_sha256"));
 
     let _ = std::fs::remove_dir_all(&dir);
 }

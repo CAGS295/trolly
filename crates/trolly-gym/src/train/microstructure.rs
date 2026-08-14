@@ -6,9 +6,11 @@ use crate::ppo::{ActorCritic, WolfPpoConfig};
 use crate::replay::action_from_index;
 use crate::sim::{MicrostructureConfig, MicrostructureSim, MicrostructureStats};
 
+use crate::ticks::TickTape;
+
 use super::checkpoint::{
-    load_checkpoint_if_exists, resolve_resume_checkpoint, save_checkpoint, FINAL_CHECKPOINT,
-    LATEST_CHECKPOINT,
+    load_checkpoint_if_exists, resolve_resume_checkpoint, save_checkpoint,
+    save_checkpoint_with_fingerprint, FINAL_CHECKPOINT, LATEST_CHECKPOINT,
 };
 use super::driver::{TrainDriverConfig, TrainMetrics, WolfPpoTrainDriver};
 use super::microstructure_completion::{
@@ -27,6 +29,12 @@ pub struct MicrostructureTrainConfig {
     pub checkpoint_dir: Option<PathBuf>,
     /// Completion thresholds; defaults to a tier inferred from `sim`.
     pub completion: Option<MicrostructureCompletionCriteria>,
+    /// Compute device for the WoLF-PPO driver (CPU or CUDA/ROCm).
+    pub device: tch::Device,
+    /// Optional ClickHouse / sim tick tape (same [`TickRow`] schema as ingest).
+    pub tape: Option<TickTape>,
+    /// Data-window identity hashed into the checkpoint fingerprint.
+    pub data_window: String,
 }
 
 impl Default for MicrostructureTrainConfig {
@@ -44,6 +52,9 @@ impl Default for MicrostructureTrainConfig {
             num_updates: 3,
             checkpoint_dir: None,
             completion: Some(MicrostructureCompletionCriteria::for_config(&sim)),
+            device: tch::Device::Cpu,
+            tape: None,
+            data_window: "sim:default".into(),
         }
     }
 }
@@ -61,6 +72,9 @@ pub struct MicrostructureTrainSession {
     driver: WolfPpoTrainDriver,
     sim_config: MicrostructureConfig,
     completion: MicrostructureCompletionState,
+    tape: Option<TickTape>,
+    data_window: String,
+    config_fingerprint: String,
     pub update_count: usize,
 }
 
@@ -68,9 +82,19 @@ impl MicrostructureTrainSession {
     /// Create a fresh driver and simulation config.
     pub fn new(config: &MicrostructureTrainConfig) -> Self {
         Self {
-            driver: WolfPpoTrainDriver::new(config.driver.clone(), config.wolf.clone()),
+            driver: WolfPpoTrainDriver::new_on_device(
+                config.driver.clone(),
+                config.wolf.clone(),
+                config.device,
+            ),
             sim_config: config.sim.clone(),
             completion: MicrostructureCompletionState::new(config.completion_criteria()),
+            tape: config.tape.clone(),
+            data_window: config.data_window.clone(),
+            config_fingerprint: format!(
+                "microstructure arch={:?} hidden={:?} seed={}",
+                config.wolf.ppo.architecture, config.wolf.ppo.hidden_sizes, config.sim.seed
+            ),
             update_count: 0,
         }
     }
@@ -114,7 +138,11 @@ impl MicrostructureTrainSession {
             return (TrainMetrics::idle(), MicrostructureStats::default());
         }
 
-        let mut sim = MicrostructureSim::new(self.sim_config.clone());
+        let mut sim = if let Some(tape) = &self.tape {
+            MicrostructureSim::with_tape(self.sim_config.clone(), tape.clone())
+        } else {
+            MicrostructureSim::new(self.sim_config.clone())
+        };
         let mut obs = sim.reset();
         let mut last_stats = MicrostructureStats::default();
 
@@ -170,7 +198,7 @@ impl MicrostructureTrainSession {
         Some((summary, completed))
     }
 
-    /// Persist latest weights and optionally a numbered snapshot.
+    /// Persist latest weights, fingerprint sidecar, and optionally a numbered snapshot.
     pub fn save_checkpoint(&self, checkpoint_dir: &Path, save_numbered: bool) {
         std::fs::create_dir_all(checkpoint_dir).expect("create checkpoint dir");
         if save_numbered {
@@ -178,11 +206,14 @@ impl MicrostructureTrainSession {
             save_checkpoint(&self.driver.trainer.inner.vs, &path)
                 .expect("save numbered microstructure checkpoint");
         }
-        save_checkpoint(
+        let latest = checkpoint_dir.join(LATEST_CHECKPOINT);
+        save_checkpoint_with_fingerprint(
             &self.driver.trainer.inner.vs,
-            &checkpoint_dir.join(LATEST_CHECKPOINT),
+            &latest,
+            &self.data_window,
+            &self.config_fingerprint,
         )
-        .expect("save latest microstructure checkpoint");
+        .expect("save latest microstructure checkpoint + fingerprint");
     }
 
     /// Copy `latest.safetensors` to `final.safetensors`.

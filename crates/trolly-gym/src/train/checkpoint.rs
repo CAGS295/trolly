@@ -53,7 +53,24 @@ pub const FINAL_ROW_CHECKPOINT: &str = "final_row_player.safetensors";
 /// Avoid `.pt` / `.bin` extensions — tch's loader applies a different
 /// (incompatible) deserialiser for those extensions.
 pub fn save_checkpoint(vs: &nn::VarStore, path: impl AsRef<Path>) -> Result<(), tch::TchError> {
-    vs.save(path)
+    let path = path.as_ref();
+    vs.save(path)?;
+    // Every weight file gets a sidecar; latest saves overwrite with data/config hashes.
+    let _ = crate::fingerprint::write_sidecar_for_checkpoint(path, "", "");
+    Ok(())
+}
+
+/// Save weights then fulfill the fingerprint sidecar on the same path.
+pub fn save_checkpoint_with_fingerprint(
+    vs: &nn::VarStore,
+    path: impl AsRef<Path>,
+    data_window: &str,
+    config: &str,
+) -> Result<crate::fingerprint::ModelFingerprint, String> {
+    let path = path.as_ref();
+    save_checkpoint(vs, path).map_err(|e| e.to_string())?;
+    crate::fingerprint::write_sidecar_for_checkpoint(path, data_window, config)
+        .map_err(|e| e.to_string())
 }
 
 /// Load named variables from `path` into `vs`.

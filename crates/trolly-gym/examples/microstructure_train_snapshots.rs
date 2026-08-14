@@ -107,6 +107,8 @@ fn train_arch_timed(
         num_updates: 1,
         checkpoint_dir: Some(out_root.clone()),
         completion: Some(completion),
+        device: trolly_gym::device::resolve_training_device().unwrap_or(tch::Device::Cpu),
+        ..Default::default()
     };
 
     let resumed = out_root.join(LATEST_CHECKPOINT).exists();

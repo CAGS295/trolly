@@ -1,0 +1,10 @@
+[Unit]
+Description=Start trolly GPU training at local weekday working hours
+
+[Timer]
+OnCalendar=Mon..Fri 09:00
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

@@ -37,7 +37,17 @@ pub struct PpoTrainer {
 impl PpoTrainer {
     /// Construct on CPU with the given observation and action dimensions.
     pub fn new(obs_dim: i64, num_actions: i64, config: PpoConfig) -> Self {
-        let vs = nn::VarStore::new(tch::Device::Cpu);
+        Self::new_on_device(obs_dim, num_actions, config, tch::Device::Cpu)
+    }
+
+    /// Construct the actor-critic and optimizer on `device`.
+    pub fn new_on_device(
+        obs_dim: i64,
+        num_actions: i64,
+        config: PpoConfig,
+        device: tch::Device,
+    ) -> Self {
+        let vs = nn::VarStore::new(device);
         let actor_critic = ActorCritic::new(&vs, obs_dim, num_actions, &config);
         let optimizer = build_optimizer(&vs, &config);
         Self {
@@ -46,6 +56,10 @@ impl PpoTrainer {
             config,
             optimizer,
         }
+    }
+
+    pub fn device(&self) -> tch::Device {
+        self.vs.device()
     }
 
     /// Override the optimizer learning rate (used by WoLF-PPO dual-rate selection).

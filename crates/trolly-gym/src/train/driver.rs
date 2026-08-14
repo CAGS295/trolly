@@ -90,15 +90,24 @@ pub struct WolfPpoTrainDriver {
 impl WolfPpoTrainDriver {
     /// Create a new driver with the given configs.
     pub fn new(driver_config: TrainDriverConfig, wolf_config: WolfPpoConfig) -> Self {
+        Self::new_on_device(driver_config, wolf_config, tch::Device::Cpu)
+    }
+
+    pub fn new_on_device(
+        driver_config: TrainDriverConfig,
+        wolf_config: WolfPpoConfig,
+        device: tch::Device,
+    ) -> Self {
         let collector = RolloutCollector::new(
             driver_config.horizon,
             driver_config.gamma,
             driver_config.gae_lambda,
         );
-        let trainer = WolfPpoTrainer::new(
+        let trainer = WolfPpoTrainer::new_on_device(
             driver_config.obs_dim,
             driver_config.num_actions,
             wolf_config,
+            device,
         );
         Self {
             trainer,
@@ -141,7 +150,9 @@ impl WolfPpoTrainDriver {
         let steps = self.collector.len();
         self.total_steps += steps;
 
-        let batch = self.collector.into_batch(bootstrap_value);
+        let batch = self
+            .collector
+            .into_batch_on(bootstrap_value, self.trainer.device());
 
         // Compute separate diagnostic losses before the gradient update
         let (value_loss, entropy) = compute_diagnostics(&self.trainer.inner.actor_critic, &batch);
@@ -175,7 +186,7 @@ impl WolfPpoTrainDriver {
 /// Extract softmax probabilities from the actor for a zero observation.
 fn policy_probs(ac: &ActorCritic, obs_dim: i64) -> Vec<f64> {
     let _g = tch::no_grad_guard();
-    let obs = Tensor::zeros(&[1, obs_dim], (tch::Kind::Float, tch::Device::Cpu));
+    let obs = Tensor::zeros(&[1, obs_dim], (tch::Kind::Float, ac.device()));
     let (logits, _) = ac.forward(&obs);
     let probs = logits.softmax(-1, Kind::Float).squeeze();
     let n = probs.size()[0] as usize;

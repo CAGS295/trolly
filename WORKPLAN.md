@@ -2,6 +2,14 @@
 
 Canonical artifact for the **Daily workplan orchestrator** automation.
 
+## Broad goal (north star)
+
+**Close the loop from GPU-trained WoLF-PPO policies to demo/live Binance trading.** A checkpointed MLP or LNN policy must consume multi-symbol `trolly-stream` observations, select actions through `trolly-strategy`, and place/reconcile orders via `binance-spot-exec` / `binance-usdm-exec` (demo first). Weekday GPU training on this host improves those checkpoints; matrix-game NES distance stays a regression gate, not the destination.
+
+Done means: a saved gym checkpoint can be loaded, run against injected or demo streams, dispatch the same typed place-order commands `Action::dispatch` already fulfills, and leave newer checkpoint metrics or a moved WP as evidence. Do not block on sudo ROCm.
+
+Shipped so far (not the destination): global book CLI; stream-native spot/USDM bookkeeping + outbound placement; strategy egress; gym scaffold; WoLF-PPO + LNN; matrix-game and microstructure trainers.
+
 ## Goals
 
 - Have a command to build a global order book.
@@ -19,12 +27,15 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 
 ## Orchestrator notes
 
-- **Git ship workflow (no PRs):** checkout `ship_branch` from Meta (`integrate/orchestrator-branches`). At run start, `git fetch origin` and rebase (or reset) onto current `origin/main` so the branch is fresh. All commits from this run land on the ship branch. Push `ship_branch` to origin at end of run. Do **not** open pull requests, run `gh pr create`, or create `cursor/workplan-orchestrator-process-*` branches.
+- **Git ship workflow (no PRs):** checkout `ship_branch` from Meta (`integrate/orchestrator-branches`). At run start, `git fetch origin` then `git rebase @{u}` (or `git pull --rebase`) when the working tree is clean so this host matches what cloud agents already pushed. If rebase would destroy uncommitted work, fetch, warn, and continue — never `reset --hard`, never `git rebase -i`, never `--no-verify`, never force-push. All commits from this run land on the ship branch. Push `ship_branch` to origin at end of run. Do **not** open pull requests, run `gh pr create`, or create `cursor/workplan-orchestrator-process-*` branches.
+- **Daily progress (mandatory):** each run must leave a real increment toward the **Broad goal**. A health check, empty ready-set log, or “WP-001–WP-022 all done” line is a **failed run**. Before any local train slice, fetch-first as above so cloud and this host do not diverge. Assess current state vs the goal (`WORKPLAN.md` statuses, [`changelog.md`](changelog.md) WIP, `Env` reward stub / missing `PolicyProvider`, GPU sidecars under `checkpoints/gpu_train_orchestrator/progress.json`, ClickHouse `trolly.ticks`, `latest.fingerprint.json`, failing tests). Then pick the highest-leverage slice that fits working hours and local constraints (no sudo ROCm; do not replace the weekday GPU trainer — it already trains; you may *direct* the gap it should close).
+- **Continue training locally:** when the user asks to continue training locally (or this daily run is on the gym/policy path), **fetch first** (`git fetch origin` then `git rebase @{u}` if the tree is clean; otherwise fetch + warn and continue — see `crates/trolly-gym/scripts/continue-training-locally.sh` and the weekday systemd unit). Then run the local loop: ensure ClickHouse (`crates/trolly-gym/clickhouse/docker-compose.yml` or `TROLLY_CLICKHOUSE_URL`), ingest sim ticks into `trolly.ticks`, train a time-boxed WoLF-PPO slice (`gpu_train_orchestrator --continue-local`, or `--once` inside Mon–Fri 09:00–17:00), write `latest.safetensors` plus `latest.fingerprint.json` (weights / data-window / config SHA-256), and record the increment in `progress.json`. Do not skip the train slice.
 - Build the **ready set**: items with `status: todo` and all `depends_on` entries `done`.
+- If the ready set is **empty**, author the next free `WP-XXX` that unblocks the broad goal (prefer: stream `Env` reward + `PolicyProvider`; gym→strategy→exec join; demo place-order reconcile; then ONNX/`ort` inference). Do not invent chores (docs-only, third venue, drive-by refactors) unless they unblock the loop. Mark it `todo`, then schedule it in the same run.
 - Schedule up to `max_parallel` items per wave with **disjoint** `scope` paths.
 - Mark selected items `in_progress` before spawning workers; only the orchestrator sets `done` or `blocked` after acceptance checks.
 - Workers must not change item status; return the structured payload from the automation prompt.
-- On completion: set `last_run`, append a `+` line to [`changelog.md`](changelog.md) **change log**, trim matching **WIP** bullets there.
+- On completion: set `last_run`, append a `+` line to [`changelog.md`](changelog.md) **change log** that names the increment (WP moved, checkpoint/`progress.json` improved, or a blocking test fixed), trim matching **WIP** bullets there.
 - **Patched dependencies** (`patches/lob`, root `[patch]` in [`Cargo.toml`](Cargo.toml)): whenever scope touches a patched crate or submodule:
   1. **Comment in** — uncomment the `[patch."https://github.com/CAGS295/lob.git"]` block so `lob = { path = "./patches/lob" }` is active before `cargo test` / `cargo check`.
   2. **Submodule commit** — commit and push lob changes on **`patches/lob` `main`**, then bump the submodule pointer in trolly (`git add patches/lob`).
@@ -409,6 +420,34 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - README documents microstructure vs matrix-game roles; example binary for timed checkpoint runs
 - notes: bridges WP-019 (algorithm correctness) and stream-backed trading. Complements matrix games — not a replacement for WoLF-PPO NES validation. CartPole intentionally skipped in favour of stream-shaped obs.
 - worker (2026-07-06): `sim/microstructure`, `train/microstructure`, tests + example.
+
+### WP-023 — Stream Env PolicyProvider and market reward (`trolly-gym`)
+
+- status: todo
+- repos: trolly
+- depends_on: [WP-014, WP-015, WP-020, WP-022]
+- scope: crates/trolly-gym/src/env.rs, crates/trolly-gym/src/policy.rs, crates/trolly-gym/src/action.rs, crates/trolly-gym/tests/, crates/trolly-gym/README.md
+- acceptance:
+  - `trait PolicyProvider { fn act(&self, obs: &[f32]) -> Action; }` with `HoldPolicy` default
+  - `Env::step` can use an injected provider; `Action::dispatch` remains the single egress path (no parallel order builder)
+  - replace `reward_stub` with a configurable reward aligned with `MicrostructureSim` (inventory × Δmid − spread); episode `done` at a configurable horizon
+  - offline test: inject synthetic stream events → policy returns Buy/Sell/Hold → `RecordingEgress` sees the same outbound messages `Action::dispatch` already produces
+  - optional `--features torch`: load `latest.safetensors` from a microstructure checkpoint dir into a `CheckpointPolicy` and act once on a dummy obs (skip cleanly without libtorch)
+  - `cargo test -p trolly-gym` passes; default workspace check still has no libtorch
+- notes: Highest-leverage gap on the broad goal. Do not add ONNX/`ort` here. GPU host may lack sudo ROCm — CPU checkpoints are enough. Advertise/fulfill: `PolicyProvider::act` must return `Action` values that `Action::dispatch` already fulfills.
+
+### WP-024 — Demo place-order → user-stream reconcile
+
+- status: todo
+- repos: trolly
+- depends_on: [WP-014, WP-015, WP-017]
+- scope: tests/, crates/binance-spot-exec/, crates/binance-usdm-exec/, .env.example
+- acceptance:
+  - `#[ignore]` demo tests: place a tiny order on spot demo and USDM demo, then assert the matching user-data fill/reject arrives on the existing `executionReport` / `ORDER_TRADE_UPDATE` path
+  - no duplicate state machines; reconcile through current bookkeeping
+  - skip cleanly without keys; never production hosts or keys
+  - `cargo test --workspace` stays offline
+- notes: Listed as optional follow-on on WP-017. Unblocks trusting demo execution before a trained policy is allowed to place. Disjoint from WP-023 (exec/tests vs gym).
 
 ## Integration test reference
 

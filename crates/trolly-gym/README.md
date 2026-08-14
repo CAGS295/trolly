@@ -25,11 +25,73 @@ cargo test -p trolly-gym --features torch
 
 The optional `tch` crate is pulled in only when `--features torch` is set.
 
+AMD GPUs (ROCm/HIP) use the same `tch::Device::Cuda` API as NVIDIA. Set
+`TROLLY_TRAIN_DEVICE=auto` (default for the orchestrator), `cpu`, `cuda`, or
+`cuda:N`. The inbox `amdgpu` kernel plus ROCm userspace and a ROCm PyTorch /
+libtorch build are required; `HSA_OVERRIDE_GFX_VERSION=11.0.2` may be needed
+for Radeon RX 7600 (gfx1102).
+
+## Daily local GPU training orchestrator
+
+`gpu_train_orchestrator` trains on this machine during weekday working hours
+(default Mon–Fri 09:00–17:00 local). It reuses the existing matrix-game and
+microstructure WoLF-PPO sessions.
+
+**Broad goal** (same north star as the Daily workplan orchestrator in
+`WORKPLAN.md`): close the loop from GPU-trained WoLF-PPO policies to demo/live
+Binance trading via trolly-stream observations, trolly-strategy actions, and
+exec-crate order placement. Each `--once` window must leave a real increment
+(`latest.safetensors`, `latest.fingerprint.json`, and
+`checkpoints/gpu_train_orchestrator/progress.json`). Job choice prefers
+incomplete stream-shaped microstructure checkpoints over matrix NES drills
+unless `TROLLY_TRAIN_JOBS` overrides. The weekday window is unchanged.
+
+**Continue training locally** (`--continue-local` / `--continue` /
+`TROLLY_CONTINUE_LOCAL=1` / `scripts/continue-training-locally.sh`):
+`git fetch origin` and rebase onto `@{u}` when the tree is clean (fetch +
+warn and skip rebase if uncommitted work would be destroyed), then ignore
+the weekday window, ensure ClickHouse, ingest sim ticks into `trolly.ticks`,
+train a `TROLLY_TRAIN_DURATION_SECS` slice (default 120s), and write
+checkpoint fingerprints. Compose file: `clickhouse/docker-compose.yml`
+(`TROLLY_CLICKHOUSE_URL`, default `http://127.0.0.1:8123`).
+
+```bash
+export LIBTORCH_USE_PYTORCH=1
+export LIBTORCH_BYPASS_VERSION_CHECK=1
+./crates/trolly-gym/scripts/continue-training-locally.sh   # fetch + --continue
+cargo build -p trolly-gym --features torch --release --bin gpu_train_orchestrator
+./target/release/gpu_train_orchestrator --probe
+./target/release/gpu_train_orchestrator --once   # no-op outside the window
+./target/release/gpu_train_orchestrator --continue-local
+```
+
+Enable the user systemd timer (no root):
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp crates/trolly-gym/systemd/trolly-gpu-train.* ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now trolly-gpu-train.timer
+```
+
+Override hours / device with `TROLLY_WORK_START`, `TROLLY_WORK_END`,
+`TROLLY_WORK_WEEKDAYS` (`1-5`), `TROLLY_TRAIN_DEVICE`, or `%h/trolly/.env.gpu`.
+
+Host ROCm (needs sudo; keep inbox `amdgpu`, do not install DKMS on Pop!_OS):
+
+```bash
+sudo usermod -aG render,video "$USER"   # then log out/in
+# Ubuntu 22.04 ROCm userspace, e.g.:
+wget https://repo.radeon.com/amdgpu-install/7.2.3/ubuntu/jammy/amdgpu-install_7.2.3.70203-1_all.deb
+sudo apt install ./amdgpu-install_7.2.3.70203-1_all.deb
+sudo amdgpu-install -y --usecase=rocm --no-dkms
+```
+
 ## Architecture
 
 - **Observations** — normalized [`StreamEvent`](https://github.com/CAGS295/trolly/tree/main/crates/trolly-strategy) values from `trolly-stream` ingress are converted to feature vectors and kept in a rolling [`ObservationWindow`](src/observation.rs).
 - **Actions** — discrete [`Action`](src/action.rs) values map to [`OutboundMessage`](https://github.com/CAGS295/trolly/tree/main/crates/trolly-strategy) commands and dispatch through [`StreamEgress`](https://github.com/CAGS295/trolly/tree/main/crates/trolly-strategy).
-- **Replay** — [`ReplayBuffer`](src/replay.rs) ring buffer stores flattened observation windows and step transitions (training loop stub).
+- **Replay** — [`ReplayBuffer`](src/replay.rs) FIFO ring plus recency-bounded [`TrajectoryReplay`](src/replay.rs) (on-policy trajectories, age-decayed sample; not classic PER).
 - **Env** — [`Env`](src/env.rs) ties ingest → window → step → egress; see `tests/smoke.rs` for an offline mock flow.
 
 See the **WP-020 training loop** section below for rollout collection, the

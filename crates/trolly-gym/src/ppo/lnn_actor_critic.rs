@@ -89,6 +89,10 @@ impl LiquidActorCritic {
         }
     }
 
+    pub fn device(&self) -> tch::Device {
+        self.policy_head.ws.device()
+    }
+
     /// Forward pass.
     ///
     /// Returns `(logits [batch, num_actions], values [batch])`.

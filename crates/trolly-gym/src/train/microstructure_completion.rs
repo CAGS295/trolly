@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
-use tch::{Device, Kind, Tensor};
+use tch::{Kind, Tensor};
 
 use crate::ppo::ActorCritic;
 use crate::replay::action_from_index;
@@ -135,6 +135,8 @@ pub struct CompletedModelEntry {
     pub benchmark: String,
     pub architecture: String,
     pub checkpoint_dir: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fingerprint: Option<crate::fingerprint::ModelFingerprint>,
     #[serde(flatten)]
     pub record: MicrostructureCompletionRecord,
 }
@@ -149,19 +151,22 @@ pub struct TrainingCompletedManifest {
 /// Scan `checkpoints_root` and rewrite `completed_models.json`.
 pub fn refresh_completed_manifest(checkpoints_root: impl AsRef<Path>) {
     let checkpoints_root = checkpoints_root.as_ref();
-    let micro_root = checkpoints_root.join("microstructure_train");
     let mut models = Vec::new();
 
-    for arch in ["mlp", "liquid"] {
-        let dir = micro_root.join(arch);
-        if let Some(record) = MicrostructureCompletionState::load_marker(&dir) {
-            if record.completed {
-                models.push(CompletedModelEntry {
-                    benchmark: "microstructure".into(),
-                    architecture: arch.into(),
-                    checkpoint_dir: dir.display().to_string(),
-                    record,
-                });
+    for root_name in ["microstructure", "microstructure_train"] {
+        let micro_root = checkpoints_root.join(root_name);
+        for arch in ["mlp", "liquid"] {
+            let dir = micro_root.join(arch);
+            if let Some(record) = MicrostructureCompletionState::load_marker(&dir) {
+                if record.completed {
+                    models.push(CompletedModelEntry {
+                        benchmark: "microstructure".into(),
+                        architecture: arch.into(),
+                        checkpoint_dir: dir.display().to_string(),
+                        fingerprint: crate::fingerprint::load_sidecar(&dir),
+                        record,
+                    });
+                }
             }
         }
     }
@@ -394,7 +399,7 @@ fn mean_baseline(
 
 fn greedy_action(actor_critic: &ActorCritic, obs: &[f32], obs_dim: i64) -> crate::action::Action {
     let t = Tensor::from_slice(obs)
-        .to_device(Device::Cpu)
+        .to_device(actor_critic.device())
         .to_kind(Kind::Float)
         .view([1, obs_dim]);
     let (logits, _) = actor_critic.forward(&t);

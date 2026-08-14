@@ -7,12 +7,14 @@ edition = "2021"
 trolly-strategy = { path = "../trolly-strategy" }
 trolly-stream = { path = "../trolly-stream" }
 tch = { version = "0.16", optional = true }
-serde = { version = "1", features = ["derive"], optional = true }
-serde_json = { version = "1", optional = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+ureq = { version = "2.12", default-features = false }
 
 [features]
 default = []
-torch = ["dep:tch", "dep:serde", "dep:serde_json"]
+torch = ["dep:tch"]
 
 [dev-dependencies]
 trolly-strategy = { path = "../trolly-strategy" }
@@ -31,4 +33,9 @@ required-features = ["torch"]
 
 [[test]]
 name = "microstructure_train"
+required-features = ["torch"]
+
+[[bin]]
+name = "gpu_train_orchestrator"
+path = "src/bin/gpu_train_orchestrator.rs"
 required-features = ["torch"]

@@ -32,7 +32,16 @@ pub struct WolfPpoTrainer {
 
 impl WolfPpoTrainer {
     pub fn new(obs_dim: i64, num_actions: i64, config: WolfPpoConfig) -> Self {
-        let inner = PpoTrainer::new(obs_dim, num_actions, config.ppo.clone());
+        Self::new_on_device(obs_dim, num_actions, config, tch::Device::Cpu)
+    }
+
+    pub fn new_on_device(
+        obs_dim: i64,
+        num_actions: i64,
+        config: WolfPpoConfig,
+        device: tch::Device,
+    ) -> Self {
+        let inner = PpoTrainer::new_on_device(obs_dim, num_actions, config.ppo.clone(), device);
         Self {
             inner,
             config,
@@ -40,6 +49,10 @@ impl WolfPpoTrainer {
             rolling_avg_payoff: 0.0,
             current_payoff: 0.0,
         }
+    }
+
+    pub fn device(&self) -> tch::Device {
+        self.inner.device()
     }
 
     /// Rolling average payoff — the NES payoff estimate `V̄`.

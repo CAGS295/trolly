@@ -9,6 +9,7 @@ use trolly_strategy::{DepthUpdate, PriceLevel, StreamEvent};
 use crate::action::Action;
 use crate::env::StepResult;
 use crate::observation::{features_from_event, ObservationWindow};
+use crate::ticks::{now_ts_ms, TickRow, TickTape};
 
 /// Features per depth frame (see [`crate::observation::depth_features`]).
 pub const FEATURES_PER_FRAME: usize = 7;
@@ -184,6 +185,7 @@ pub struct MicrostructureSim {
     step: usize,
     rng_state: u64,
     episode_reward: f32,
+    tape: Option<TickTape>,
 }
 
 impl MicrostructureSim {
@@ -196,8 +198,17 @@ impl MicrostructureSim {
             position: 0,
             step: 0,
             episode_reward: 0.0,
+            tape: None,
         };
         sim.window = ObservationWindow::new(sim.config.window_frames);
+        let _ = sim.reset();
+        sim
+    }
+
+    /// Drive the same MDP from stored ClickHouse / sim ticks (no second market model).
+    pub fn with_tape(config: MicrostructureConfig, tape: TickTape) -> Self {
+        let mut sim = Self::new(config);
+        sim.tape = Some(tape);
         let _ = sim.reset();
         sim
     }
@@ -226,6 +237,9 @@ impl MicrostructureSim {
         self.episode_reward = 0.0;
         self.rng_state = self.config.seed;
         self.window = ObservationWindow::new(self.config.window_frames);
+        if let Some(tape) = &mut self.tape {
+            tape.reset();
+        }
         for _ in 0..self.config.window_frames.max(1) {
             self.push_depth_frame();
         }
@@ -242,12 +256,20 @@ impl MicrostructureSim {
         } else {
             0.0
         };
-        self.advance_mid();
-        self.push_depth_frame();
+        if self.tape.is_some() {
+            self.advance_from_tape();
+        } else {
+            self.advance_mid();
+            self.push_depth_frame();
+        }
         let reward = self.position as f32 * (self.mid - old_mid) - trade_cost;
         self.episode_reward += reward;
         self.step += 1;
-        let done = self.step >= self.config.episode_steps;
+        let tape_done = self
+            .tape
+            .as_ref()
+            .is_some_and(|t| t.remaining() == 0);
+        let done = self.step >= self.config.episode_steps || tape_done;
         StepResult {
             observation: self.observation(),
             reward,
@@ -277,7 +299,41 @@ impl MicrostructureSim {
         self.mid += self.config.mid_drift + self.config.mid_noise * self.next_unit_noise();
     }
 
+    /// Current book as the shared [`TickRow`] (same bag written to ClickHouse).
+    pub fn last_tick(&self, session_id: &str, source: &str) -> TickRow {
+        TickRow::from_depth_event(
+            &self.depth_event(),
+            "sim",
+            source,
+            session_id,
+            now_ts_ms() + self.step as i64,
+        )
+        .expect("sim depth always yields a tick")
+    }
+
+    fn advance_from_tape(&mut self) {
+        if let Some(tape) = &mut self.tape {
+            if let Some(row) = tape.next() {
+                self.mid = row.mid as f32;
+                if let Some(frame) = row.to_features() {
+                    self.window.push(frame);
+                    return;
+                }
+            }
+        }
+        self.push_depth_frame();
+    }
+
     fn push_depth_frame(&mut self) {
+        if let Some(tape) = &mut self.tape {
+            if let Some(row) = tape.next() {
+                self.mid = row.mid as f32;
+                if let Some(frame) = row.to_features() {
+                    self.window.push(frame);
+                    return;
+                }
+            }
+        }
         let event = self.depth_event();
         if let Some(frame) = features_from_event(&event) {
             self.window.push(frame);
@@ -374,6 +430,33 @@ mod tests {
         assert_eq!(stats.steps, 64);
         assert_eq!(stats.trades, 0);
         assert!((stats.total_reward).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn tape_replays_stored_mids() {
+        let mut gen = MicrostructureSim::new(MicrostructureConfig {
+            mid_noise: 0.0,
+            mid_drift: 0.5,
+            episode_steps: 4,
+            ..Default::default()
+        });
+        gen.reset();
+        let mut rows = vec![gen.last_tick("tape-test", "sim")];
+        for _ in 0..4 {
+            gen.step(Action::Hold);
+            rows.push(gen.last_tick("tape-test", "sim"));
+        }
+        let expected_mid = rows.last().unwrap().mid;
+        let mut replayed = MicrostructureSim::with_tape(
+            MicrostructureConfig {
+                mid_noise: 0.0,
+                episode_steps: 8,
+                ..Default::default()
+            },
+            TickTape::new(rows),
+        );
+        while !replayed.step(Action::Hold).done {}
+        assert!((replayed.mid() as f64 - expected_mid).abs() < 1e-3);
     }
 
     #[test]
