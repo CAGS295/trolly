@@ -141,6 +141,41 @@ directory and chooses the argmax action for the supplied observation. This is a
 CPU inference hook for local smoke tests; ONNX/`ort` live inference remains a
 separate follow-on.
 
+## Offline checkpoint policy harness (WP-025)
+
+`run_offline_policy_harness` feeds injected normalized stream envelopes into
+`Env`; after each matching observation, it steps a policy and dispatches through
+`Action::dispatch`. This keeps checkpoint inference, hold fallback, and injected
+test policies on the same egress path used by strategy execution adapters.
+
+Default builds use the safe hold path and do not link libtorch:
+
+```bash
+cargo run -p trolly-gym --example checkpoint_policy_harness
+cargo test -p trolly-gym --test smoke
+```
+
+Torch builds can load a microstructure checkpoint directory containing
+`latest.safetensors`:
+
+```bash
+export LIBTORCH_USE_PYTORCH=1
+export LIBTORCH_BYPASS_VERSION_CHECK=1
+export LD_LIBRARY_PATH="$(python3 -c 'import torch, os; print(os.path.dirname(torch.__file__))')/lib:$LD_LIBRARY_PATH"
+
+export CHECKPOINT_DIR=checkpoints/microstructure_train/mlp
+export WINDOW_FRAMES=1
+cargo run -p trolly-gym --features torch --example checkpoint_policy_harness
+cargo test -p trolly-gym --features torch --test train_loop \
+    checkpoint_policy_harness_loads_latest_and_steps_injected_stream
+```
+
+The example is offline by default: it creates synthetic depth envelopes, uses
+`RecordingEgress`, and prints the normalized `OutboundMessage` values. Point the
+resulting order intents at demo execution only behind the WP-024 demo-key guards
+(`RUN_BINANCE_DEMO_ORDERS=1`, demo credentials in `.env`); do not wire this
+harness to production keys.
+
 See the **WP-020 training loop** section below for rollout collection, the
 `WolfPpoTrainDriver`, and checkpoint save/load.
 

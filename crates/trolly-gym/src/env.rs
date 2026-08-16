@@ -16,6 +16,24 @@ pub struct StepResult {
     pub done: bool,
 }
 
+/// Error returned by [`run_offline_policy_harness`].
+#[derive(Debug)]
+pub enum OfflinePolicyHarnessError<E> {
+    Parse(trolly_strategy::ParseError),
+    Egress(E),
+}
+
+impl<E: std::fmt::Debug> std::fmt::Display for OfflinePolicyHarnessError<E> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Parse(err) => write!(f, "{err}"),
+            Self::Egress(err) => write!(f, "egress error: {err:?}"),
+        }
+    }
+}
+
+impl<E: std::fmt::Debug> std::error::Error for OfflinePolicyHarnessError<E> {}
+
 /// Configuration for [`Env`] observation windows and replay capacity.
 #[derive(Debug, Clone)]
 pub struct EnvConfig {
@@ -240,6 +258,37 @@ where
     }
 }
 
+/// Feed injected stream messages into an [`Env`] and step a policy per observation.
+///
+/// Each message is parsed through the same normalized stream envelope path as
+/// [`Env::ingest_message`]. If the message updates this env's symbol, the env
+/// calls [`Env::step`] with the provided policy, and that step dispatches only
+/// through [`Action::dispatch`].
+pub fn run_offline_policy_harness<E, P, I>(
+    env: &mut Env<E>,
+    policy: &P,
+    messages: I,
+) -> Result<Vec<StepResult>, OfflinePolicyHarnessError<E::Error>>
+where
+    E: StreamEgress,
+    P: PolicyProvider + ?Sized,
+    I: IntoIterator<Item = Message>,
+{
+    let mut steps = Vec::new();
+    for message in messages {
+        let ingested = env
+            .ingest_message(message)
+            .map_err(OfflinePolicyHarnessError::Parse)?;
+        if ingested {
+            let step = env
+                .step(policy)
+                .map_err(OfflinePolicyHarnessError::Egress)?;
+            steps.push(step);
+        }
+    }
+    Ok(steps)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct MarketSnapshot {
     mid: f32,
@@ -327,6 +376,27 @@ mod tests {
                 Action::Buy.to_outbound("BTCUSDT", "0.01", None),
                 Action::Hold.to_outbound("BTCUSDT", "0.01", None),
             ]
+        );
+    }
+
+    #[test]
+    fn offline_policy_harness_steps_only_ingested_symbol() {
+        let mut config = EnvConfig::new("BTCUSDT");
+        config.window_frames = 1;
+        let mut env = Env::new(config, RecordingEgress::default());
+        let policy = |_obs: &[f32]| Action::Buy;
+
+        let messages = [
+            trolly_strategy::envelope_message(&depth_event("ETHUSDT", "100", "102")),
+            trolly_strategy::envelope_message(&depth_event("BTCUSDT", "100", "102")),
+        ];
+
+        let steps = run_offline_policy_harness(&mut env, &policy, messages).unwrap();
+
+        assert_eq!(steps.len(), 1);
+        assert_eq!(
+            env.egress().dispatched,
+            vec![Action::Buy.to_outbound("BTCUSDT", "0.01", None)]
         );
     }
 }

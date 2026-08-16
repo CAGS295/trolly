@@ -2,7 +2,9 @@
 
 use std::cell::Cell;
 
-use trolly_gym::{Action, Env, EnvConfig, PolicyProvider};
+use trolly_gym::{
+    run_offline_policy_harness, Action, CheckpointOrHoldPolicy, Env, EnvConfig, PolicyProvider,
+};
 use trolly_strategy::{
     envelope_message, DepthUpdate, OutboundMessage, PriceLevel, RecordingEgress, StreamEvent,
 };
@@ -132,5 +134,111 @@ fn policy_provider_steps_dispatch_through_action_path() {
             Action::Sell.to_outbound("BTCUSDT", "0.01", None),
             Action::Hold.to_outbound("BTCUSDT", "0.01", None),
         ]
+    );
+}
+
+#[test]
+fn offline_harness_emits_normalized_order_requests() {
+    struct SequencePolicy {
+        next: Cell<usize>,
+    }
+
+    impl PolicyProvider for SequencePolicy {
+        fn act(&self, obs: &[f32]) -> Action {
+            assert_eq!(obs.len(), 7);
+            let idx = self.next.get();
+            self.next.set(idx + 1);
+            if idx == 0 {
+                Action::Buy
+            } else {
+                Action::Sell
+            }
+        }
+    }
+
+    let mut config = EnvConfig::new("BTCUSDT");
+    config.window_frames = 1;
+    config.default_qty = "0.02".into();
+    let mut env = Env::new(config, RecordingEgress::default());
+    let policy = SequencePolicy { next: Cell::new(0) };
+
+    let messages = [
+        envelope_message(&StreamEvent::Depth(DepthUpdate {
+            symbol: "BTCUSDT".into(),
+            bids: vec![PriceLevel {
+                price: "100".into(),
+                qty: "2".into(),
+            }],
+            asks: vec![PriceLevel {
+                price: "101".into(),
+                qty: "1".into(),
+            }],
+            update_id: Some(1),
+        })),
+        envelope_message(&StreamEvent::Depth(DepthUpdate {
+            symbol: "BTCUSDT".into(),
+            bids: vec![PriceLevel {
+                price: "101".into(),
+                qty: "2".into(),
+            }],
+            asks: vec![PriceLevel {
+                price: "102".into(),
+                qty: "1".into(),
+            }],
+            update_id: Some(2),
+        })),
+    ];
+
+    let steps = run_offline_policy_harness(&mut env, &policy, messages).unwrap();
+
+    assert_eq!(steps.len(), 2);
+    assert_eq!(
+        env.egress().dispatched,
+        vec![
+            OutboundMessage::OrderRequest {
+                symbol: "BTCUSDT".into(),
+                side: "BUY".into(),
+                qty: "0.02".into(),
+                price: None,
+                time_in_force: None,
+                position_side: None,
+            },
+            OutboundMessage::OrderRequest {
+                symbol: "BTCUSDT".into(),
+                side: "SELL".into(),
+                qty: "0.02".into(),
+                price: None,
+                time_in_force: None,
+                position_side: None,
+            },
+        ]
+    );
+}
+
+#[test]
+fn checkpoint_or_hold_harness_uses_safe_hold_without_torch() {
+    let mut config = EnvConfig::new("BTCUSDT");
+    config.window_frames = 1;
+    let mut env = Env::new(config, RecordingEgress::default());
+    let policy = CheckpointOrHoldPolicy::hold();
+    let messages = [envelope_message(&StreamEvent::Depth(DepthUpdate {
+        symbol: "BTCUSDT".into(),
+        bids: vec![PriceLevel {
+            price: "100".into(),
+            qty: "1".into(),
+        }],
+        asks: vec![PriceLevel {
+            price: "101".into(),
+            qty: "1".into(),
+        }],
+        update_id: Some(1),
+    }))];
+
+    let steps = run_offline_policy_harness(&mut env, &policy, messages).unwrap();
+
+    assert_eq!(steps.len(), 1);
+    assert_eq!(
+        env.egress().dispatched,
+        vec![Action::Hold.to_outbound("BTCUSDT", "0.01", None)]
     );
 }

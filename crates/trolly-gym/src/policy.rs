@@ -29,6 +29,52 @@ where
     }
 }
 
+/// Runtime policy choice for offline execution harnesses.
+///
+/// Default builds always have the safe hold branch. Torch builds can replace it
+/// with a checkpoint-backed actor-critic loaded from `latest.safetensors`.
+pub enum CheckpointOrHoldPolicy {
+    Hold(HoldPolicy),
+    #[cfg(feature = "torch")]
+    Checkpoint(CheckpointPolicy),
+}
+
+impl CheckpointOrHoldPolicy {
+    pub fn hold() -> Self {
+        Self::Hold(HoldPolicy)
+    }
+
+    #[cfg(feature = "torch")]
+    pub fn checkpoint(policy: CheckpointPolicy) -> Self {
+        Self::Checkpoint(policy)
+    }
+
+    #[cfg(feature = "torch")]
+    pub fn from_latest_checkpoint_dir(
+        dir: impl AsRef<Path>,
+        obs_dim: i64,
+        config: crate::ppo::PpoConfig,
+    ) -> Result<Self, String> {
+        CheckpointPolicy::from_latest_checkpoint_dir(dir, obs_dim, config).map(Self::Checkpoint)
+    }
+}
+
+impl Default for CheckpointOrHoldPolicy {
+    fn default() -> Self {
+        Self::hold()
+    }
+}
+
+impl PolicyProvider for CheckpointOrHoldPolicy {
+    fn act(&self, obs: &[f32]) -> Action {
+        match self {
+            Self::Hold(policy) => policy.act(obs),
+            #[cfg(feature = "torch")]
+            Self::Checkpoint(policy) => policy.act(obs),
+        }
+    }
+}
+
 /// Policy backed by a saved torch actor-critic checkpoint.
 #[cfg(feature = "torch")]
 pub struct CheckpointPolicy {
@@ -89,6 +135,12 @@ mod tests {
     #[test]
     fn hold_policy_returns_hold() {
         assert_eq!(HoldPolicy.act(&[1.0, 2.0]), Action::Hold);
+    }
+
+    #[test]
+    fn checkpoint_or_hold_defaults_to_hold() {
+        let policy = CheckpointOrHoldPolicy::default();
+        assert_eq!(policy.act(&[1.0, 2.0]), Action::Hold);
     }
 
     #[test]

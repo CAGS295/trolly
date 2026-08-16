@@ -31,14 +31,17 @@ pub mod games;
 pub mod train;
 
 pub use action::Action;
-pub use env::{Env, EnvConfig, RewardConfig, StepActionSource, StepResult};
+pub use env::{
+    run_offline_policy_harness, Env, EnvConfig, OfflinePolicyHarnessError, RewardConfig,
+    StepActionSource, StepResult,
+};
 pub use fingerprint::{
     load_sidecar, write_sidecar_for_checkpoint, ModelFingerprint, FINGERPRINT_SIDECAR,
 };
 pub use observation::{features_from_event, FeatureVector, ObservationWindow};
 #[cfg(feature = "torch")]
 pub use policy::CheckpointPolicy;
-pub use policy::{HoldPolicy, PolicyProvider};
+pub use policy::{CheckpointOrHoldPolicy, HoldPolicy, PolicyProvider};
 pub use replay::{
     FeatureRingBuffer, OnPolicyRolloutBuffer, OnPolicyStep, ReplayBuffer, Trajectory,
     TrajectoryReplay, Transition,
