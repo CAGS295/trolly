@@ -21,7 +21,7 @@ pub use egress::{
 };
 pub use endpoints::{
     ApiCredentials, BinanceSpotUserStream, SPOT_DEMO_MARKET_STREAM_URL, SPOT_DEMO_REST_BASE_URL,
-    SPOT_DEMO_WS_API_URL, SPOT_REST_BASE_URL, spot_depth_rest_url,
+    SPOT_DEMO_ORDER_BASE_URL, SPOT_DEMO_WS_API_URL, SPOT_REST_BASE_URL, spot_depth_rest_url,
 };
 pub use order::{
     BinanceApiErrorBody, HttpResponse, OrderBuilderError, OrderSide, OrderTransport, OrderType,

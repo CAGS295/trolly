@@ -15,6 +15,8 @@ pub const SPOT_REST_BASE_URL: &str = "https://api.binance.com/api";
 
 /// Binance spot **demo** hosts ([demo mode general info](https://developers.binance.com/docs/binance-spot-api-docs/demo-mode/general-info)).
 pub const SPOT_DEMO_REST_BASE_URL: &str = "https://demo-api.binance.com/api";
+/// Binance spot **demo** order placement host (`/api/v3/order` is appended by the order client).
+pub const SPOT_DEMO_ORDER_BASE_URL: &str = "https://demo-api.binance.com";
 pub const SPOT_DEMO_WS_API_URL: &str = "wss://demo-ws-api.binance.com/ws-api/v3";
 pub const SPOT_DEMO_MARKET_STREAM_URL: &str = "wss://demo-stream.binance.com/ws";
 
@@ -105,6 +107,7 @@ mod tests {
         assert!(stream
             .rest_api_url("btcusdt")
             .starts_with("https://demo-api.binance.com/api/v3/depth"));
+        assert_eq!(SPOT_DEMO_ORDER_BASE_URL, "https://demo-api.binance.com");
     }
 
     #[test]
