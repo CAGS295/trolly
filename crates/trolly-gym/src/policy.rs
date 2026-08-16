@@ -1,8 +1,9 @@
 //! Policy providers for stream-backed environment stepping.
 
-use std::path::{Path, PathBuf};
-
 use crate::action::Action;
+
+#[cfg(feature = "torch")]
+use std::path::{Path, PathBuf};
 
 /// Injectable action provider for [`crate::Env`] stepping.
 pub trait PolicyProvider {
