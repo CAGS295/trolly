@@ -21,7 +21,7 @@ Shipped so far (not the destination): global book CLI; stream-native spot/USDM b
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: 2026-08-14
+- last_run: 2026-08-16
 - max_parallel: 3
 - ship_branch: integrate/orchestrator-branches
 
@@ -423,7 +423,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-023 — Stream Env PolicyProvider and market reward (`trolly-gym`)
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-014, WP-015, WP-020, WP-022]
 - scope: crates/trolly-gym/src/env.rs, crates/trolly-gym/src/policy.rs, crates/trolly-gym/src/action.rs, crates/trolly-gym/tests/, crates/trolly-gym/README.md
@@ -435,10 +435,11 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - optional `--features torch`: load `latest.safetensors` from a microstructure checkpoint dir into a `CheckpointPolicy` and act once on a dummy obs (skip cleanly without libtorch)
   - `cargo test -p trolly-gym` passes; default workspace check still has no libtorch
 - notes: Highest-leverage gap on the broad goal. Do not add ONNX/`ort` here. GPU host may lack sudo ROCm — CPU checkpoints are enough. Advertise/fulfill: `PolicyProvider::act` must return `Action` values that `Action::dispatch` already fulfills.
+- worker (2026-08-16): added `PolicyProvider`, `HoldPolicy`, torch-gated `CheckpointPolicy`, provider-backed `Env::step`, configurable inventory × Δmid minus spread-cost reward, episode horizon, and offline dispatch smoke coverage. Acceptance: `cargo +stable test -p trolly-gym --locked` passes; `cargo +stable test --workspace --locked` passes after installing `protobuf-compiler` for `lob` build.rs.
 
 ### WP-024 — Demo place-order → user-stream reconcile
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-014, WP-015, WP-017]
 - scope: tests/, crates/binance-spot-exec/, crates/binance-usdm-exec/, .env.example
@@ -448,6 +449,21 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - skip cleanly without keys; never production hosts or keys
   - `cargo test --workspace` stays offline
 - notes: Listed as optional follow-on on WP-017. Unblocks trusting demo execution before a trained policy is allowed to place. Disjoint from WP-023 (exec/tests vs gym).
+- worker (2026-08-16): added guarded ignored spot/USDM demo market-order reconciliation tests requiring demo keys plus `RUN_BINANCE_DEMO_ORDERS=1`; user-stream frames flow through existing exec bookkeeping and terminal orders are cleared there. Acceptance: `cargo +stable test --no-default-features --test binance_demo` and `cargo +stable test --workspace --locked` pass.
+
+### WP-025 — Checkpoint policy strategy execution harness
+
+- status: in_progress
+- repos: trolly
+- depends_on: [WP-023, WP-024]
+- scope: crates/trolly-gym/src/policy.rs, crates/trolly-gym/src/env.rs, crates/trolly-gym/examples/, crates/trolly-gym/tests/, crates/trolly-gym/README.md
+- acceptance:
+  - example or test harness loads a saved `latest.safetensors` checkpoint through `CheckpointPolicy` when `--features torch` is enabled, feeds injected stream observations into `Env`, and dispatches through `Action::dispatch`
+  - default `HoldPolicy` / injected policy path remains available without libtorch and without new default runtime dependencies
+  - offline test proves checkpoint-or-hold policy consumes a synthetic depth stream and emits the same normalized `OutboundMessage::OrderRequest` values strategy exec adapters consume
+  - README documents how to run the harness with a microstructure checkpoint dir and how to point it at demo execution only after WP-024 keys/guards are enabled
+  - `cargo test -p trolly-gym` passes; `cargo test -p trolly-gym --features torch` includes checkpoint load/act smoke when libtorch is available
+- notes: Next bridge after WP-023/WP-024: turn saved policy checkpoints into a reproducible injected-stream action loop before adding ONNX/`ort` or live automation. Keep the harness offline by default and route all order intents through existing strategy `OutboundMessage`/exec adapters.
 
 ## Integration test reference
 
