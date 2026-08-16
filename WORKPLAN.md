@@ -453,7 +453,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-025 — Checkpoint policy strategy execution harness
 
-- status: in_progress
+- status: done
 - repos: trolly
 - depends_on: [WP-023, WP-024]
 - scope: crates/trolly-gym/src/policy.rs, crates/trolly-gym/src/env.rs, crates/trolly-gym/examples/, crates/trolly-gym/tests/, crates/trolly-gym/README.md
@@ -464,6 +464,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - README documents how to run the harness with a microstructure checkpoint dir and how to point it at demo execution only after WP-024 keys/guards are enabled
   - `cargo test -p trolly-gym` passes; `cargo test -p trolly-gym --features torch` includes checkpoint load/act smoke when libtorch is available
 - notes: Next bridge after WP-023/WP-024: turn saved policy checkpoints into a reproducible injected-stream action loop before adding ONNX/`ort` or live automation. Keep the harness offline by default and route all order intents through existing strategy `OutboundMessage`/exec adapters.
+- worker (2026-08-16): added `CheckpointOrHoldPolicy`, `run_offline_policy_harness`, a synthetic stream example, default hold/injected-policy tests, and torch-gated checkpoint harness coverage. Acceptance: `cargo +stable test -p trolly-gym --locked`, `cargo +stable run -p trolly-gym --example checkpoint_policy_harness --locked`, `cargo +stable test -p trolly-gym --features torch --lib --locked`, and `cargo +stable test --workspace --locked` pass.
 
 ## Integration test reference
 

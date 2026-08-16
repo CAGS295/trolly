@@ -4,10 +4,11 @@ Project journal for shipped work. Active backlog lives in [`WORKPLAN.md`](WORKPL
 
 ## WIP
 
-- Connect saved WoLF-PPO checkpoints to a reproducible injected-stream action harness before ONNX/`ort` inference or live automation (WP-025). Local continue-training: ClickHouse `trolly.ticks`, trajectory FIFO replay, daily `--continue` slice, checkpoint fingerprints.
+- Keep local GPU training checkpoint metrics improving via ClickHouse `trolly.ticks`, trajectory FIFO replay, daily `--continue` slices, and checkpoint fingerprints.
 - Add more exchange providers beyond Binance spot + USDM (stub scaffold landed; full venues remain).
 
 ## change log
++ `trolly-gym`: checkpoint-or-hold policy harness loads saved safetensors under `--features torch`, feeds injected stream observations into Env, and dispatches normalized strategy messages (WP-025).
 + `trolly-gym`: PolicyProvider / HoldPolicy / torch-gated CheckpointPolicy, configurable stream reward, episode horizon, and Env policy stepping through Action::dispatch (WP-023).
 + Binance demo execution: guarded ignored spot/USDM market-order reconcile tests route fills through existing user-stream bookkeeping; default workspace tests stay offline (WP-024).
 + `trolly-gym`: local continue/weekday GPU paths `git fetch` then rebase onto `@{u}` before training so this host picks up cloud-agent pushes (dirty tree: fetch + warn, no reset).
