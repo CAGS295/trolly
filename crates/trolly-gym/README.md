@@ -90,9 +90,56 @@ sudo amdgpu-install -y --usecase=rocm --no-dkms
 ## Architecture
 
 - **Observations** — normalized [`StreamEvent`](https://github.com/CAGS295/trolly/tree/main/crates/trolly-strategy) values from `trolly-stream` ingress are converted to feature vectors and kept in a rolling [`ObservationWindow`](src/observation.rs).
-- **Actions** — discrete [`Action`](src/action.rs) values map to [`OutboundMessage`](https://github.com/CAGS295/trolly/tree/main/crates/trolly-strategy) commands and dispatch through [`StreamEgress`](https://github.com/CAGS295/trolly/tree/main/crates/trolly-strategy).
+- **Policies** — [`PolicyProvider`](src/policy.rs) turns flattened observations into [`Action`](src/action.rs) values. `HoldPolicy` is the default safe baseline; torch builds can load a checkpoint with `CheckpointPolicy`.
+- **Actions** — discrete [`Action`](src/action.rs) values map to [`OutboundMessage`](https://github.com/CAGS295/trolly/tree/main/crates/trolly-strategy) commands and dispatch through [`StreamEgress`](https://github.com/CAGS295/trolly/tree/main/crates/trolly-strategy). Env stepping always calls `Action::dispatch`; it does not build parallel order messages.
 - **Replay** — [`ReplayBuffer`](src/replay.rs) FIFO ring plus recency-bounded [`TrajectoryReplay`](src/replay.rs) (on-policy trajectories, age-decayed sample; not classic PER).
-- **Env** — [`Env`](src/env.rs) ties ingest → window → step → egress; see `tests/smoke.rs` for an offline mock flow.
+- **Env** — [`Env`](src/env.rs) ties ingest -> window -> policy/action step -> egress; see `tests/smoke.rs` for an offline mock flow.
+
+## Stream Env policies and market reward (WP-023)
+
+`Env::step` accepts either an explicit `Action` or a borrowed policy provider:
+
+```rust
+use trolly_gym::{Action, Env, EnvConfig, HoldPolicy};
+use trolly_strategy::RecordingEgress;
+
+let mut env = Env::new(EnvConfig::new("BTCUSDT"), RecordingEgress::default());
+let hold = HoldPolicy;
+
+let _ = env.step(Action::Buy); // explicit action
+let _ = env.step(&hold);       // provider-selected action
+```
+
+The provider API is intentionally small:
+
+```rust
+use trolly_gym::{Action, PolicyProvider};
+
+struct MyPolicy;
+
+impl PolicyProvider for MyPolicy {
+    fn act(&self, obs: &[f32]) -> Action {
+        if obs.last().copied().unwrap_or_default() > 0.0 {
+            Action::Buy
+        } else {
+            Action::Hold
+        }
+    }
+}
+```
+
+Stream rewards now mirror the synthetic microstructure benchmark: the env keeps
+a unit inventory (`-1`, `0`, `1`) and computes
+`inventory * delta_mid - spread_cost` from the latest 7-feature depth frame.
+`EnvConfig::reward.spread_cost_multiplier` scales the observed spread charged
+when inventory changes, and `EnvConfig::episode_steps` controls when `done`
+becomes true.
+
+With `--features torch`, `CheckpointPolicy::from_latest_checkpoint_dir(dir,
+obs_dim, config)` loads `latest.safetensors` from a microstructure checkpoint
+directory and chooses the argmax action for the supplied observation. This is a
+CPU inference hook for local smoke tests; ONNX/`ort` live inference remains a
+separate follow-on.
 
 See the **WP-020 training loop** section below for rollout collection, the
 `WolfPpoTrainDriver`, and checkpoint save/load.
@@ -268,7 +315,7 @@ cargo test -p trolly-gym --features torch --test train_loop
 closure, making it straightforward to wrap `Env::step`:
 
 ```rust
-// Pseudocode — reward is still the stub in env.rs
+// Pseudocode
 let mut gym_env = Env::new(EnvConfig::new("BTCUSDT"), egress);
 collector.collect(&ac, gym_env.observation_window().flattened(), |_obs, action_i| {
     let a = Action::from_index(action_i);  // adapt index → Action

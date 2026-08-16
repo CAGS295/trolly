@@ -9,10 +9,11 @@ mod action;
 mod env;
 pub mod fingerprint;
 mod observation;
+pub mod orchestrator;
+pub mod policy;
 mod replay;
 pub mod sim;
 pub mod ticks;
-pub mod orchestrator;
 
 #[cfg(feature = "torch")]
 pub mod device;
@@ -30,11 +31,14 @@ pub mod games;
 pub mod train;
 
 pub use action::Action;
-pub use env::{Env, EnvConfig, StepResult};
+pub use env::{Env, EnvConfig, RewardConfig, StepActionSource, StepResult};
 pub use fingerprint::{
     load_sidecar, write_sidecar_for_checkpoint, ModelFingerprint, FINGERPRINT_SIDECAR,
 };
 pub use observation::{features_from_event, FeatureVector, ObservationWindow};
+#[cfg(feature = "torch")]
+pub use policy::CheckpointPolicy;
+pub use policy::{HoldPolicy, PolicyProvider};
 pub use replay::{
     FeatureRingBuffer, OnPolicyRolloutBuffer, OnPolicyStep, ReplayBuffer, Trajectory,
     TrajectoryReplay, Transition,
