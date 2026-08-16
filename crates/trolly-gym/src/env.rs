@@ -399,4 +399,48 @@ mod tests {
             vec![Action::Buy.to_outbound("BTCUSDT", "0.01", None)]
         );
     }
+
+    #[cfg(feature = "torch")]
+    #[test]
+    fn offline_policy_harness_loads_checkpoint_policy() {
+        use crate::policy::CheckpointOrHoldPolicy;
+        use crate::ppo::{ActorCritic, PpoConfig};
+        use crate::train::{save_checkpoint, LATEST_CHECKPOINT};
+        use tch::{nn, Device};
+
+        let obs_dim = 7_i64;
+        let ppo = PpoConfig::default();
+        let vs = nn::VarStore::new(Device::Cpu);
+        let _model = ActorCritic::new(&vs, obs_dim, Action::COUNT, &ppo);
+
+        let dir = std::env::temp_dir().join(format!(
+            "trolly_gym_env_checkpoint_harness_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        save_checkpoint(&vs, dir.join(LATEST_CHECKPOINT)).unwrap();
+
+        let policy = CheckpointOrHoldPolicy::from_latest_checkpoint_dir(&dir, obs_dim, ppo)
+            .expect("checkpoint loads");
+        let mut config = EnvConfig::new("BTCUSDT");
+        config.window_frames = 1;
+        let mut env = Env::new(config, RecordingEgress::default());
+
+        let steps = run_offline_policy_harness(
+            &mut env,
+            &policy,
+            [trolly_strategy::envelope_message(&depth_event(
+                "BTCUSDT", "100", "101",
+            ))],
+        )
+        .unwrap();
+
+        assert_eq!(steps.len(), 1);
+        assert_eq!(env.egress().dispatched.len(), 1);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
