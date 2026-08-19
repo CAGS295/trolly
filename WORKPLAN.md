@@ -21,7 +21,7 @@ Shipped so far (not the destination): global book CLI; stream-native spot/USDM b
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: 2026-08-16
+- last_run: 2026-08-19
 - max_parallel: 3
 - ship_branch: integrate/orchestrator-branches
 
@@ -468,7 +468,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-026 — Order-only egress bridge for policy harness
 
-- status: in_progress
+- status: done
 - repos: trolly
 - depends_on: [WP-025]
 - scope: crates/trolly-strategy/src/egress.rs, crates/trolly-strategy/src/lib.rs, tests/policy_execution_bridge.rs, crates/trolly-gym/README.md
@@ -479,6 +479,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - README documents the bridge as the safe handoff from checkpoint policy harness output to demo execution adapters
   - `cargo test -p trolly-strategy` and `cargo test --test policy_execution_bridge --locked` pass
 - notes: Closes the adapter seam left by WP-025 before a checkpoint policy is allowed near demo execution: `Action::dispatch` still emits the messages, but execution adapters should only receive real order intents.
+- worker (2026-08-19): added `OrderOnlyEgress`, exported it from `trolly-strategy`, covered spot/USDM queue adapters with an offline policy harness integration test, and documented the safe demo handoff. Acceptance: `cargo test -p trolly-strategy` and `cargo test --test policy_execution_bridge --locked` pass.
 
 ## Integration test reference
 

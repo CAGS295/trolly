@@ -8,6 +8,7 @@ Project journal for shipped work. Active backlog lives in [`WORKPLAN.md`](WORKPL
 - Add more exchange providers beyond Binance spot + USDM (stub scaffold landed; full venues remain).
 
 ## change log
++ `trolly-strategy` / `trolly-gym`: order-only egress bridge lets checkpoint policy harness output reach spot/USDM execution queues while ignoring Hold/Subscribe side effects (WP-026).
 + `trolly-gym`: checkpoint-or-hold policy harness loads saved safetensors under `--features torch`, feeds injected stream observations into Env, and dispatches normalized strategy messages (WP-025).
 + `trolly-gym`: PolicyProvider / HoldPolicy / torch-gated CheckpointPolicy, configurable stream reward, episode horizon, and Env policy stepping through Action::dispatch (WP-023).
 + Binance demo execution: guarded ignored spot/USDM market-order reconcile tests route fills through existing user-stream bookkeeping; default workspace tests stay offline (WP-024).
