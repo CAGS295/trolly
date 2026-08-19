@@ -466,6 +466,20 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 - notes: Next bridge after WP-023/WP-024: turn saved policy checkpoints into a reproducible injected-stream action loop before adding ONNX/`ort` or live automation. Keep the harness offline by default and route all order intents through existing strategy `OutboundMessage`/exec adapters.
 - worker (2026-08-16): added `CheckpointOrHoldPolicy`, `run_offline_policy_harness`, a synthetic stream example, default hold/injected-policy tests, and torch-gated checkpoint harness coverage. Acceptance: `cargo +stable test -p trolly-gym --locked`, `cargo +stable run -p trolly-gym --example checkpoint_policy_harness --locked`, `cargo +stable test -p trolly-gym --features torch --lib --locked`, and `cargo +stable test --workspace --locked` pass.
 
+### WP-026 — Order-only egress bridge for policy harness
+
+- status: in_progress
+- repos: trolly
+- depends_on: [WP-025]
+- scope: crates/trolly-strategy/src/egress.rs, crates/trolly-strategy/src/lib.rs, tests/policy_execution_bridge.rs, crates/trolly-gym/README.md
+- acceptance:
+  - add a reusable order-only `StreamEgress` bridge/filter that forwards `OutboundMessage::OrderRequest` to an inner egress and ignores non-order policy side effects such as `Hold`/`Subscribe`
+  - offline integration test feeds injected depth observations through `run_offline_policy_harness` with a Hold/Buy/Sell policy and proves Buy/Sell enqueue spot and USDM place-order requests through the existing exec egress adapters
+  - no live network, keys, or production hosts are used; demo order placement remains behind the existing `RUN_BINANCE_DEMO_ORDERS=1` guard
+  - README documents the bridge as the safe handoff from checkpoint policy harness output to demo execution adapters
+  - `cargo test -p trolly-strategy` and `cargo test --test policy_execution_bridge --locked` pass
+- notes: Closes the adapter seam left by WP-025 before a checkpoint policy is allowed near demo execution: `Action::dispatch` still emits the messages, but execution adapters should only receive real order intents.
+
 ## Integration test reference
 
 The global-book integration test (`tests/global_book.rs`) has two layers:
