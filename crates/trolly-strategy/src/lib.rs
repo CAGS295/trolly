@@ -5,7 +5,7 @@ mod event;
 mod runtime;
 mod strategy;
 
-pub use egress::{OutboundMessage, RecordingEgress, StreamEgress};
+pub use egress::{OrderOnlyEgress, OutboundMessage, RecordingEgress, StreamEgress};
 pub use event::{
     AccountUpdate, DepthUpdate, EventKind, ExecutionUpdate, PriceLevel, StreamEvent,
 };

@@ -176,6 +176,31 @@ resulting order intents at demo execution only behind the WP-024 demo-key guards
 (`RUN_BINANCE_DEMO_ORDERS=1`, demo credentials in `.env`); do not wire this
 harness to production keys.
 
+## Order-only execution bridge (WP-026)
+
+Checkpoint/offline policies can be handed to the spot or USDM execution egress
+adapters by wrapping the adapter in `trolly_strategy::OrderOnlyEgress`. The
+wrapper is an egress-boundary filter: `Env::step` still calls
+`Action::dispatch`, but only `OutboundMessage::OrderRequest` reaches the inner
+execution adapter. Non-order side effects such as `Action::Hold` emitting
+`Subscribe`, or custom `Raw` messages, are ignored instead of being reported as
+order-placement errors.
+
+```rust
+use binance_spot_exec::SpotOrderEgress;
+use trolly_gym::{Env, EnvConfig};
+use trolly_strategy::OrderOnlyEgress;
+
+let (spot_orders, _rx) = SpotOrderEgress::channel();
+let env = Env::new(EnvConfig::new("BTCUSDT"), OrderOnlyEgress::new(spot_orders));
+```
+
+This handoff remains offline by default in tests: `tests/policy_execution_bridge.rs`
+uses injected depth envelopes and the queue-based exec egress adapters, with no
+REST clients, credentials, or live hosts. Demo order placement remains a
+separate opt-in path guarded by `RUN_BINANCE_DEMO_ORDERS=1` and demo
+credentials; never point checkpoint harness output at production keys.
+
 See the **WP-020 training loop** section below for rollout collection, the
 `WolfPpoTrainDriver`, and checkpoint save/load.
 

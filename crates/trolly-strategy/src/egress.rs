@@ -51,6 +51,56 @@ pub trait StreamEgress {
     fn dispatch(&mut self, message: OutboundMessage) -> Result<(), Self::Error>;
 }
 
+/// Bridges policy harness output into order-placement egress adapters.
+///
+/// `Action::dispatch` may emit non-order messages such as `Subscribe` for
+/// `Hold`. Venue execution adapters only understand order requests, so this
+/// wrapper forwards [`OutboundMessage::OrderRequest`] and treats everything
+/// else as an ignored side effect.
+#[derive(Debug, Clone)]
+pub struct OrderOnlyEgress<E> {
+    inner: E,
+}
+
+impl<E> OrderOnlyEgress<E> {
+    pub fn new(inner: E) -> Self {
+        Self { inner }
+    }
+
+    pub fn inner(&self) -> &E {
+        &self.inner
+    }
+
+    pub fn inner_mut(&mut self) -> &mut E {
+        &mut self.inner
+    }
+
+    pub fn into_inner(self) -> E {
+        self.inner
+    }
+}
+
+impl<E> From<E> for OrderOnlyEgress<E> {
+    fn from(inner: E) -> Self {
+        Self::new(inner)
+    }
+}
+
+impl<E> StreamEgress for OrderOnlyEgress<E>
+where
+    E: StreamEgress,
+{
+    type Error = E::Error;
+
+    fn dispatch(&mut self, message: OutboundMessage) -> Result<(), Self::Error> {
+        if matches!(&message, OutboundMessage::OrderRequest { .. }) {
+            self.inner.dispatch(message)
+        } else {
+            Ok(())
+        }
+    }
+}
+
 /// Records dispatched commands for tests.
 #[derive(Debug, Default)]
 pub struct RecordingEgress {
@@ -63,5 +113,44 @@ impl StreamEgress for RecordingEgress {
     fn dispatch(&mut self, message: OutboundMessage) -> Result<(), Self::Error> {
         self.dispatched.push(message);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use trolly_stream::Message;
+
+    #[test]
+    fn order_only_egress_forwards_orders_and_ignores_non_orders() {
+        let mut egress = OrderOnlyEgress::new(RecordingEgress::default());
+
+        egress
+            .dispatch(OutboundMessage::Subscribe {
+                symbol: "BTCUSDT".into(),
+                channel: "depth".into(),
+            })
+            .unwrap();
+        egress
+            .dispatch(OutboundMessage::Raw(Message::Text("{}".into())))
+            .unwrap();
+        egress
+            .dispatch(OutboundMessage::order_request(
+                "BTCUSDT",
+                "BUY",
+                "0.01",
+                None::<&str>,
+            ))
+            .unwrap();
+
+        assert_eq!(
+            egress.inner().dispatched,
+            vec![OutboundMessage::order_request(
+                "BTCUSDT",
+                "BUY",
+                "0.01",
+                None::<&str>,
+            )]
+        );
     }
 }
