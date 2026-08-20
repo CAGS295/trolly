@@ -33,6 +33,7 @@ Live inference can use an exported ONNX actor model without libtorch:
 cargo test -p trolly-gym --features ort --test onnx_policy
 
 export ONNX_MODEL_PATH=checkpoints/microstructure_train/policy.onnx
+export ORT_DYLIB_PATH=/path/to/libonnxruntime.so  # omit when it is on the loader path
 export WINDOW_FRAMES=1
 cargo run -p trolly-gym --features ort --example checkpoint_policy_harness
 ```
@@ -63,9 +64,10 @@ torch.onnx.export(
 )
 ```
 
-The optional `ort` crate is pulled in only when `--features ort` is set. This
-keeps default `cargo test -p trolly-gym` builds free of both libtorch and ONNX
-Runtime.
+The optional `ort` crate is pulled in only when `--features ort` is set and is
+configured for dynamic loading. Set `ORT_DYLIB_PATH` when `libonnxruntime.so`
+is not discoverable by the platform loader. This keeps default
+`cargo test -p trolly-gym` builds free of both libtorch and ONNX Runtime.
 
 AMD GPUs (ROCm/HIP) use the same `tch::Device::Cuda` API as NVIDIA. Set
 `TROLLY_TRAIN_DEVICE=auto` (default for the orchestrator), `cpu`, `cuda`, or
@@ -216,6 +218,7 @@ cargo test -p trolly-gym --features torch --test train_loop \
     checkpoint_policy_harness_loads_latest_and_steps_injected_stream
 
 export ONNX_MODEL_PATH=checkpoints/microstructure_train/policy.onnx
+export ORT_DYLIB_PATH=/path/to/libonnxruntime.so
 cargo run -p trolly-gym --features ort --example checkpoint_policy_harness
 cargo test -p trolly-gym --features ort --test onnx_policy
 ```

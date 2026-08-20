@@ -45,7 +45,10 @@ fn main() {
 }
 
 fn load_policy(window_frames: usize) -> CheckpointOrHoldPolicy {
+    #[cfg(any(feature = "ort", feature = "torch"))]
     let obs_dim = trolly_gym::sim::microstructure_obs_dim(window_frames);
+    #[cfg(not(any(feature = "ort", feature = "torch")))]
+    let _ = window_frames;
 
     #[cfg(feature = "ort")]
     if let Some(path) = std::env::var_os("ONNX_MODEL_PATH") {

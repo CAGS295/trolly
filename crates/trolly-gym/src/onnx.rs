@@ -87,12 +87,23 @@ impl OnnxPolicy {
             return Err(OnnxPolicyError::MissingModel(path.to_path_buf()));
         }
 
-        let session = ort::session::Session::builder()
-            .and_then(|builder| builder.commit_from_file(path))
-            .map_err(|err| OnnxPolicyError::Load {
-                path: path.to_path_buf(),
-                source: err.to_string(),
-            })?;
+        let session = match std::panic::catch_unwind(|| {
+            ort::session::Session::builder().and_then(|builder| builder.commit_from_file(path))
+        }) {
+            Ok(Ok(session)) => session,
+            Ok(Err(err)) => {
+                return Err(OnnxPolicyError::Load {
+                    path: path.to_path_buf(),
+                    source: err.to_string(),
+                });
+            }
+            Err(payload) => {
+                return Err(OnnxPolicyError::Load {
+                    path: path.to_path_buf(),
+                    source: panic_payload_to_string(payload),
+                });
+            }
+        };
 
         Ok(Self {
             session: Mutex::new(session),
@@ -110,9 +121,15 @@ impl OnnxPolicy {
             .session
             .lock()
             .map_err(|_| OnnxPolicyError::SessionPoisoned)?;
-        let outputs = session
-            .run(ort::inputs![input])
-            .map_err(|err| OnnxPolicyError::Inference(err.to_string()))?;
+        let outputs = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            session.run(ort::inputs![input])
+        })) {
+            Ok(Ok(outputs)) => outputs,
+            Ok(Err(err)) => return Err(OnnxPolicyError::Inference(err.to_string())),
+            Err(payload) => {
+                return Err(OnnxPolicyError::Inference(panic_payload_to_string(payload)))
+            }
+        };
         let output = outputs
             .values()
             .next()
@@ -122,6 +139,16 @@ impl OnnxPolicy {
             .map_err(|err| OnnxPolicyError::Inference(err.to_string()))?;
 
         decode_action_from_logits(logits)
+    }
+}
+
+fn panic_payload_to_string(payload: Box<dyn std::any::Any + Send>) -> String {
+    match payload.downcast::<String>() {
+        Ok(message) => *message,
+        Err(payload) => match payload.downcast::<&'static str>() {
+            Ok(message) => (*message).to_string(),
+            Err(_) => "unknown panic while calling ONNX Runtime".to_string(),
+        },
     }
 }
 
