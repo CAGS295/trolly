@@ -21,7 +21,7 @@ Shipped so far (not the destination): global book CLI; stream-native spot/USDM b
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: 2026-08-19
+- last_run: 2026-08-20
 - max_parallel: 3
 - ship_branch: integrate/orchestrator-branches
 
@@ -483,7 +483,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-027 — ONNX Runtime policy provider (`trolly-gym`)
 
-- status: in_progress
+- status: done
 - repos: trolly
 - depends_on: [WP-025, WP-026]
 - scope: crates/trolly-gym/Cargo.toml, crates/trolly-gym/src/lib.rs, crates/trolly-gym/src/policy.rs, crates/trolly-gym/src/onnx.rs, crates/trolly-gym/examples/checkpoint_policy_harness.rs, crates/trolly-gym/tests/, crates/trolly-gym/README.md
@@ -494,6 +494,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - feature-gated tests cover action decoding, missing/invalid model fallback or error reporting, and one offline harness step with an ONNX provider or deterministic test double; tests skip cleanly if the native ORT runtime cannot be loaded in this environment
   - README documents how to export/use a microstructure policy as ONNX, how to run the harness with `--features ort`, and that demo order placement still requires the WP-024 guards plus `OrderOnlyEgress`
 - notes: This is the live-inference follow-on called out by WP-016/WP-025. Keep training on the existing torch/GPU path; ONNX is inference-only and must not broaden default build requirements.
+- worker/orchestrator (2026-08-20): added optional `ort` feature with dynamically loaded ONNX Runtime, `OnnxPolicy`, `CheckpointOrHoldPolicy::Onnx`, `ONNX_MODEL_PATH` support in the offline harness, feature-gated ONNX tests, and README export/run docs. Acceptance: `cargo test -p trolly-gym --locked` and `cargo test -p trolly-gym --features ort --locked` pass.
 
 ## Integration test reference
 
