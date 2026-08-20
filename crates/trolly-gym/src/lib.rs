@@ -9,6 +9,8 @@ mod action;
 mod env;
 pub mod fingerprint;
 mod observation;
+#[cfg(feature = "ort")]
+pub mod onnx;
 pub mod orchestrator;
 pub mod policy;
 mod replay;
@@ -39,6 +41,8 @@ pub use fingerprint::{
     load_sidecar, write_sidecar_for_checkpoint, ModelFingerprint, FINGERPRINT_SIDECAR,
 };
 pub use observation::{features_from_event, FeatureVector, ObservationWindow};
+#[cfg(feature = "ort")]
+pub use onnx::{OnnxPolicy, OnnxPolicyError};
 #[cfg(feature = "torch")]
 pub use policy::CheckpointPolicy;
 pub use policy::{CheckpointOrHoldPolicy, HoldPolicy, PolicyProvider};
@@ -54,4 +58,9 @@ pub use ticks::{
 /// Whether the crate was built with libtorch support.
 pub fn torch_enabled() -> bool {
     cfg!(feature = "torch")
+}
+
+/// Whether the crate was built with ONNX Runtime support.
+pub fn ort_enabled() -> bool {
+    cfg!(feature = "ort")
 }

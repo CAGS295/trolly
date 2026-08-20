@@ -2,9 +2,9 @@
 
 Training gym scaffold for reinforcement learning over trolly market streams.
 
-## Default build (no libtorch)
+## Default build (no libtorch / no ONNX Runtime)
 
-CI and the default workspace build do **not** link libtorch:
+CI and the default workspace build do **not** link libtorch or ONNX Runtime:
 
 ```bash
 cargo check -p trolly-gym
@@ -24,6 +24,48 @@ cargo test -p trolly-gym --features torch
 ```
 
 The optional `tch` crate is pulled in only when `--features torch` is set.
+
+## ONNX Runtime inference build (`ort` feature)
+
+Live inference can use an exported ONNX actor model without libtorch:
+
+```bash
+cargo test -p trolly-gym --features ort --test onnx_policy
+
+export ONNX_MODEL_PATH=checkpoints/microstructure_train/policy.onnx
+export WINDOW_FRAMES=1
+cargo run -p trolly-gym --features ort --example checkpoint_policy_harness
+```
+
+`OnnxPolicy` expects a static actor graph with one `f32` input shaped
+`[1, obs_dim]`, where `obs_dim = 7 * WINDOW_FRAMES` for the current
+microstructure stream features. The first output must contain at least three
+logits ordered as `Hold`, `Buy`, `Sell`; the provider returns the argmax action
+and falls back to `Hold` if inference fails through the `PolicyProvider` trait.
+
+A minimal PyTorch export flow for a trained actor is:
+
+```python
+import torch
+
+actor = ...  # load the trained microstructure actor head
+actor.eval()
+obs_dim = 7 * window_frames
+dummy_obs = torch.zeros(1, obs_dim, dtype=torch.float32)
+torch.onnx.export(
+    actor,
+    dummy_obs,
+    "checkpoints/microstructure_train/policy.onnx",
+    input_names=["observation"],
+    output_names=["logits"],
+    dynamic_axes=None,  # keep the live actor shape static
+    opset_version=17,
+)
+```
+
+The optional `ort` crate is pulled in only when `--features ort` is set. This
+keeps default `cargo test -p trolly-gym` builds free of both libtorch and ONNX
+Runtime.
 
 AMD GPUs (ROCm/HIP) use the same `tch::Device::Cuda` API as NVIDIA. Set
 `TROLLY_TRAIN_DEVICE=auto` (default for the orchestrator), `cpu`, `cuda`, or
@@ -90,7 +132,7 @@ sudo amdgpu-install -y --usecase=rocm --no-dkms
 ## Architecture
 
 - **Observations** — normalized [`StreamEvent`](https://github.com/CAGS295/trolly/tree/main/crates/trolly-strategy) values from `trolly-stream` ingress are converted to feature vectors and kept in a rolling [`ObservationWindow`](src/observation.rs).
-- **Policies** — [`PolicyProvider`](src/policy.rs) turns flattened observations into [`Action`](src/action.rs) values. `HoldPolicy` is the default safe baseline; torch builds can load a checkpoint with `CheckpointPolicy`.
+- **Policies** — [`PolicyProvider`](src/policy.rs) turns flattened observations into [`Action`](src/action.rs) values. `HoldPolicy` is the default safe baseline; torch builds can load a checkpoint with `CheckpointPolicy`; ONNX Runtime builds can load exported actor graphs with `OnnxPolicy`.
 - **Actions** — discrete [`Action`](src/action.rs) values map to [`OutboundMessage`](https://github.com/CAGS295/trolly/tree/main/crates/trolly-strategy) commands and dispatch through [`StreamEgress`](https://github.com/CAGS295/trolly/tree/main/crates/trolly-strategy). Env stepping always calls `Action::dispatch`; it does not build parallel order messages.
 - **Replay** — [`ReplayBuffer`](src/replay.rs) FIFO ring plus recency-bounded [`TrajectoryReplay`](src/replay.rs) (on-policy trajectories, age-decayed sample; not classic PER).
 - **Env** — [`Env`](src/env.rs) ties ingest -> window -> policy/action step -> egress; see `tests/smoke.rs` for an offline mock flow.
@@ -138,8 +180,12 @@ becomes true.
 With `--features torch`, `CheckpointPolicy::from_latest_checkpoint_dir(dir,
 obs_dim, config)` loads `latest.safetensors` from a microstructure checkpoint
 directory and chooses the argmax action for the supplied observation. This is a
-CPU inference hook for local smoke tests; ONNX/`ort` live inference remains a
-separate follow-on.
+CPU inference hook for local smoke tests.
+
+With `--features ort`, `OnnxPolicy::from_model(path, obs_dim)` loads an ONNX
+actor model and chooses the argmax action from the first three output logits.
+The `PolicyProvider` implementation returns `Hold` if runtime inference fails;
+load errors stay explicit so harnesses can log and fall back before trading.
 
 ## Offline checkpoint policy harness (WP-025)
 
@@ -156,7 +202,7 @@ cargo test -p trolly-gym --test smoke
 ```
 
 Torch builds can load a microstructure checkpoint directory containing
-`latest.safetensors`:
+`latest.safetensors`; ONNX Runtime builds can load an explicit model path:
 
 ```bash
 export LIBTORCH_USE_PYTORCH=1
@@ -168,13 +214,17 @@ export WINDOW_FRAMES=1
 cargo run -p trolly-gym --features torch --example checkpoint_policy_harness
 cargo test -p trolly-gym --features torch --test train_loop \
     checkpoint_policy_harness_loads_latest_and_steps_injected_stream
+
+export ONNX_MODEL_PATH=checkpoints/microstructure_train/policy.onnx
+cargo run -p trolly-gym --features ort --example checkpoint_policy_harness
+cargo test -p trolly-gym --features ort --test onnx_policy
 ```
 
 The example is offline by default: it creates synthetic depth envelopes, uses
 `RecordingEgress`, and prints the normalized `OutboundMessage` values. Point the
 resulting order intents at demo execution only behind the WP-024 demo-key guards
-(`RUN_BINANCE_DEMO_ORDERS=1`, demo credentials in `.env`); do not wire this
-harness to production keys.
+(`RUN_BINANCE_DEMO_ORDERS=1`, demo credentials in `.env`) and the WP-026
+`OrderOnlyEgress` bridge; do not wire this harness to production keys.
 
 ## Order-only execution bridge (WP-026)
 

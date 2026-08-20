@@ -32,11 +32,15 @@ where
 /// Runtime policy choice for offline execution harnesses.
 ///
 /// Default builds always have the safe hold branch. Torch builds can replace it
-/// with a checkpoint-backed actor-critic loaded from `latest.safetensors`.
+/// with a checkpoint-backed actor-critic loaded from `latest.safetensors`. ONNX
+/// Runtime builds can load an exported actor model for inference without
+/// linking libtorch.
 pub enum CheckpointOrHoldPolicy {
     Hold(HoldPolicy),
     #[cfg(feature = "torch")]
     Checkpoint(CheckpointPolicy),
+    #[cfg(feature = "ort")]
+    Onnx(crate::onnx::OnnxPolicy),
 }
 
 impl CheckpointOrHoldPolicy {
@@ -49,6 +53,11 @@ impl CheckpointOrHoldPolicy {
         Self::Checkpoint(policy)
     }
 
+    #[cfg(feature = "ort")]
+    pub fn onnx(policy: crate::onnx::OnnxPolicy) -> Self {
+        Self::Onnx(policy)
+    }
+
     #[cfg(feature = "torch")]
     pub fn from_latest_checkpoint_dir(
         dir: impl AsRef<Path>,
@@ -56,6 +65,14 @@ impl CheckpointOrHoldPolicy {
         config: crate::ppo::PpoConfig,
     ) -> Result<Self, String> {
         CheckpointPolicy::from_latest_checkpoint_dir(dir, obs_dim, config).map(Self::Checkpoint)
+    }
+
+    #[cfg(feature = "ort")]
+    pub fn from_onnx_model(
+        path: impl AsRef<std::path::Path>,
+        obs_dim: i64,
+    ) -> Result<Self, crate::onnx::OnnxPolicyError> {
+        crate::onnx::OnnxPolicy::from_model(path, obs_dim).map(Self::Onnx)
     }
 }
 
@@ -71,6 +88,8 @@ impl PolicyProvider for CheckpointOrHoldPolicy {
             Self::Hold(policy) => policy.act(obs),
             #[cfg(feature = "torch")]
             Self::Checkpoint(policy) => policy.act(obs),
+            #[cfg(feature = "ort")]
+            Self::Onnx(policy) => policy.act(obs),
         }
     }
 }

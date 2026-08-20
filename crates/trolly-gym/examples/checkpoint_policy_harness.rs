@@ -1,7 +1,8 @@
 //! Offline checkpoint-or-hold policy harness over injected stream observations.
 //!
 //! Default builds use `HoldPolicy`. Torch builds load `latest.safetensors` from
-//! `CHECKPOINT_DIR` when set, then feed synthetic depth envelopes through `Env`.
+//! `CHECKPOINT_DIR` when set. ONNX Runtime builds load `ONNX_MODEL_PATH` when
+//! set. All paths feed synthetic depth envelopes through `Env`.
 //!
 //! ```bash
 //! cargo run -p trolly-gym --example checkpoint_policy_harness
@@ -9,6 +10,9 @@
 //! export LIBTORCH_USE_PYTORCH=1
 //! export CHECKPOINT_DIR=checkpoints/microstructure_train/mlp
 //! cargo run -p trolly-gym --features torch --example checkpoint_policy_harness
+//!
+//! export ONNX_MODEL_PATH=checkpoints/microstructure_train/policy.onnx
+//! cargo run -p trolly-gym --features ort --example checkpoint_policy_harness
 //! ```
 
 use trolly_gym::{run_offline_policy_harness, CheckpointOrHoldPolicy, Env, EnvConfig};
@@ -40,27 +44,49 @@ fn main() {
     }
 }
 
-#[cfg(feature = "torch")]
 fn load_policy(window_frames: usize) -> CheckpointOrHoldPolicy {
-    let Some(dir) = std::env::var_os("CHECKPOINT_DIR") else {
-        return CheckpointOrHoldPolicy::hold();
-    };
-
     let obs_dim = trolly_gym::sim::microstructure_obs_dim(window_frames);
-    match CheckpointOrHoldPolicy::from_latest_checkpoint_dir(dir, obs_dim, Default::default()) {
-        Ok(policy) => policy,
-        Err(err) => {
-            eprintln!("checkpoint load failed; falling back to hold policy: {err}");
-            CheckpointOrHoldPolicy::hold()
-        }
-    }
-}
 
-#[cfg(not(feature = "torch"))]
-fn load_policy(_window_frames: usize) -> CheckpointOrHoldPolicy {
+    #[cfg(feature = "ort")]
+    if let Some(path) = std::env::var_os("ONNX_MODEL_PATH") {
+        return match CheckpointOrHoldPolicy::from_onnx_model(path, obs_dim) {
+            Ok(policy) => policy,
+            Err(err) => {
+                eprintln!("ONNX model load failed; falling back to hold policy: {err}");
+                CheckpointOrHoldPolicy::hold()
+            }
+        };
+    }
+
+    #[cfg(not(feature = "ort"))]
+    if std::env::var_os("ONNX_MODEL_PATH").is_some() {
+        eprintln!("ONNX_MODEL_PATH ignored because trolly-gym was built without --features ort");
+    }
+
+    #[cfg(feature = "torch")]
+    {
+        let Some(dir) = std::env::var_os("CHECKPOINT_DIR") else {
+            return CheckpointOrHoldPolicy::hold();
+        };
+
+        return match CheckpointOrHoldPolicy::from_latest_checkpoint_dir(
+            dir,
+            obs_dim,
+            Default::default(),
+        ) {
+            Ok(policy) => policy,
+            Err(err) => {
+                eprintln!("checkpoint load failed; falling back to hold policy: {err}");
+                CheckpointOrHoldPolicy::hold()
+            }
+        };
+    }
+
+    #[cfg(not(feature = "torch"))]
     if std::env::var_os("CHECKPOINT_DIR").is_some() {
         eprintln!("CHECKPOINT_DIR ignored because trolly-gym was built without --features torch");
     }
+
     CheckpointOrHoldPolicy::hold()
 }
 
