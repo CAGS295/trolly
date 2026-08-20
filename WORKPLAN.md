@@ -481,6 +481,20 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 - notes: Closes the adapter seam left by WP-025 before a checkpoint policy is allowed near demo execution: `Action::dispatch` still emits the messages, but execution adapters should only receive real order intents.
 - worker (2026-08-19): added `OrderOnlyEgress`, exported it from `trolly-strategy`, covered spot/USDM queue adapters with an offline policy harness integration test, and documented the safe demo handoff. Acceptance: `cargo test -p trolly-strategy` and `cargo test --test policy_execution_bridge --locked` pass.
 
+### WP-027 — ONNX Runtime policy provider (`trolly-gym`)
+
+- status: in_progress
+- repos: trolly
+- depends_on: [WP-025, WP-026]
+- scope: crates/trolly-gym/Cargo.toml, crates/trolly-gym/src/lib.rs, crates/trolly-gym/src/policy.rs, crates/trolly-gym/src/onnx.rs, crates/trolly-gym/examples/checkpoint_policy_harness.rs, crates/trolly-gym/tests/, crates/trolly-gym/README.md
+- acceptance:
+  - add an optional `ort` feature with an ONNX-backed `PolicyProvider` that loads a static actor model, accepts the existing flat `&[f32]` observation slice, and returns `Action::{Hold,Buy,Sell}` by argmax without requiring libtorch
+  - default builds and the safe hold fallback remain unchanged: no ONNX Runtime dependency in `cargo test -p trolly-gym` unless `--features ort` is requested
+  - checkpoint/offline policy harness can choose ONNX via an explicit model path environment variable while preserving the existing torch `latest.safetensors` path and hold fallback
+  - feature-gated tests cover action decoding, missing/invalid model fallback or error reporting, and one offline harness step with an ONNX provider or deterministic test double; tests skip cleanly if the native ORT runtime cannot be loaded in this environment
+  - README documents how to export/use a microstructure policy as ONNX, how to run the harness with `--features ort`, and that demo order placement still requires the WP-024 guards plus `OrderOnlyEgress`
+- notes: This is the live-inference follow-on called out by WP-016/WP-025. Keep training on the existing torch/GPU path; ONNX is inference-only and must not broaden default build requirements.
+
 ## Integration test reference
 
 The global-book integration test (`tests/global_book.rs`) has two layers:
