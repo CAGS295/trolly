@@ -496,6 +496,20 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 - notes: This is the live-inference follow-on called out by WP-016/WP-025. Keep training on the existing torch/GPU path; ONNX is inference-only and must not broaden default build requirements.
 - worker/orchestrator (2026-08-20): added optional `ort` feature with dynamically loaded ONNX Runtime, `OnnxPolicy`, `CheckpointOrHoldPolicy::Onnx`, `ONNX_MODEL_PATH` support in the offline harness, feature-gated ONNX tests, and README export/run docs. Acceptance: `cargo test -p trolly-gym --locked` and `cargo test -p trolly-gym --features ort --locked` pass.
 
+### WP-028 — Guarded demo policy execution runner
+
+- status: in_progress
+- repos: trolly
+- depends_on: [WP-024, WP-026, WP-027]
+- scope: Cargo.toml, src/cli/mod.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - root CLI exposes an explicit `execute policy-demo` runner that feeds injected policy observations into `Env`, wraps spot/USDM exec adapters in `OrderOnlyEgress`, and defaults to dry-run order request logging
+  - optional `--execute-demo-orders` path refuses to place unless `RUN_BINANCE_DEMO_ORDERS=1` and demo credentials are present; it targets demo REST bases only
+  - ONNX and torch policy loading remain opt-in via root feature passthroughs to `trolly-gym`; default builds use the hold fallback and add no default model runtime
+  - offline tests cover dry-run spot and USDM request generation plus the demo-order guard without live network or keys
+  - `cargo test --test policy_demo_runner --locked` and `cargo test --workspace --locked` pass
+- notes: Bridges WP-027 inference and WP-024 demo execution into a single guarded command path. Keep production hosts unreachable from this runner.
+
 ## Integration test reference
 
 The global-book integration test (`tests/global_book.rs`) has two layers:
