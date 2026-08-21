@@ -21,7 +21,7 @@ Shipped so far (not the destination): global book CLI; stream-native spot/USDM b
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: 2026-08-20
+- last_run: 2026-08-21
 - max_parallel: 3
 - ship_branch: integrate/orchestrator-branches
 
@@ -498,7 +498,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-028 — Guarded demo policy execution runner
 
-- status: in_progress
+- status: done
 - repos: trolly
 - depends_on: [WP-024, WP-026, WP-027]
 - scope: Cargo.toml, src/cli/mod.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
@@ -509,6 +509,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - offline tests cover dry-run spot and USDM request generation plus the demo-order guard without live network or keys
   - `cargo test --test policy_demo_runner --locked` and `cargo test --workspace --locked` pass
 - notes: Bridges WP-027 inference and WP-024 demo execution into a single guarded command path. Keep production hosts unreachable from this runner.
+- worker/orchestrator (2026-08-21): added root `execute policy-demo` dry-run runner, root `gym-ort` / `gym-torch` feature passthroughs, guarded demo REST placement path, offline spot/USDM request-generation tests, and docs. Acceptance: `cargo +stable test --test policy_demo_runner --locked` and `cargo +stable test --workspace --locked` pass after installing `protobuf-compiler` for `lob` build.rs.
 
 ## Integration test reference
 

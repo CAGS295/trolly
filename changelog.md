@@ -8,6 +8,7 @@ Project journal for shipped work. Active backlog lives in [`WORKPLAN.md`](WORKPL
 - Add more exchange providers beyond Binance spot + USDM (stub scaffold landed; full venues remain).
 
 ## change log
++ Root policy demo runner: `execute policy-demo` dry-runs checkpoint/ONNX/hold policy output through `OrderOnlyEgress` into spot/USDM exec adapters, with demo REST placement guarded by `RUN_BINANCE_DEMO_ORDERS=1` (WP-028).
 + `trolly-gym`: ONNX Runtime policy provider behind `--features ort`, `ONNX_MODEL_PATH` harness selection, dynamic runtime loading, and docs for exported microstructure actors (WP-027).
 + `trolly-strategy` / `trolly-gym`: order-only egress bridge lets checkpoint policy harness output reach spot/USDM execution queues while ignoring Hold/Subscribe side effects (WP-026).
 + `trolly-gym`: checkpoint-or-hold policy harness loads saved safetensors under `--features torch`, feeds injected stream observations into Env, and dispatches normalized strategy messages (WP-025).
