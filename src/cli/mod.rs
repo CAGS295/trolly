@@ -1,7 +1,11 @@
 use clap::{Parser, Subcommand, ValueEnum};
 
 use binance_spot_exec::{
-    ApiCredentials, OrderSide, PlaceOrderRequest, NativeTlsTransport, SpotOrderClient, TimeInForce,
+    ApiCredentials, NativeTlsTransport, OrderSide, PlaceOrderRequest, SpotOrderClient, TimeInForce,
+};
+
+use crate::policy_demo::{
+    run_policy_demo, DemoVenue, PolicyDemoConfig, PolicyDemoOrders, PolicyDemoReport,
 };
 
 #[derive(Parser)]
@@ -44,6 +48,8 @@ enum Commands {
 enum ExecuteCommands {
     /// Place a spot order via signed REST.
     PlaceOrder(PlaceOrderArgs),
+    /// Run a guarded policy-to-demo-execution bridge.
+    PolicyDemo(PolicyDemoArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -69,6 +75,43 @@ struct PlaceOrderArgs {
     /// Binance API secret (or set `BINANCE_SECRET_KEY`).
     #[clap(long, env = "BINANCE_SECRET_KEY")]
     secret_key: String,
+}
+
+#[derive(Parser, Debug)]
+struct PolicyDemoArgs {
+    /// Execution venue adapter to exercise.
+    #[clap(long, value_enum, default_value_t = PolicyDemoVenue::Spot)]
+    venue: PolicyDemoVenue,
+    /// Trading pair (e.g. BTCUSDT).
+    #[clap(long, default_value = "BTCUSDT")]
+    symbol: String,
+    /// Default order quantity emitted by Buy/Sell actions.
+    #[clap(long, default_value = "0.01")]
+    qty: String,
+    /// Observation window frame count.
+    #[clap(long, default_value_t = 1)]
+    window_frames: usize,
+    /// Number of synthetic normalized depth observations to feed.
+    #[clap(long, default_value_t = 3)]
+    max_steps: usize,
+    /// Place generated requests on Binance demo REST. Requires RUN_BINANCE_DEMO_ORDERS=1.
+    #[clap(long)]
+    execute_demo_orders: bool,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum PolicyDemoVenue {
+    Spot,
+    Usdm,
+}
+
+impl From<PolicyDemoVenue> for DemoVenue {
+    fn from(value: PolicyDemoVenue) -> Self {
+        match value {
+            PolicyDemoVenue::Spot => DemoVenue::Spot,
+            PolicyDemoVenue::Usdm => DemoVenue::Usdm,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -126,6 +169,7 @@ impl Run for ExecuteCommands {
     async fn run(&self) {
         match self {
             Self::PlaceOrder(args) => args.run().await,
+            Self::PolicyDemo(args) => args.run().await,
         }
     }
 }
@@ -162,6 +206,50 @@ impl PlaceOrderArgs {
             Err(err) => {
                 eprintln!("order placement failed: {err}");
                 std::process::exit(1);
+            }
+        }
+    }
+}
+
+impl PolicyDemoArgs {
+    async fn run(&self) {
+        let mut config = PolicyDemoConfig::new(self.venue.into(), self.symbol.clone());
+        config.qty = self.qty.clone();
+        config.window_frames = self.window_frames;
+        config.max_steps = self.max_steps;
+        config.execute_demo_orders = self.execute_demo_orders;
+
+        match run_policy_demo(config).await {
+            Ok(report) => print_policy_demo_report(&report),
+            Err(err) => {
+                eprintln!("policy demo failed: {err}");
+                std::process::exit(1);
+            }
+        }
+    }
+}
+
+fn print_policy_demo_report(report: &PolicyDemoReport) {
+    println!(
+        "policy demo: venue={} symbol={} policy={} steps={} order_requests={} placed_orders={} mode={}",
+        report.venue,
+        report.symbol,
+        report.policy_source,
+        report.steps,
+        report.order_count(),
+        report.placed_orders,
+        if report.execute_demo_orders { "demo-orders" } else { "dry-run" },
+    );
+
+    match &report.orders {
+        PolicyDemoOrders::Spot(orders) => {
+            for (idx, order) in orders.iter().enumerate() {
+                println!("spot_order[{idx}]: {order:?}");
+            }
+        }
+        PolicyDemoOrders::Usdm(orders) => {
+            for (idx, order) in orders.iter().enumerate() {
+                println!("usdm_order[{idx}]: {order:?}");
             }
         }
     }

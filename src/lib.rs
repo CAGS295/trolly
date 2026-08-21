@@ -2,6 +2,7 @@ mod cli;
 pub mod connectors;
 pub mod monitor;
 pub mod net;
+pub mod policy_demo;
 pub mod providers;
 #[cfg(any(feature = "codec", feature = "grpc"))]
 mod servers;
@@ -10,7 +11,9 @@ pub mod signals;
 pub use cli::Cli;
 pub use lob;
 pub use tokio;
-pub use trolly_stream::{self, EventHandler, Message, MonitorMultiplexor, StreamEndpoints, VenueEndpoints};
+pub use trolly_stream::{
+    self, EventHandler, Message, MonitorMultiplexor, StreamEndpoints, VenueEndpoints,
+};
 
 #[cfg(feature = "grpc")]
 pub mod grpc {

@@ -77,6 +77,8 @@ grpc = ["tonic", "prost", "lob/grpc"]
 codec = ["lob/codec"]
 prometheus = ["dep:prometheus"]
 tui = ["ratatui", "crossterm", "regex"]
+gym-ort = ["trolly-gym/ort"]
+gym-torch = ["trolly-gym/torch"]
 
 [[bench]]
 name = "depth_monitor"

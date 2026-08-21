@@ -254,6 +254,48 @@ REST clients, credentials, or live hosts. Demo order placement remains a
 separate opt-in path guarded by `RUN_BINANCE_DEMO_ORDERS=1` and demo
 credentials; never point checkpoint harness output at production keys.
 
+## Guarded demo policy runner (WP-028)
+
+The root `trolly` CLI joins the WP-025 harness, WP-026 order-only bridge, and
+WP-027 policy loading behind an explicit demo runner. It feeds injected
+normalized depth observations into `Env`, forwards only order intents to the
+selected spot or USDM exec adapter, and logs queued order requests by default:
+
+```bash
+cargo run --bin depth_monitor -- execute policy-demo \
+    --venue spot \
+    --symbol BTCUSDT \
+    --qty 0.01
+```
+
+Default builds use the hold fallback and add no model runtime. To load exported
+policy artifacts through the root command, opt in to the matching root feature:
+
+```bash
+export ONNX_MODEL_PATH=checkpoints/microstructure_train/policy.onnx
+export ORT_DYLIB_PATH=/path/to/libonnxruntime.so
+cargo run --features gym-ort --bin depth_monitor -- execute policy-demo
+
+export CHECKPOINT_DIR=checkpoints/microstructure_train/mlp
+cargo run --features gym-torch --bin depth_monitor -- execute policy-demo
+```
+
+Actual demo REST placement is off unless both the CLI flag and guard variable
+are set; the runner uses Binance demo REST bases only:
+
+```bash
+export RUN_BINANCE_DEMO_ORDERS=1
+export DEMO_BINANCE_KEY=...
+export DEMO_BINANCE_SECRET=...
+cargo run --bin depth_monitor -- execute policy-demo \
+    --venue usdm \
+    --execute-demo-orders
+```
+
+The offline regression for this bridge is `cargo test --test policy_demo_runner
+--locked`; it validates spot/USDM request generation and the guard refusal
+without live network or keys.
+
 See the **WP-020 training loop** section below for rollout collection, the
 `WolfPpoTrainDriver`, and checkpoint save/load.
 
