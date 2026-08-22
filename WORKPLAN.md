@@ -21,7 +21,7 @@ Shipped so far (not the destination): global book CLI; stream-native spot/USDM b
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: 2026-08-21
+- last_run: 2026-08-22
 - max_parallel: 3
 - ship_branch: integrate/orchestrator-branches
 
@@ -510,6 +510,21 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - `cargo test --test policy_demo_runner --locked` and `cargo test --workspace --locked` pass
 - notes: Bridges WP-027 inference and WP-024 demo execution into a single guarded command path. Keep production hosts unreachable from this runner.
 - worker/orchestrator (2026-08-21): added root `execute policy-demo` dry-run runner, root `gym-ort` / `gym-torch` feature passthroughs, guarded demo REST placement path, offline spot/USDM request-generation tests, and docs. Acceptance: `cargo +stable test --test policy_demo_runner --locked` and `cargo +stable test --workspace --locked` pass after installing `protobuf-compiler` for `lob` build.rs.
+
+### WP-029 — Policy demo placement receipts
+
+- status: done
+- repos: trolly
+- depends_on: [WP-028]
+- scope: src/policy_demo.rs, src/cli/mod.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - `execute policy-demo` assigns deterministic demo `newClientOrderId` values before guarded placement so user-stream reconciliation can match REST acks to policy-generated orders
+  - `PolicyDemoReport` exposes typed spot/USDM placement receipts (order id, client order id, status, side, symbol) instead of only a count
+  - dry-run behavior remains offline and safe; actual REST placement still requires both `--execute-demo-orders` and `RUN_BINANCE_DEMO_ORDERS=1`
+  - offline tests cover spot and USDM receipt reporting through a mock placement path; no live network or credentials required
+  - `cargo +stable test --test policy_demo_runner --locked` and `cargo +stable test --workspace --locked` pass
+- notes: Completes the report seam left by WP-028. This does not subscribe to live user streams yet; it makes the guarded runner preserve the identifiers needed for the WP-024 reconciliation path.
+- worker/orchestrator (2026-08-22): added deterministic demo client order IDs, typed placement receipts on `PolicyDemoReport`, a `--client-order-id-prefix` CLI option, receipt printing, offline mock spot/USDM placement tests, and README docs. Acceptance: `cargo +stable test --test policy_demo_runner --locked` and `cargo +stable test --workspace --locked` pass after generating a local ignored `Cargo.lock` and installing `protobuf-compiler` for `lob` build.rs.
 
 ## Integration test reference
 

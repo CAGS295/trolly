@@ -1,9 +1,17 @@
 use std::cell::Cell;
 
-use binance_spot_exec::{OrderSide as SpotOrderSide, OrderType as SpotOrderType};
-use binance_usdm_exec::{OrderSide as UsdmOrderSide, OrderType as UsdmOrderType};
+use binance_spot_exec::{
+    OrderSide as SpotOrderSide, OrderType as SpotOrderType,
+    PlaceOrderResponse as SpotPlaceOrderResponse,
+};
+use binance_usdm_exec::{
+    OrderSide as UsdmOrderSide, OrderType as UsdmOrderType,
+    PlaceOrderResponse as UsdmPlaceOrderResponse,
+};
 use trolly::policy_demo::{
-    run_policy_demo_with_policy, DemoVenue, PolicyDemoConfig, PolicyDemoError, PolicyDemoOrders,
+    run_policy_demo_with_policy, run_spot_policy_demo_with_placer,
+    run_usdm_policy_demo_with_placer, DemoVenue, PolicyDemoConfig, PolicyDemoError,
+    PolicyDemoOrders,
 };
 use trolly_gym::{Action, PolicyProvider};
 
@@ -52,6 +60,10 @@ async fn policy_demo_dry_run_generates_spot_requests() {
     assert_eq!(orders[0].side, SpotOrderSide::Buy);
     assert_eq!(orders[0].order_type, SpotOrderType::Market);
     assert_eq!(orders[0].quantity, "0.002");
+    assert_eq!(
+        orders[0].new_client_order_id.as_deref(),
+        Some("trolly-demo-spot-0000")
+    );
     assert_eq!(orders[1].side, SpotOrderSide::Sell);
 }
 
@@ -78,6 +90,10 @@ async fn policy_demo_dry_run_generates_usdm_requests() {
     assert_eq!(orders[0].order_type, UsdmOrderType::Market);
     assert_eq!(orders[0].quantity, "0.003");
     assert_eq!(orders[0].position_side, None);
+    assert_eq!(
+        orders[0].new_client_order_id.as_deref(),
+        Some("trolly-demo-usdm-0000")
+    );
     assert_eq!(orders[1].side, UsdmOrderSide::Sell);
 }
 
@@ -99,4 +115,95 @@ async fn policy_demo_refuses_demo_orders_without_guard() {
         err,
         PolicyDemoError::MissingDemoOrderGuard { var } if var == guard_var
     ));
+}
+
+#[tokio::test]
+async fn policy_demo_spot_mock_placement_reports_receipts() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT");
+    config.max_steps = 3;
+    config.execute_demo_orders = true;
+    config.client_order_id_prefix = "unit-spot".into();
+    let policy = SequencePolicy::hold_buy_sell();
+
+    let report =
+        run_spot_policy_demo_with_placer(config, &policy, "test-sequence", |order| async move {
+            let client_order_id = order
+                .new_client_order_id
+                .clone()
+                .expect("client order id assigned before placement");
+            Ok(SpotPlaceOrderResponse {
+                symbol: order.symbol.clone(),
+                order_id: if order.side == SpotOrderSide::Buy {
+                    11
+                } else {
+                    12
+                },
+                client_order_id,
+                transact_time: 1,
+                price: "0.00000000".into(),
+                orig_qty: order.quantity.clone(),
+                executed_qty: order.quantity,
+                status: "FILLED".into(),
+                side: order.side.as_str().into(),
+                order_type: order.order_type.as_str().into(),
+            })
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(report.placed_orders, 2);
+    assert_eq!(report.receipts.len(), 2);
+    assert_eq!(report.receipts[0].venue, DemoVenue::Spot);
+    assert_eq!(report.receipts[0].order_id, 11);
+    assert_eq!(report.receipts[0].client_order_id, "unit-spot-spot-0000");
+    assert_eq!(report.receipts[0].status, "FILLED");
+    assert_eq!(report.receipts[1].client_order_id, "unit-spot-spot-0001");
+}
+
+#[tokio::test]
+async fn policy_demo_usdm_mock_placement_reports_receipts() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Usdm, "ETHUSDT");
+    config.max_steps = 3;
+    config.execute_demo_orders = true;
+    config.client_order_id_prefix = "unit-usdm".into();
+    let policy = SequencePolicy::hold_buy_sell();
+
+    let report =
+        run_usdm_policy_demo_with_placer(config, &policy, "test-sequence", |order| async move {
+            let client_order_id = order
+                .new_client_order_id
+                .clone()
+                .expect("client order id assigned before placement");
+            Ok(UsdmPlaceOrderResponse {
+                symbol: order.symbol.clone(),
+                order_id: if order.side == UsdmOrderSide::Buy {
+                    21
+                } else {
+                    22
+                },
+                client_order_id,
+                update_time: 1,
+                price: "0.00000000".into(),
+                orig_qty: order.quantity.clone(),
+                executed_qty: order.quantity,
+                status: "FILLED".into(),
+                side: order.side.as_str().into(),
+                order_type: order.order_type.as_str().into(),
+                position_side: order
+                    .position_side
+                    .map(|side| side.as_str())
+                    .unwrap_or("BOTH")
+                    .into(),
+            })
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(report.placed_orders, 2);
+    assert_eq!(report.receipts.len(), 2);
+    assert_eq!(report.receipts[0].venue, DemoVenue::Usdm);
+    assert_eq!(report.receipts[0].order_id, 21);
+    assert_eq!(report.receipts[0].client_order_id, "unit-usdm-usdm-0000");
+    assert_eq!(report.receipts[0].status, "FILLED");
+    assert_eq!(report.receipts[1].client_order_id, "unit-usdm-usdm-0001");
 }

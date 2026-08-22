@@ -97,6 +97,9 @@ struct PolicyDemoArgs {
     /// Place generated requests on Binance demo REST. Requires RUN_BINANCE_DEMO_ORDERS=1.
     #[clap(long)]
     execute_demo_orders: bool,
+    /// Prefix for deterministic demo client order IDs.
+    #[clap(long, default_value = "trolly-demo")]
+    client_order_id_prefix: String,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -218,6 +221,7 @@ impl PolicyDemoArgs {
         config.window_frames = self.window_frames;
         config.max_steps = self.max_steps;
         config.execute_demo_orders = self.execute_demo_orders;
+        config.client_order_id_prefix = self.client_order_id_prefix.clone();
 
         match run_policy_demo(config).await {
             Ok(report) => print_policy_demo_report(&report),
@@ -252,5 +256,17 @@ fn print_policy_demo_report(report: &PolicyDemoReport) {
                 println!("usdm_order[{idx}]: {order:?}");
             }
         }
+    }
+
+    for (idx, receipt) in report.receipts.iter().enumerate() {
+        println!(
+            "receipt[{idx}]: venue={} symbol={} side={} order_id={} client_order_id={} status={}",
+            receipt.venue,
+            receipt.symbol,
+            receipt.side,
+            receipt.order_id,
+            receipt.client_order_id,
+            receipt.status,
+        );
     }
 }

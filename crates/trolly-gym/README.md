@@ -281,7 +281,12 @@ cargo run --features gym-torch --bin depth_monitor -- execute policy-demo
 ```
 
 Actual demo REST placement is off unless both the CLI flag and guard variable
-are set; the runner uses Binance demo REST bases only:
+are set; the runner uses Binance demo REST bases only. Before placement it
+assigns deterministic `newClientOrderId` values (`trolly-demo-spot-0000`,
+`trolly-demo-usdm-0000`, etc., or a custom `--client-order-id-prefix`) so
+user-stream reconciliation can match REST acknowledgements to policy-generated
+orders. Successful guarded placements print typed receipts with venue, symbol,
+side, order id, client order id, and status:
 
 ```bash
 export RUN_BINANCE_DEMO_ORDERS=1
@@ -289,12 +294,13 @@ export DEMO_BINANCE_KEY=...
 export DEMO_BINANCE_SECRET=...
 cargo run --bin depth_monitor -- execute policy-demo \
     --venue usdm \
+    --client-order-id-prefix trolly-demo \
     --execute-demo-orders
 ```
 
 The offline regression for this bridge is `cargo test --test policy_demo_runner
---locked`; it validates spot/USDM request generation and the guard refusal
-without live network or keys.
+--locked`; it validates spot/USDM request generation, the guard refusal, and
+mock placement receipts without live network or keys.
 
 See the **WP-020 training loop** section below for rollout collection, the
 `WolfPpoTrainDriver`, and checkpoint save/load.
