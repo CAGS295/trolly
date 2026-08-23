@@ -1,19 +1,27 @@
 //! Guarded demo bridge from policy harness output to execution adapters.
 
-use std::{env, fmt, future::Future};
+use std::{
+    collections::HashSet,
+    env, fmt,
+    future::Future,
+    sync::{Arc, Mutex},
+};
 
 use binance_spot_exec::{
-    ApiCredentials as SpotCredentials, NativeTlsTransport as SpotNativeTlsTransport,
+    build_multiplexor as build_spot_multiplexor, ingest_user_data as ingest_spot_user_data,
+    AccountBook, ApiCredentials as SpotCredentials, NativeTlsTransport as SpotNativeTlsTransport,
     PlaceOrderError as SpotPlaceOrderError, PlaceOrderRequest as SpotPlaceOrderRequest,
-    PlaceOrderResponse as SpotPlaceOrderResponse, SpotOrderClient, SpotOrderEgress,
-    SPOT_DEMO_ORDER_BASE_URL,
+    PlaceOrderResponse as SpotPlaceOrderResponse, SpotExecContext, SpotOrderClient,
+    SpotOrderEgress, SpotUserEvent, SPOT_DEMO_ORDER_BASE_URL,
 };
 use binance_usdm_exec::{
-    ApiCredentials as UsdmCredentials, NativeTlsTransport as UsdmNativeTlsTransport,
-    PlaceOrderError as UsdmPlaceOrderError, PlaceOrderRequest as UsdmPlaceOrderRequest,
-    PlaceOrderResponse as UsdmPlaceOrderResponse, UsdmOrderClient, UsdmOrderEgress,
-    USDM_DEMO_REST_BASE_URL,
+    build_multiplexor_with_context as build_usdm_multiplexor_with_context,
+    ingest_user_data as ingest_usdm_user_data, ApiCredentials as UsdmCredentials,
+    NativeTlsTransport as UsdmNativeTlsTransport, PlaceOrderError as UsdmPlaceOrderError,
+    PlaceOrderRequest as UsdmPlaceOrderRequest, PlaceOrderResponse as UsdmPlaceOrderResponse,
+    UsdmExecContext, UsdmExecUpdate, UsdmOrderClient, UsdmOrderEgress, USDM_DEMO_REST_BASE_URL,
 };
+use serde_json::Value;
 use tokio::sync::mpsc;
 use trolly_gym::{
     run_offline_policy_harness, CheckpointOrHoldPolicy, Env, EnvConfig, PolicyProvider,
@@ -74,6 +82,7 @@ pub struct PolicyDemoReport {
     pub execute_demo_orders: bool,
     pub placed_orders: usize,
     pub receipts: Vec<PolicyDemoReceipt>,
+    pub reconciliations: Vec<PolicyDemoReconciliation>,
     pub orders: PolicyDemoOrders,
 }
 
@@ -91,6 +100,17 @@ pub struct PolicyDemoReceipt {
     pub client_order_id: String,
     pub status: String,
     pub side: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PolicyDemoReconciliation {
+    pub venue: DemoVenue,
+    pub symbol: String,
+    pub order_id: i64,
+    pub client_order_id: String,
+    pub status: String,
+    pub side: String,
+    pub terminal: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -117,6 +137,7 @@ pub enum PolicyDemoError {
     MissingDemoOrderGuard { var: String },
     MissingDemoCredentials,
     Harness(String),
+    ReconciliationInput(String),
     SpotPlaceOrder(SpotPlaceOrderError),
     UsdmPlaceOrder(UsdmPlaceOrderError),
 }
@@ -132,6 +153,9 @@ impl fmt::Display for PolicyDemoError {
                 "missing demo credentials: set DEMO_BINANCE_KEY and DEMO_BINANCE_SECRET"
             ),
             Self::Harness(err) => write!(f, "policy demo harness failed: {err}"),
+            Self::ReconciliationInput(err) => {
+                write!(f, "policy demo reconciliation input failed: {err}")
+            }
             Self::SpotPlaceOrder(err) => write!(f, "spot demo order placement failed: {err}"),
             Self::UsdmPlaceOrder(err) => write!(f, "USDM demo order placement failed: {err}"),
         }
@@ -219,6 +243,7 @@ where
         execute_demo_orders: config.execute_demo_orders,
         placed_orders,
         receipts,
+        reconciliations: Vec::new(),
         orders: PolicyDemoOrders::Spot(orders),
     })
 }
@@ -251,6 +276,7 @@ where
         execute_demo_orders: config.execute_demo_orders,
         placed_orders,
         receipts,
+        reconciliations: Vec::new(),
         orders: PolicyDemoOrders::Usdm(orders),
     })
 }
@@ -288,6 +314,7 @@ where
         execute_demo_orders: config.execute_demo_orders,
         placed_orders: receipts.len(),
         receipts,
+        reconciliations: Vec::new(),
         orders: PolicyDemoOrders::Spot(orders),
     })
 }
@@ -325,8 +352,185 @@ where
         execute_demo_orders: config.execute_demo_orders,
         placed_orders: receipts.len(),
         receipts,
+        reconciliations: Vec::new(),
         orders: PolicyDemoOrders::Usdm(orders),
     })
+}
+
+pub fn reconcile_policy_demo_report(
+    report: &mut PolicyDemoReport,
+    messages: impl IntoIterator<Item = Message>,
+) {
+    report.reconciliations = match report.venue {
+        DemoVenue::Spot => reconcile_spot_policy_demo_user_data(report, messages),
+        DemoVenue::Usdm => reconcile_usdm_policy_demo_user_data(report, messages),
+    };
+}
+
+pub fn policy_demo_user_data_messages_from_json(
+    input: &str,
+) -> Result<Vec<Message>, PolicyDemoError> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    if let Ok(value) = serde_json::from_str::<Value>(trimmed) {
+        return match value {
+            Value::Array(values) => values
+                .into_iter()
+                .map(json_value_to_message)
+                .collect::<Result<Vec<_>, _>>(),
+            other => Ok(vec![json_value_to_message(other)?]),
+        };
+    }
+
+    Ok(input
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(|line| Message::Text(line.to_owned().into()))
+        .collect())
+}
+
+fn json_value_to_message(value: Value) -> Result<Message, PolicyDemoError> {
+    match value {
+        Value::String(text) => Ok(Message::Text(text.into())),
+        other => serde_json::to_string(&other)
+            .map(|text| Message::Text(text.into()))
+            .map_err(|err| PolicyDemoError::ReconciliationInput(err.to_string())),
+    }
+}
+
+fn reconcile_spot_policy_demo_user_data(
+    report: &PolicyDemoReport,
+    messages: impl IntoIterator<Item = Message>,
+) -> Vec<PolicyDemoReconciliation> {
+    let targets = receipt_targets(report);
+    if targets.is_empty() {
+        return Vec::new();
+    }
+
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let account = Arc::new(Mutex::new(AccountBook::default()));
+    let ctx = SpotExecContext {
+        events: tx,
+        account,
+    };
+    let mut hub = build_spot_multiplexor(&[report.symbol.as_str()], ctx);
+    let mut reconciliations = Vec::new();
+    let mut seen = HashSet::new();
+
+    for message in messages {
+        ingest_spot_user_data(&mut hub, message);
+        while let Ok(event) = rx.try_recv() {
+            let SpotUserEvent::ExecutionReport(execution) = event else {
+                continue;
+            };
+            if !target_matches(&targets, execution.order_id, &execution.client_order_id) {
+                continue;
+            }
+            upsert_reconciliation(
+                &mut reconciliations,
+                &mut seen,
+                PolicyDemoReconciliation {
+                    venue: DemoVenue::Spot,
+                    symbol: execution.symbol,
+                    order_id: execution.order_id,
+                    client_order_id: execution.client_order_id,
+                    status: execution.order_status.clone(),
+                    side: execution.side,
+                    terminal: is_terminal_order_status(&execution.order_status),
+                },
+            );
+        }
+    }
+
+    reconciliations
+}
+
+fn reconcile_usdm_policy_demo_user_data(
+    report: &PolicyDemoReport,
+    messages: impl IntoIterator<Item = Message>,
+) -> Vec<PolicyDemoReconciliation> {
+    let targets = receipt_targets(report);
+    if targets.is_empty() {
+        return Vec::new();
+    }
+
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let ctx = UsdmExecContext::new(Some(tx));
+    let mut hub = build_usdm_multiplexor_with_context(&[report.symbol.as_str()], ctx);
+    let mut reconciliations = Vec::new();
+    let mut seen = HashSet::new();
+
+    for message in messages {
+        ingest_usdm_user_data(&mut hub, message);
+        while let Ok(event) = rx.try_recv() {
+            let UsdmExecUpdate::OrderTrade(execution) = event else {
+                continue;
+            };
+            if !target_matches(&targets, execution.order_id, &execution.client_order_id) {
+                continue;
+            }
+            upsert_reconciliation(
+                &mut reconciliations,
+                &mut seen,
+                PolicyDemoReconciliation {
+                    venue: DemoVenue::Usdm,
+                    symbol: execution.symbol,
+                    order_id: execution.order_id,
+                    client_order_id: execution.client_order_id,
+                    status: execution.order_status.clone(),
+                    side: execution.side,
+                    terminal: is_terminal_order_status(&execution.order_status),
+                },
+            );
+        }
+    }
+
+    reconciliations
+}
+
+fn receipt_targets(report: &PolicyDemoReport) -> Vec<(i64, &str)> {
+    report
+        .receipts
+        .iter()
+        .map(|receipt| (receipt.order_id, receipt.client_order_id.as_str()))
+        .collect()
+}
+
+fn target_matches(targets: &[(i64, &str)], order_id: i64, client_order_id: &str) -> bool {
+    targets
+        .iter()
+        .any(|(target_order_id, target_client_order_id)| {
+            *target_order_id == order_id || *target_client_order_id == client_order_id
+        })
+}
+
+fn upsert_reconciliation(
+    reconciliations: &mut Vec<PolicyDemoReconciliation>,
+    seen: &mut HashSet<(i64, String)>,
+    reconciliation: PolicyDemoReconciliation,
+) {
+    let key = (
+        reconciliation.order_id,
+        reconciliation.client_order_id.clone(),
+    );
+    if !seen.insert(key) {
+        if let Some(existing) = reconciliations.iter_mut().find(|existing| {
+            existing.order_id == reconciliation.order_id
+                && existing.client_order_id == reconciliation.client_order_id
+        }) {
+            *existing = reconciliation;
+        }
+        return;
+    }
+    reconciliations.push(reconciliation);
+}
+
+fn is_terminal_order_status(status: &str) -> bool {
+    matches!(status, "FILLED" | "CANCELED" | "EXPIRED" | "REJECTED")
 }
 
 fn run_env_policy_harness<E, P>(

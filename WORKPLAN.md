@@ -21,7 +21,7 @@ Shipped so far (not the destination): global book CLI; stream-native spot/USDM b
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: 2026-08-22
+- last_run: 2026-08-23
 - max_parallel: 3
 - ship_branch: integrate/orchestrator-branches
 
@@ -525,6 +525,21 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - `cargo +stable test --test policy_demo_runner --locked` and `cargo +stable test --workspace --locked` pass
 - notes: Completes the report seam left by WP-028. This does not subscribe to live user streams yet; it makes the guarded runner preserve the identifiers needed for the WP-024 reconciliation path.
 - worker/orchestrator (2026-08-22): added deterministic demo client order IDs, typed placement receipts on `PolicyDemoReport`, a `--client-order-id-prefix` CLI option, receipt printing, offline mock spot/USDM placement tests, and README docs. Acceptance: `cargo +stable test --test policy_demo_runner --locked` and `cargo +stable test --workspace --locked` pass after generating a local ignored `Cargo.lock` and installing `protobuf-compiler` for `lob` build.rs.
+
+### WP-030 — Policy demo user-stream reconciliation report
+
+- status: done
+- repos: trolly
+- depends_on: [WP-029]
+- scope: src/policy_demo.rs, src/cli/mod.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - `PolicyDemoReport` exposes typed reconciliation rows matched from policy-generated placement receipts to spot `executionReport` / USDM `ORDER_TRADE_UPDATE` user-data events by order id or deterministic client order id
+  - reconciliation fans raw user-data frames through the existing `binance-spot-exec` / `binance-usdm-exec` ingest and bookkeeping paths; no duplicate parser or state machine
+  - CLI can print reconciliation rows from an explicit captured user-data JSON file while default dry-run behavior remains offline and safe
+  - offline tests cover spot and USDM mock placement plus matching terminal user-data frames; no live network or credentials required
+  - `cargo +stable test --test policy_demo_runner --locked` and `cargo +stable test --workspace --locked` pass
+- notes: Follow-on from WP-029. This closes the reporting seam between demo REST placement receipts and the WP-024 user-stream reconcile path before live/demo automation loops rely on policy-generated order IDs.
+- worker/orchestrator (2026-08-23): added typed `PolicyDemoReconciliation` rows, captured JSON/NDJSON user-data frame reconciliation through existing spot/USDM ingest/bookkeeping paths, CLI `--reconcile-user-data-json` printing, offline mock spot/USDM reconciliation tests, and docs. Acceptance: `cargo +stable test --test policy_demo_runner --locked` and `cargo +stable test --workspace --locked` pass after installing `protobuf-compiler` for `lob` build.rs.
 
 ## Integration test reference
 

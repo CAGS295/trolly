@@ -5,7 +5,8 @@ use binance_spot_exec::{
 };
 
 use crate::policy_demo::{
-    run_policy_demo, DemoVenue, PolicyDemoConfig, PolicyDemoOrders, PolicyDemoReport,
+    policy_demo_user_data_messages_from_json, reconcile_policy_demo_report, run_policy_demo,
+    DemoVenue, PolicyDemoConfig, PolicyDemoOrders, PolicyDemoReport,
 };
 
 #[derive(Parser)]
@@ -100,6 +101,9 @@ struct PolicyDemoArgs {
     /// Prefix for deterministic demo client order IDs.
     #[clap(long, default_value = "trolly-demo")]
     client_order_id_prefix: String,
+    /// Captured spot executionReport or USDM ORDER_TRADE_UPDATE JSON frames to reconcile.
+    #[clap(long)]
+    reconcile_user_data_json: Option<std::path::PathBuf>,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -224,7 +228,26 @@ impl PolicyDemoArgs {
         config.client_order_id_prefix = self.client_order_id_prefix.clone();
 
         match run_policy_demo(config).await {
-            Ok(report) => print_policy_demo_report(&report),
+            Ok(mut report) => {
+                if let Some(path) = &self.reconcile_user_data_json {
+                    let input = match std::fs::read_to_string(path) {
+                        Ok(input) => input,
+                        Err(err) => {
+                            eprintln!("policy demo failed to read {}: {err}", path.display());
+                            std::process::exit(1);
+                        }
+                    };
+                    let messages = match policy_demo_user_data_messages_from_json(&input) {
+                        Ok(messages) => messages,
+                        Err(err) => {
+                            eprintln!("policy demo failed to parse reconciliation input: {err}");
+                            std::process::exit(1);
+                        }
+                    };
+                    reconcile_policy_demo_report(&mut report, messages);
+                }
+                print_policy_demo_report(&report)
+            }
             Err(err) => {
                 eprintln!("policy demo failed: {err}");
                 std::process::exit(1);
@@ -235,13 +258,14 @@ impl PolicyDemoArgs {
 
 fn print_policy_demo_report(report: &PolicyDemoReport) {
     println!(
-        "policy demo: venue={} symbol={} policy={} steps={} order_requests={} placed_orders={} mode={}",
+        "policy demo: venue={} symbol={} policy={} steps={} order_requests={} placed_orders={} reconciled_orders={} mode={}",
         report.venue,
         report.symbol,
         report.policy_source,
         report.steps,
         report.order_count(),
         report.placed_orders,
+        report.reconciliations.len(),
         if report.execute_demo_orders { "demo-orders" } else { "dry-run" },
     );
 
@@ -267,6 +291,19 @@ fn print_policy_demo_report(report: &PolicyDemoReport) {
             receipt.order_id,
             receipt.client_order_id,
             receipt.status,
+        );
+    }
+
+    for (idx, reconciliation) in report.reconciliations.iter().enumerate() {
+        println!(
+            "reconciliation[{idx}]: venue={} symbol={} side={} order_id={} client_order_id={} status={} terminal={}",
+            reconciliation.venue,
+            reconciliation.symbol,
+            reconciliation.side,
+            reconciliation.order_id,
+            reconciliation.client_order_id,
+            reconciliation.status,
+            reconciliation.terminal,
         );
     }
 }

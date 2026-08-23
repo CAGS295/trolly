@@ -8,6 +8,7 @@ Project journal for shipped work. Active backlog lives in [`WORKPLAN.md`](WORKPL
 - Add more exchange providers beyond Binance spot + USDM (stub scaffold landed; full venues remain).
 
 ## change log
++ Policy demo runner: typed receipt-to-user-stream reconciliation rows from captured spot/USDM user-data frames, CLI `--reconcile-user-data-json`, and offline mock reconciliation tests (WP-030).
 + Policy demo runner: deterministic demo client order IDs, typed spot/USDM placement receipts, CLI receipt output, and offline mock placement tests for the guarded demo path (WP-029).
 + Root policy demo runner: `execute policy-demo` dry-runs checkpoint/ONNX/hold policy output through `OrderOnlyEgress` into spot/USDM exec adapters, with demo REST placement guarded by `RUN_BINANCE_DEMO_ORDERS=1` (WP-028).
 + `trolly-gym`: ONNX Runtime policy provider behind `--features ort`, `ONNX_MODEL_PATH` harness selection, dynamic runtime loading, and docs for exported microstructure actors (WP-027).

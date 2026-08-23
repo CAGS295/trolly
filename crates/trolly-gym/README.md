@@ -298,9 +298,24 @@ cargo run --bin depth_monitor -- execute policy-demo \
     --execute-demo-orders
 ```
 
+To validate captured user-data frames against those receipts, pass an explicit
+JSON file to `--reconcile-user-data-json`. The file may contain one JSON frame,
+a JSON array of frames, or newline-delimited raw frames. Reconciliation fans the
+frames through the existing spot `executionReport` / USDM `ORDER_TRADE_UPDATE`
+ingest and bookkeeping paths and prints typed rows matched by order id or
+deterministic client order id:
+
+```bash
+cargo run --bin depth_monitor -- execute policy-demo \
+    --venue spot \
+    --execute-demo-orders \
+    --reconcile-user-data-json captured-demo-user-data.json
+```
+
 The offline regression for this bridge is `cargo test --test policy_demo_runner
---locked`; it validates spot/USDM request generation, the guard refusal, and
-mock placement receipts without live network or keys.
+--locked`; it validates spot/USDM request generation, the guard refusal, mock
+placement receipts, and receipt-to-user-stream reconciliation without live
+network or keys.
 
 See the **WP-020 training loop** section below for rollout collection, the
 `WolfPpoTrainDriver`, and checkpoint save/load.

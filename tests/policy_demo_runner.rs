@@ -9,6 +9,7 @@ use binance_usdm_exec::{
     PlaceOrderResponse as UsdmPlaceOrderResponse,
 };
 use trolly::policy_demo::{
+    policy_demo_user_data_messages_from_json, reconcile_policy_demo_report,
     run_policy_demo_with_policy, run_spot_policy_demo_with_placer,
     run_usdm_policy_demo_with_placer, DemoVenue, PolicyDemoConfig, PolicyDemoError,
     PolicyDemoOrders,
@@ -206,4 +207,180 @@ async fn policy_demo_usdm_mock_placement_reports_receipts() {
     assert_eq!(report.receipts[0].client_order_id, "unit-usdm-usdm-0000");
     assert_eq!(report.receipts[0].status, "FILLED");
     assert_eq!(report.receipts[1].client_order_id, "unit-usdm-usdm-0001");
+}
+
+#[tokio::test]
+async fn policy_demo_spot_reconciles_mock_user_data_receipts() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT");
+    config.max_steps = 3;
+    config.execute_demo_orders = true;
+    config.client_order_id_prefix = "unit-spot".into();
+    let policy = SequencePolicy::hold_buy_sell();
+
+    let mut report =
+        run_spot_policy_demo_with_placer(config, &policy, "test-sequence", |order| async move {
+            let client_order_id = order
+                .new_client_order_id
+                .clone()
+                .expect("client order id assigned before placement");
+            Ok(SpotPlaceOrderResponse {
+                symbol: order.symbol.clone(),
+                order_id: if order.side == SpotOrderSide::Buy {
+                    11
+                } else {
+                    12
+                },
+                client_order_id,
+                transact_time: 1,
+                price: "0.00000000".into(),
+                orig_qty: order.quantity.clone(),
+                executed_qty: order.quantity,
+                status: "FILLED".into(),
+                side: order.side.as_str().into(),
+                order_type: order.order_type.as_str().into(),
+            })
+        })
+        .await
+        .unwrap();
+
+    let messages = policy_demo_user_data_messages_from_json(&format!(
+        "{}\n{}",
+        spot_execution_report_json("BTCUSDT", "unit-spot-spot-0000", 11, "BUY", "FILLED"),
+        spot_execution_report_json("BTCUSDT", "unit-spot-spot-0001", 12, "SELL", "FILLED"),
+    ))
+    .unwrap();
+    reconcile_policy_demo_report(&mut report, messages);
+
+    assert_eq!(report.reconciliations.len(), 2);
+    assert_eq!(report.reconciliations[0].venue, DemoVenue::Spot);
+    assert_eq!(
+        report.reconciliations[0].client_order_id,
+        "unit-spot-spot-0000"
+    );
+    assert_eq!(report.reconciliations[0].status, "FILLED");
+    assert!(report.reconciliations[0].terminal);
+    assert_eq!(report.reconciliations[1].side, "SELL");
+}
+
+#[tokio::test]
+async fn policy_demo_usdm_reconciles_mock_user_data_receipts() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Usdm, "ETHUSDT");
+    config.max_steps = 3;
+    config.execute_demo_orders = true;
+    config.client_order_id_prefix = "unit-usdm".into();
+    let policy = SequencePolicy::hold_buy_sell();
+
+    let mut report =
+        run_usdm_policy_demo_with_placer(config, &policy, "test-sequence", |order| async move {
+            let client_order_id = order
+                .new_client_order_id
+                .clone()
+                .expect("client order id assigned before placement");
+            Ok(UsdmPlaceOrderResponse {
+                symbol: order.symbol.clone(),
+                order_id: if order.side == UsdmOrderSide::Buy {
+                    21
+                } else {
+                    22
+                },
+                client_order_id,
+                update_time: 1,
+                price: "0.00000000".into(),
+                orig_qty: order.quantity.clone(),
+                executed_qty: order.quantity,
+                status: "FILLED".into(),
+                side: order.side.as_str().into(),
+                order_type: order.order_type.as_str().into(),
+                position_side: order
+                    .position_side
+                    .map(|side| side.as_str())
+                    .unwrap_or("BOTH")
+                    .into(),
+            })
+        })
+        .await
+        .unwrap();
+
+    let messages = policy_demo_user_data_messages_from_json(
+        &serde_json::json!([
+            usdm_order_trade_update_json("ETHUSDT", "unit-usdm-usdm-0000", 21, "BUY", "FILLED"),
+            usdm_order_trade_update_json("ETHUSDT", "unit-usdm-usdm-0001", 22, "SELL", "FILLED")
+        ])
+        .to_string(),
+    )
+    .unwrap();
+    reconcile_policy_demo_report(&mut report, messages);
+
+    assert_eq!(report.reconciliations.len(), 2);
+    assert_eq!(report.reconciliations[0].venue, DemoVenue::Usdm);
+    assert_eq!(
+        report.reconciliations[0].client_order_id,
+        "unit-usdm-usdm-0000"
+    );
+    assert_eq!(report.reconciliations[0].status, "FILLED");
+    assert!(report.reconciliations[0].terminal);
+    assert_eq!(report.reconciliations[1].side, "SELL");
+}
+
+fn spot_execution_report_json(
+    symbol: &str,
+    client_order_id: &str,
+    order_id: i64,
+    side: &str,
+    status: &str,
+) -> String {
+    serde_json::json!({
+        "e": "executionReport",
+        "E": 1499405658658_u64,
+        "s": symbol,
+        "c": client_order_id,
+        "S": side,
+        "o": "MARKET",
+        "f": "GTC",
+        "q": "0.002",
+        "p": "0.00000000",
+        "x": "TRADE",
+        "X": status,
+        "i": order_id,
+        "l": "0.002",
+        "z": "0.002",
+        "L": "100.00",
+        "T": 1499405658657_u64,
+        "t": 123_i64,
+        "w": false
+    })
+    .to_string()
+}
+
+fn usdm_order_trade_update_json(
+    symbol: &str,
+    client_order_id: &str,
+    order_id: i64,
+    side: &str,
+    status: &str,
+) -> serde_json::Value {
+    serde_json::json!({
+        "e": "ORDER_TRADE_UPDATE",
+        "E": 1568879465652_u64,
+        "T": 1568879465651_u64,
+        "o": {
+            "s": symbol,
+            "c": client_order_id,
+            "S": side,
+            "o": "MARKET",
+            "f": "GTC",
+            "q": "0.003",
+            "p": "0",
+            "ap": "100.00",
+            "x": "TRADE",
+            "X": status,
+            "i": order_id,
+            "l": "0.003",
+            "z": "0.003",
+            "L": "100.00",
+            "t": 456_i64,
+            "ps": "BOTH",
+            "rp": "0"
+        }
+    })
 }
