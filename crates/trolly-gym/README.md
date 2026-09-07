@@ -298,6 +298,29 @@ cargo run --bin depth_monitor -- execute policy-demo \
     --execute-demo-orders
 ```
 
+Live demo user-stream reconciliation is an additional explicit opt-in. It still
+requires the guarded demo order path (`--execute-demo-orders`,
+`RUN_BINANCE_DEMO_ORDERS=1`, `DEMO_BINANCE_KEY`, and `DEMO_BINANCE_SECRET`) and
+uses a bounded wait:
+
+```bash
+export RUN_BINANCE_DEMO_ORDERS=1
+export DEMO_BINANCE_KEY=...
+export DEMO_BINANCE_SECRET=...
+cargo run --bin depth_monitor -- execute policy-demo \
+    --venue spot \
+    --execute-demo-orders \
+    --wait-for-user-data \
+    --user-data-timeout-secs 45
+```
+
+Spot connects to the Binance demo WebSocket API and sends the signed
+`userDataStream.subscribe.signature` request before demo placement; USDM creates
+a demo `listenKey`, connects to the private demo stream, and closes the key
+after the bounded wait. In both venues, raw frames are reconciled through the
+existing `binance-spot-exec` / `binance-usdm-exec` ingest and bookkeeping paths;
+the runner only prints typed reconciliation rows, not captured JSON.
+
 To validate captured user-data frames against those receipts, pass an explicit
 JSON file to `--reconcile-user-data-json`. The file may contain one JSON frame,
 a JSON array of frames, or newline-delimited raw frames. Reconciliation fans the
@@ -313,9 +336,9 @@ cargo run --bin depth_monitor -- execute policy-demo \
 ```
 
 The offline regression for this bridge is `cargo test --test policy_demo_runner
---locked`; it validates spot/USDM request generation, the guard refusal, mock
-placement receipts, and receipt-to-user-stream reconciliation without live
-network or keys.
+--locked`; it validates spot/USDM request generation, the guard refusal, live
+wait option guards, mock placement receipts, mocked frame-source reconciliation,
+and captured receipt-to-user-stream reconciliation without live network or keys.
 
 See the **WP-020 training loop** section below for rollout collection, the
 `WolfPpoTrainDriver`, and checkpoint save/load.

@@ -1,4 +1,5 @@
 use std::cell::Cell;
+use std::time::Duration;
 
 use binance_spot_exec::{
     OrderSide as SpotOrderSide, OrderType as SpotOrderType,
@@ -11,7 +12,8 @@ use binance_usdm_exec::{
 use trolly::policy_demo::{
     policy_demo_user_data_messages_from_json, reconcile_policy_demo_report,
     run_policy_demo_with_policy, run_spot_policy_demo_with_placer,
-    run_usdm_policy_demo_with_placer, DemoVenue, PolicyDemoConfig, PolicyDemoError,
+    run_spot_policy_demo_with_placer_and_user_data, run_usdm_policy_demo_with_placer,
+    run_usdm_policy_demo_with_placer_and_user_data, DemoVenue, PolicyDemoConfig, PolicyDemoError,
     PolicyDemoOrders,
 };
 use trolly_gym::{Action, PolicyProvider};
@@ -119,6 +121,36 @@ async fn policy_demo_refuses_demo_orders_without_guard() {
 }
 
 #[tokio::test]
+async fn policy_demo_refuses_live_user_data_without_demo_order_execution() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT");
+    config.wait_for_user_data = true;
+    let policy = SequencePolicy::hold_buy_sell();
+
+    let err = run_policy_demo_with_policy(config, &policy, "test-sequence")
+        .await
+        .unwrap_err();
+
+    assert!(matches!(err, PolicyDemoError::LiveReconciliation(_)));
+    assert!(err.to_string().contains("--execute-demo-orders"));
+}
+
+#[tokio::test]
+async fn policy_demo_refuses_unbounded_live_user_data_wait() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT");
+    config.execute_demo_orders = true;
+    config.wait_for_user_data = true;
+    config.user_data_timeout = Duration::ZERO;
+    let policy = SequencePolicy::hold_buy_sell();
+
+    let err = run_policy_demo_with_policy(config, &policy, "test-sequence")
+        .await
+        .unwrap_err();
+
+    assert!(matches!(err, PolicyDemoError::LiveReconciliation(_)));
+    assert!(err.to_string().contains("greater than zero"));
+}
+
+#[tokio::test]
 async fn policy_demo_spot_mock_placement_reports_receipts() {
     let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT");
     config.max_steps = 3;
@@ -159,6 +191,76 @@ async fn policy_demo_spot_mock_placement_reports_receipts() {
     assert_eq!(report.receipts[0].client_order_id, "unit-spot-spot-0000");
     assert_eq!(report.receipts[0].status, "FILLED");
     assert_eq!(report.receipts[1].client_order_id, "unit-spot-spot-0001");
+}
+
+#[tokio::test]
+async fn policy_demo_spot_mock_frame_source_reconciles_after_placement() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT");
+    config.max_steps = 3;
+    config.execute_demo_orders = true;
+    config.wait_for_user_data = true;
+    config.client_order_id_prefix = "unit-spot".into();
+    let policy = SequencePolicy::hold_buy_sell();
+
+    let report = run_spot_policy_demo_with_placer_and_user_data(
+        config,
+        &policy,
+        "test-sequence",
+        |order| async move {
+            let client_order_id = order
+                .new_client_order_id
+                .clone()
+                .expect("client order id assigned before placement");
+            Ok(SpotPlaceOrderResponse {
+                symbol: order.symbol.clone(),
+                order_id: if order.side == SpotOrderSide::Buy {
+                    31
+                } else {
+                    32
+                },
+                client_order_id,
+                transact_time: 1,
+                price: "0.00000000".into(),
+                orig_qty: order.quantity.clone(),
+                executed_qty: order.quantity,
+                status: "NEW".into(),
+                side: order.side.as_str().into(),
+                order_type: order.order_type.as_str().into(),
+            })
+        },
+        |report| {
+            let messages = policy_demo_user_data_messages_from_json(&format!(
+                "{}\n{}",
+                spot_execution_report_json(
+                    "BTCUSDT",
+                    &report.receipts[0].client_order_id,
+                    report.receipts[0].order_id,
+                    "BUY",
+                    "FILLED"
+                ),
+                spot_execution_report_json(
+                    "BTCUSDT",
+                    &report.receipts[1].client_order_id,
+                    report.receipts[1].order_id,
+                    "SELL",
+                    "FILLED"
+                ),
+            ));
+            async move { messages }
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(report.placed_orders, 2);
+    assert_eq!(report.reconciliations.len(), 2);
+    assert_eq!(report.reconciliations[0].venue, DemoVenue::Spot);
+    assert_eq!(
+        report.reconciliations[0].client_order_id,
+        "unit-spot-spot-0000"
+    );
+    assert!(report.reconciliations[0].terminal);
+    assert_eq!(report.reconciliations[1].side, "SELL");
 }
 
 #[tokio::test]
@@ -207,6 +309,83 @@ async fn policy_demo_usdm_mock_placement_reports_receipts() {
     assert_eq!(report.receipts[0].client_order_id, "unit-usdm-usdm-0000");
     assert_eq!(report.receipts[0].status, "FILLED");
     assert_eq!(report.receipts[1].client_order_id, "unit-usdm-usdm-0001");
+}
+
+#[tokio::test]
+async fn policy_demo_usdm_mock_frame_source_reconciles_after_placement() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Usdm, "ETHUSDT");
+    config.max_steps = 3;
+    config.execute_demo_orders = true;
+    config.wait_for_user_data = true;
+    config.client_order_id_prefix = "unit-usdm".into();
+    let policy = SequencePolicy::hold_buy_sell();
+
+    let report = run_usdm_policy_demo_with_placer_and_user_data(
+        config,
+        &policy,
+        "test-sequence",
+        |order| async move {
+            let client_order_id = order
+                .new_client_order_id
+                .clone()
+                .expect("client order id assigned before placement");
+            Ok(UsdmPlaceOrderResponse {
+                symbol: order.symbol.clone(),
+                order_id: if order.side == UsdmOrderSide::Buy {
+                    41
+                } else {
+                    42
+                },
+                client_order_id,
+                update_time: 1,
+                price: "0.00000000".into(),
+                orig_qty: order.quantity.clone(),
+                executed_qty: order.quantity,
+                status: "NEW".into(),
+                side: order.side.as_str().into(),
+                order_type: order.order_type.as_str().into(),
+                position_side: order
+                    .position_side
+                    .map(|side| side.as_str())
+                    .unwrap_or("BOTH")
+                    .into(),
+            })
+        },
+        |report| {
+            let messages = policy_demo_user_data_messages_from_json(
+                &serde_json::json!([
+                    usdm_order_trade_update_json(
+                        "ETHUSDT",
+                        &report.receipts[0].client_order_id,
+                        report.receipts[0].order_id,
+                        "BUY",
+                        "FILLED"
+                    ),
+                    usdm_order_trade_update_json(
+                        "ETHUSDT",
+                        &report.receipts[1].client_order_id,
+                        report.receipts[1].order_id,
+                        "SELL",
+                        "FILLED"
+                    )
+                ])
+                .to_string(),
+            );
+            async move { messages }
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(report.placed_orders, 2);
+    assert_eq!(report.reconciliations.len(), 2);
+    assert_eq!(report.reconciliations[0].venue, DemoVenue::Usdm);
+    assert_eq!(
+        report.reconciliations[0].client_order_id,
+        "unit-usdm-usdm-0000"
+    );
+    assert!(report.reconciliations[0].terminal);
+    assert_eq!(report.reconciliations[1].side, "SELL");
 }
 
 #[tokio::test]

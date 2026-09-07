@@ -21,7 +21,7 @@ Shipped so far (not the destination): global book CLI; stream-native spot/USDM b
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: 2026-08-23
+- last_run: 2026-09-07
 - max_parallel: 3
 - ship_branch: integrate/orchestrator-branches
 
@@ -540,6 +540,21 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - `cargo +stable test --test policy_demo_runner --locked` and `cargo +stable test --workspace --locked` pass
 - notes: Follow-on from WP-029. This closes the reporting seam between demo REST placement receipts and the WP-024 user-stream reconcile path before live/demo automation loops rely on policy-generated order IDs.
 - worker/orchestrator (2026-08-23): added typed `PolicyDemoReconciliation` rows, captured JSON/NDJSON user-data frame reconciliation through existing spot/USDM ingest/bookkeeping paths, CLI `--reconcile-user-data-json` printing, offline mock spot/USDM reconciliation tests, and docs. Acceptance: `cargo +stable test --test policy_demo_runner --locked` and `cargo +stable test --workspace --locked` pass after installing `protobuf-compiler` for `lob` build.rs.
+
+### WP-031 — Live demo policy reconciliation listener
+
+- status: done
+- repos: trolly
+- depends_on: [WP-030]
+- scope: src/policy_demo.rs, src/cli/mod.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - `execute policy-demo` can optionally wait on the relevant Binance demo user-data stream after guarded demo placement and populate `PolicyDemoReport.reconciliations` without requiring a captured JSON file
+  - the live listener is explicit and safe: it only runs with `--execute-demo-orders`, `RUN_BINANCE_DEMO_ORDERS=1`, demo credentials, and a bounded timeout; dry-run and `--reconcile-user-data-json` paths remain offline/default-safe
+  - spot uses demo WebSocket API signed user-data subscribe; USDM uses demo listenKey lifecycle/private stream; both fan raw frames through existing `binance-spot-exec` / `binance-usdm-exec` ingest and bookkeeping paths with no duplicate parser or state machine
+  - offline tests cover option/guard behavior and mocked frame-source reconciliation for spot and USDM; no live network or credentials required
+  - `cargo +stable test --test policy_demo_runner --locked` and `cargo +stable test --workspace --locked` pass
+- notes: This is the next bridge after WP-030: captured files prove report wiring, but demo/live Binance trading needs the guarded runner to collect its own user-stream receipts for policy-generated order IDs.
+- worker/orchestrator (2026-09-07): added explicit `--wait-for-user-data` live demo reconciliation with bounded timeout, spot signed demo WebSocket subscribe, USDM demo listenKey/private-stream lifecycle, shared exec-ingest reconciliation state, CLI wiring, docs, and offline mock frame-source tests. Acceptance: generated the ignored local `Cargo.lock`, installed `protobuf-compiler` for the `lob` build script, then `cargo +stable test --test policy_demo_runner --locked` and `cargo +stable test --workspace --locked` passed.
 
 ## Integration test reference
 

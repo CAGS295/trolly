@@ -104,6 +104,16 @@ struct PolicyDemoArgs {
     /// Captured spot executionReport or USDM ORDER_TRADE_UPDATE JSON frames to reconcile.
     #[clap(long)]
     reconcile_user_data_json: Option<std::path::PathBuf>,
+    /// After guarded demo placement, wait on the Binance demo user-data stream for receipts.
+    #[clap(
+        long,
+        requires = "execute_demo_orders",
+        conflicts_with = "reconcile_user_data_json"
+    )]
+    wait_for_user_data: bool,
+    /// Maximum seconds to wait for live demo user-data reconciliation.
+    #[clap(long, default_value_t = 45)]
+    user_data_timeout_secs: u64,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -226,6 +236,8 @@ impl PolicyDemoArgs {
         config.max_steps = self.max_steps;
         config.execute_demo_orders = self.execute_demo_orders;
         config.client_order_id_prefix = self.client_order_id_prefix.clone();
+        config.wait_for_user_data = self.wait_for_user_data;
+        config.user_data_timeout = std::time::Duration::from_secs(self.user_data_timeout_secs);
 
         match run_policy_demo(config).await {
             Ok(mut report) => {

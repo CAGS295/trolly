@@ -5,31 +5,40 @@ use std::{
     env, fmt,
     future::Future,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
 use binance_spot_exec::{
     build_multiplexor as build_spot_multiplexor, ingest_user_data as ingest_spot_user_data,
-    AccountBook, ApiCredentials as SpotCredentials, NativeTlsTransport as SpotNativeTlsTransport,
-    PlaceOrderError as SpotPlaceOrderError, PlaceOrderRequest as SpotPlaceOrderRequest,
-    PlaceOrderResponse as SpotPlaceOrderResponse, SpotExecContext, SpotOrderClient,
-    SpotOrderEgress, SpotUserEvent, SPOT_DEMO_ORDER_BASE_URL,
+    AccountBook, ApiCredentials as SpotCredentials, BinanceSpotUserStream,
+    NativeTlsTransport as SpotNativeTlsTransport, PlaceOrderError as SpotPlaceOrderError,
+    PlaceOrderRequest as SpotPlaceOrderRequest, PlaceOrderResponse as SpotPlaceOrderResponse,
+    SpotExecContext, SpotOrderClient, SpotOrderEgress, SpotUserEvent, SPOT_DEMO_ORDER_BASE_URL,
 };
 use binance_usdm_exec::{
     build_multiplexor_with_context as build_usdm_multiplexor_with_context,
-    ingest_user_data as ingest_usdm_user_data, ApiCredentials as UsdmCredentials,
-    NativeTlsTransport as UsdmNativeTlsTransport, PlaceOrderError as UsdmPlaceOrderError,
-    PlaceOrderRequest as UsdmPlaceOrderRequest, PlaceOrderResponse as UsdmPlaceOrderResponse,
-    UsdmExecContext, UsdmExecUpdate, UsdmOrderClient, UsdmOrderEgress, USDM_DEMO_REST_BASE_URL,
+    ingest_user_data as ingest_usdm_user_data, ApiCredentials as UsdmCredentials, ListenKeyClient,
+    ListenKeyError, NativeTlsTransport as UsdmNativeTlsTransport,
+    PlaceOrderError as UsdmPlaceOrderError, PlaceOrderRequest as UsdmPlaceOrderRequest,
+    PlaceOrderResponse as UsdmPlaceOrderResponse, UsdmExecContext, UsdmExecUpdate, UsdmOrderClient,
+    UsdmOrderEgress, UsdmUserDataStream, USDM_DEMO_REST_BASE_URL,
 };
+use futures_util::{SinkExt, StreamExt};
+use http::Uri;
 use serde_json::Value;
 use tokio::sync::mpsc;
+use tokio::time::{timeout, Instant};
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 use trolly_gym::{
     run_offline_policy_harness, CheckpointOrHoldPolicy, Env, EnvConfig, PolicyProvider,
 };
 use trolly_strategy::{envelope_message, DepthUpdate, OrderOnlyEgress, PriceLevel, StreamEvent};
-use trolly_stream::Message;
+use trolly_stream::{Message, VenueEndpoints};
 
 pub const DEFAULT_DEMO_ORDER_GUARD_VAR: &str = "RUN_BINANCE_DEMO_ORDERS";
+pub const DEFAULT_DEMO_USER_DATA_TIMEOUT: Duration = Duration::from_secs(45);
+
+type DemoWebSocket = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DemoVenue {
@@ -56,6 +65,8 @@ pub struct PolicyDemoConfig {
     pub execute_demo_orders: bool,
     pub demo_order_guard_var: String,
     pub client_order_id_prefix: String,
+    pub wait_for_user_data: bool,
+    pub user_data_timeout: Duration,
 }
 
 impl PolicyDemoConfig {
@@ -69,6 +80,8 @@ impl PolicyDemoConfig {
             execute_demo_orders: false,
             demo_order_guard_var: DEFAULT_DEMO_ORDER_GUARD_VAR.into(),
             client_order_id_prefix: "trolly-demo".into(),
+            wait_for_user_data: false,
+            user_data_timeout: DEFAULT_DEMO_USER_DATA_TIMEOUT,
         }
     }
 }
@@ -138,6 +151,7 @@ pub enum PolicyDemoError {
     MissingDemoCredentials,
     Harness(String),
     ReconciliationInput(String),
+    LiveReconciliation(String),
     SpotPlaceOrder(SpotPlaceOrderError),
     UsdmPlaceOrder(UsdmPlaceOrderError),
 }
@@ -155,6 +169,9 @@ impl fmt::Display for PolicyDemoError {
             Self::Harness(err) => write!(f, "policy demo harness failed: {err}"),
             Self::ReconciliationInput(err) => {
                 write!(f, "policy demo reconciliation input failed: {err}")
+            }
+            Self::LiveReconciliation(err) => {
+                write!(f, "policy demo live reconciliation failed: {err}")
             }
             Self::SpotPlaceOrder(err) => write!(f, "spot demo order placement failed: {err}"),
             Self::UsdmPlaceOrder(err) => write!(f, "USDM demo order placement failed: {err}"),
@@ -198,6 +215,8 @@ pub async fn run_policy_demo_with_policy<P>(
 where
     P: PolicyProvider + ?Sized,
 {
+    ensure_live_reconciliation_config(&config)?;
+
     let credentials = if config.execute_demo_orders {
         ensure_demo_order_guard(&config.demo_order_guard_var)?;
         Some(DemoCredentials::from_env()?)
@@ -228,24 +247,39 @@ where
     let steps = run_env_policy_harness(&config, OrderOnlyEgress::new(spot_egress), policy)?;
     let mut orders = drain_spot_orders(&mut rx);
     assign_spot_client_order_ids(&mut orders, &config.client_order_id_prefix);
-    let receipts = if let Some(credentials) = credentials {
-        place_spot_demo_orders(credentials, &orders).await?
-    } else {
-        Vec::new()
-    };
-    let placed_orders = receipts.len();
 
-    Ok(PolicyDemoReport {
+    let (receipts, mut live_socket) = if let Some(credentials) = credentials {
+        let live_socket = if config.wait_for_user_data {
+            Some(prepare_spot_live_user_data(&credentials, config.user_data_timeout).await?)
+        } else {
+            None
+        };
+        (
+            place_spot_demo_orders(credentials, &orders).await?,
+            live_socket,
+        )
+    } else {
+        (Vec::new(), None)
+    };
+
+    let mut report = PolicyDemoReport {
         venue: DemoVenue::Spot,
         symbol: config.symbol,
         policy_source,
         steps,
         execute_demo_orders: config.execute_demo_orders,
-        placed_orders,
+        placed_orders: receipts.len(),
         receipts,
         reconciliations: Vec::new(),
         orders: PolicyDemoOrders::Spot(orders),
-    })
+    };
+
+    if let Some(socket) = live_socket.as_mut() {
+        report.reconciliations =
+            wait_spot_live_reconciliations(socket, &report, config.user_data_timeout).await?;
+    }
+
+    Ok(report)
 }
 
 async fn run_usdm_policy_demo<P>(
@@ -261,24 +295,48 @@ where
     let steps = run_env_policy_harness(&config, OrderOnlyEgress::new(usdm_egress), policy)?;
     let mut orders = drain_usdm_orders(&mut rx);
     assign_usdm_client_order_ids(&mut orders, &config.client_order_id_prefix);
-    let receipts = if let Some(credentials) = credentials {
-        place_usdm_demo_orders(credentials, &orders).await?
-    } else {
-        Vec::new()
-    };
-    let placed_orders = receipts.len();
 
-    Ok(PolicyDemoReport {
+    let (receipts, live_user_data) = if let Some(credentials) = credentials {
+        let live_user_data = if config.wait_for_user_data {
+            Some(prepare_usdm_live_user_data(&credentials).await?)
+        } else {
+            None
+        };
+        let receipts = match place_usdm_demo_orders(credentials, &orders).await {
+            Ok(receipts) => receipts,
+            Err(err) => {
+                if let Some(live) = live_user_data {
+                    let _ = live.listen_client.close().await;
+                }
+                return Err(err);
+            }
+        };
+        (receipts, live_user_data)
+    } else {
+        (Vec::new(), None)
+    };
+
+    let mut report = PolicyDemoReport {
         venue: DemoVenue::Usdm,
         symbol: config.symbol,
         policy_source,
         steps,
         execute_demo_orders: config.execute_demo_orders,
-        placed_orders,
+        placed_orders: receipts.len(),
         receipts,
         reconciliations: Vec::new(),
         orders: PolicyDemoOrders::Usdm(orders),
-    })
+    };
+
+    if let Some(mut live) = live_user_data {
+        let reconciliations =
+            wait_usdm_live_reconciliations(&mut live.socket, &report, config.user_data_timeout)
+                .await;
+        let _ = live.listen_client.close().await;
+        report.reconciliations = reconciliations?;
+    }
+
+    Ok(report)
 }
 
 #[doc(hidden)]
@@ -357,6 +415,58 @@ where
     })
 }
 
+#[doc(hidden)]
+pub async fn run_spot_policy_demo_with_placer_and_user_data<P, F, Fut, S, SFut>(
+    config: PolicyDemoConfig,
+    policy: &P,
+    policy_source: impl Into<String>,
+    place_order: F,
+    user_data_messages: S,
+) -> Result<PolicyDemoReport, PolicyDemoError>
+where
+    P: PolicyProvider + ?Sized,
+    F: FnMut(SpotPlaceOrderRequest) -> Fut,
+    Fut: Future<Output = Result<SpotPlaceOrderResponse, PolicyDemoError>>,
+    S: FnOnce(&PolicyDemoReport) -> SFut,
+    SFut: Future<Output = Result<Vec<Message>, PolicyDemoError>>,
+{
+    ensure_live_reconciliation_config(&config)?;
+    let should_wait = config.wait_for_user_data;
+    let mut report =
+        run_spot_policy_demo_with_placer(config, policy, policy_source, place_order).await?;
+    if should_wait {
+        let messages = user_data_messages(&report).await?;
+        reconcile_policy_demo_report(&mut report, messages);
+    }
+    Ok(report)
+}
+
+#[doc(hidden)]
+pub async fn run_usdm_policy_demo_with_placer_and_user_data<P, F, Fut, S, SFut>(
+    config: PolicyDemoConfig,
+    policy: &P,
+    policy_source: impl Into<String>,
+    place_order: F,
+    user_data_messages: S,
+) -> Result<PolicyDemoReport, PolicyDemoError>
+where
+    P: PolicyProvider + ?Sized,
+    F: FnMut(UsdmPlaceOrderRequest) -> Fut,
+    Fut: Future<Output = Result<UsdmPlaceOrderResponse, PolicyDemoError>>,
+    S: FnOnce(&PolicyDemoReport) -> SFut,
+    SFut: Future<Output = Result<Vec<Message>, PolicyDemoError>>,
+{
+    ensure_live_reconciliation_config(&config)?;
+    let should_wait = config.wait_for_user_data;
+    let mut report =
+        run_usdm_policy_demo_with_placer(config, policy, policy_source, place_order).await?;
+    if should_wait {
+        let messages = user_data_messages(&report).await?;
+        reconcile_policy_demo_report(&mut report, messages);
+    }
+    Ok(report)
+}
+
 pub fn reconcile_policy_demo_report(
     report: &mut PolicyDemoReport,
     messages: impl IntoIterator<Item = Message>,
@@ -406,8 +516,8 @@ fn reconcile_spot_policy_demo_user_data(
     report: &PolicyDemoReport,
     messages: impl IntoIterator<Item = Message>,
 ) -> Vec<PolicyDemoReconciliation> {
-    let targets = receipt_targets(report);
-    if targets.is_empty() {
+    let mut state = ReconciliationState::from_report(report);
+    if state.is_empty() {
         return Vec::new();
     }
 
@@ -418,115 +528,144 @@ fn reconcile_spot_policy_demo_user_data(
         account,
     };
     let mut hub = build_spot_multiplexor(&[report.symbol.as_str()], ctx);
-    let mut reconciliations = Vec::new();
-    let mut seen = HashSet::new();
 
     for message in messages {
         ingest_spot_user_data(&mut hub, message);
-        while let Ok(event) = rx.try_recv() {
-            let SpotUserEvent::ExecutionReport(execution) = event else {
-                continue;
-            };
-            if !target_matches(&targets, execution.order_id, &execution.client_order_id) {
-                continue;
-            }
-            upsert_reconciliation(
-                &mut reconciliations,
-                &mut seen,
-                PolicyDemoReconciliation {
-                    venue: DemoVenue::Spot,
-                    symbol: execution.symbol,
-                    order_id: execution.order_id,
-                    client_order_id: execution.client_order_id,
-                    status: execution.order_status.clone(),
-                    side: execution.side,
-                    terminal: is_terminal_order_status(&execution.order_status),
-                },
-            );
-        }
+        drain_spot_reconciliation_events(&mut rx, &mut state);
     }
 
-    reconciliations
+    state.into_reconciliations()
 }
 
 fn reconcile_usdm_policy_demo_user_data(
     report: &PolicyDemoReport,
     messages: impl IntoIterator<Item = Message>,
 ) -> Vec<PolicyDemoReconciliation> {
-    let targets = receipt_targets(report);
-    if targets.is_empty() {
+    let mut state = ReconciliationState::from_report(report);
+    if state.is_empty() {
         return Vec::new();
     }
 
     let (tx, mut rx) = mpsc::unbounded_channel();
     let ctx = UsdmExecContext::new(Some(tx));
     let mut hub = build_usdm_multiplexor_with_context(&[report.symbol.as_str()], ctx);
-    let mut reconciliations = Vec::new();
-    let mut seen = HashSet::new();
 
     for message in messages {
         ingest_usdm_user_data(&mut hub, message);
-        while let Ok(event) = rx.try_recv() {
-            let UsdmExecUpdate::OrderTrade(execution) = event else {
-                continue;
-            };
-            if !target_matches(&targets, execution.order_id, &execution.client_order_id) {
-                continue;
+        drain_usdm_reconciliation_events(&mut rx, &mut state);
+    }
+
+    state.into_reconciliations()
+}
+
+struct ReconciliationState {
+    targets: Vec<(i64, String)>,
+    reconciliations: Vec<PolicyDemoReconciliation>,
+    seen: HashSet<(i64, String)>,
+}
+
+impl ReconciliationState {
+    fn from_report(report: &PolicyDemoReport) -> Self {
+        Self {
+            targets: report
+                .receipts
+                .iter()
+                .map(|receipt| (receipt.order_id, receipt.client_order_id.clone()))
+                .collect(),
+            reconciliations: Vec::new(),
+            seen: HashSet::new(),
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.targets.is_empty()
+    }
+
+    fn is_terminal_complete(&self) -> bool {
+        !self.targets.is_empty()
+            && self.targets.iter().all(|(order_id, client_order_id)| {
+                self.reconciliations.iter().any(|reconciliation| {
+                    (reconciliation.order_id == *order_id
+                        || reconciliation.client_order_id == *client_order_id)
+                        && reconciliation.terminal
+                })
+            })
+    }
+
+    fn matches(&self, order_id: i64, client_order_id: &str) -> bool {
+        self.targets
+            .iter()
+            .any(|(target_order_id, target_client_order_id)| {
+                *target_order_id == order_id || target_client_order_id == client_order_id
+            })
+    }
+
+    fn upsert(&mut self, reconciliation: PolicyDemoReconciliation) {
+        let key = (
+            reconciliation.order_id,
+            reconciliation.client_order_id.clone(),
+        );
+        if !self.seen.insert(key) {
+            if let Some(existing) = self.reconciliations.iter_mut().find(|existing| {
+                existing.order_id == reconciliation.order_id
+                    && existing.client_order_id == reconciliation.client_order_id
+            }) {
+                *existing = reconciliation;
             }
-            upsert_reconciliation(
-                &mut reconciliations,
-                &mut seen,
-                PolicyDemoReconciliation {
-                    venue: DemoVenue::Usdm,
-                    symbol: execution.symbol,
-                    order_id: execution.order_id,
-                    client_order_id: execution.client_order_id,
-                    status: execution.order_status.clone(),
-                    side: execution.side,
-                    terminal: is_terminal_order_status(&execution.order_status),
-                },
-            );
+            return;
         }
+        self.reconciliations.push(reconciliation);
     }
 
-    reconciliations
+    fn into_reconciliations(self) -> Vec<PolicyDemoReconciliation> {
+        self.reconciliations
+    }
 }
 
-fn receipt_targets(report: &PolicyDemoReport) -> Vec<(i64, &str)> {
-    report
-        .receipts
-        .iter()
-        .map(|receipt| (receipt.order_id, receipt.client_order_id.as_str()))
-        .collect()
-}
-
-fn target_matches(targets: &[(i64, &str)], order_id: i64, client_order_id: &str) -> bool {
-    targets
-        .iter()
-        .any(|(target_order_id, target_client_order_id)| {
-            *target_order_id == order_id || *target_client_order_id == client_order_id
-        })
-}
-
-fn upsert_reconciliation(
-    reconciliations: &mut Vec<PolicyDemoReconciliation>,
-    seen: &mut HashSet<(i64, String)>,
-    reconciliation: PolicyDemoReconciliation,
+fn drain_spot_reconciliation_events(
+    rx: &mut mpsc::UnboundedReceiver<SpotUserEvent>,
+    state: &mut ReconciliationState,
 ) {
-    let key = (
-        reconciliation.order_id,
-        reconciliation.client_order_id.clone(),
-    );
-    if !seen.insert(key) {
-        if let Some(existing) = reconciliations.iter_mut().find(|existing| {
-            existing.order_id == reconciliation.order_id
-                && existing.client_order_id == reconciliation.client_order_id
-        }) {
-            *existing = reconciliation;
+    while let Ok(event) = rx.try_recv() {
+        let SpotUserEvent::ExecutionReport(execution) = event else {
+            continue;
+        };
+        if !state.matches(execution.order_id, &execution.client_order_id) {
+            continue;
         }
-        return;
+        state.upsert(PolicyDemoReconciliation {
+            venue: DemoVenue::Spot,
+            symbol: execution.symbol,
+            order_id: execution.order_id,
+            client_order_id: execution.client_order_id,
+            status: execution.order_status.clone(),
+            side: execution.side,
+            terminal: is_terminal_order_status(&execution.order_status),
+        });
     }
-    reconciliations.push(reconciliation);
+}
+
+fn drain_usdm_reconciliation_events(
+    rx: &mut mpsc::UnboundedReceiver<UsdmExecUpdate>,
+    state: &mut ReconciliationState,
+) {
+    while let Ok(event) = rx.try_recv() {
+        let UsdmExecUpdate::OrderTrade(execution) = event else {
+            continue;
+        };
+        if !state.matches(execution.order_id, &execution.client_order_id) {
+            continue;
+        }
+        state.upsert(PolicyDemoReconciliation {
+            venue: DemoVenue::Usdm,
+            symbol: execution.symbol,
+            order_id: execution.order_id,
+            client_order_id: execution.client_order_id,
+            status: execution.order_status.clone(),
+            side: execution.side,
+            terminal: is_terminal_order_status(&execution.order_status),
+        });
+    }
 }
 
 fn is_terminal_order_status(status: &str) -> bool {
@@ -581,6 +720,23 @@ fn ensure_demo_order_guard(var: &str) -> Result<(), PolicyDemoError> {
         Ok(value) if value == "1" => Ok(()),
         _ => Err(PolicyDemoError::MissingDemoOrderGuard { var: var.into() }),
     }
+}
+
+fn ensure_live_reconciliation_config(config: &PolicyDemoConfig) -> Result<(), PolicyDemoError> {
+    if !config.wait_for_user_data {
+        return Ok(());
+    }
+    if !config.execute_demo_orders {
+        return Err(PolicyDemoError::LiveReconciliation(
+            "--wait-for-user-data requires --execute-demo-orders".into(),
+        ));
+    }
+    if config.user_data_timeout.is_zero() {
+        return Err(PolicyDemoError::LiveReconciliation(
+            "--user-data-timeout-secs must be greater than zero".into(),
+        ));
+    }
+    Ok(())
 }
 
 fn drain_spot_orders(
@@ -649,6 +805,186 @@ async fn place_usdm_demo_orders(
         receipts.push(usdm_receipt_from_response(response));
     }
     Ok(receipts)
+}
+
+async fn prepare_spot_live_user_data(
+    credentials: &DemoCredentials,
+    timeout_duration: Duration,
+) -> Result<DemoWebSocket, PolicyDemoError> {
+    let stream = BinanceSpotUserStream::demo(SpotCredentials {
+        api_key: credentials.api_key.clone(),
+        secret_key: credentials.secret_key.clone(),
+    });
+    let mut socket = connect_demo_websocket(&stream.websocket_url()).await?;
+    socket
+        .send(Message::Text(stream.subscribe_request_json().into()))
+        .await
+        .map_err(|err| {
+            PolicyDemoError::LiveReconciliation(format!(
+                "spot demo user-data subscribe send failed: {err}"
+            ))
+        })?;
+    wait_for_spot_subscribe_ack(&mut socket, timeout_duration).await?;
+    Ok(socket)
+}
+
+async fn wait_for_spot_subscribe_ack(
+    socket: &mut DemoWebSocket,
+    timeout_duration: Duration,
+) -> Result<(), PolicyDemoError> {
+    timeout(timeout_duration, async {
+        while let Some(frame) = socket.next().await {
+            let frame = frame.map_err(|err| {
+                PolicyDemoError::LiveReconciliation(format!(
+                    "spot demo user-data subscribe ack read failed: {err}"
+                ))
+            })?;
+            let Message::Text(text) = frame else {
+                continue;
+            };
+            let value: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+            if value.get("result").is_some() && value.get("id").is_some() {
+                return Ok(());
+            }
+        }
+        Err(PolicyDemoError::LiveReconciliation(
+            "spot demo user-data stream closed before subscribe ack".into(),
+        ))
+    })
+    .await
+    .map_err(|_| {
+        PolicyDemoError::LiveReconciliation(
+            "timed out waiting for spot demo user-data subscribe ack".into(),
+        )
+    })?
+}
+
+struct UsdmLiveUserData {
+    socket: DemoWebSocket,
+    listen_client: ListenKeyClient,
+}
+
+async fn prepare_usdm_live_user_data(
+    credentials: &DemoCredentials,
+) -> Result<UsdmLiveUserData, PolicyDemoError> {
+    let credentials = UsdmCredentials {
+        api_key: credentials.api_key.clone(),
+        secret_key: credentials.secret_key.clone(),
+    };
+    let listen_client = ListenKeyClient::demo(credentials);
+    let listen_key = listen_client
+        .create()
+        .await
+        .map_err(usdm_listen_key_error)?;
+    let stream = UsdmUserDataStream::demo(&listen_key)
+        .with_events_filter("ORDER_TRADE_UPDATE/ACCOUNT_UPDATE");
+    let socket = connect_demo_websocket(&stream.websocket_url()).await?;
+    listen_client
+        .keepalive()
+        .await
+        .map_err(usdm_listen_key_error)?;
+    Ok(UsdmLiveUserData {
+        socket,
+        listen_client,
+    })
+}
+
+async fn connect_demo_websocket(url: &str) -> Result<DemoWebSocket, PolicyDemoError> {
+    let uri: Uri = url.parse().map_err(|err| {
+        PolicyDemoError::LiveReconciliation(format!("invalid demo user-data websocket URL: {err}"))
+    })?;
+    trolly_stream::connect(uri).await.map_err(|err| {
+        PolicyDemoError::LiveReconciliation(format!(
+            "demo user-data websocket connect failed: {err}"
+        ))
+    })
+}
+
+fn usdm_listen_key_error(err: ListenKeyError) -> PolicyDemoError {
+    PolicyDemoError::LiveReconciliation(format!("USDM demo listenKey lifecycle failed: {err}"))
+}
+
+async fn wait_spot_live_reconciliations(
+    socket: &mut DemoWebSocket,
+    report: &PolicyDemoReport,
+    timeout_duration: Duration,
+) -> Result<Vec<PolicyDemoReconciliation>, PolicyDemoError> {
+    let mut state = ReconciliationState::from_report(report);
+    if state.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let account = Arc::new(Mutex::new(AccountBook::default()));
+    let ctx = SpotExecContext {
+        events: tx,
+        account,
+    };
+    let mut hub = build_spot_multiplexor(&[report.symbol.as_str()], ctx);
+    let deadline = Instant::now() + timeout_duration;
+
+    while !state.is_terminal_complete() {
+        let Some(message) = next_live_user_data_message(socket, deadline, "spot").await? else {
+            break;
+        };
+        ingest_spot_user_data(&mut hub, message);
+        drain_spot_reconciliation_events(&mut rx, &mut state);
+    }
+
+    Ok(state.into_reconciliations())
+}
+
+async fn wait_usdm_live_reconciliations(
+    socket: &mut DemoWebSocket,
+    report: &PolicyDemoReport,
+    timeout_duration: Duration,
+) -> Result<Vec<PolicyDemoReconciliation>, PolicyDemoError> {
+    let mut state = ReconciliationState::from_report(report);
+    if state.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let ctx = UsdmExecContext::new(Some(tx));
+    let mut hub = build_usdm_multiplexor_with_context(&[report.symbol.as_str()], ctx);
+    let deadline = Instant::now() + timeout_duration;
+
+    while !state.is_terminal_complete() {
+        let Some(message) = next_live_user_data_message(socket, deadline, "USDM").await? else {
+            break;
+        };
+        ingest_usdm_user_data(&mut hub, message);
+        drain_usdm_reconciliation_events(&mut rx, &mut state);
+    }
+
+    Ok(state.into_reconciliations())
+}
+
+async fn next_live_user_data_message(
+    socket: &mut DemoWebSocket,
+    deadline: Instant,
+    venue: &str,
+) -> Result<Option<Message>, PolicyDemoError> {
+    loop {
+        let now = Instant::now();
+        if now >= deadline {
+            return Ok(None);
+        }
+        let remaining = deadline.saturating_duration_since(now);
+        let frame = match timeout(remaining, socket.next()).await {
+            Ok(Some(Ok(frame))) => frame,
+            Ok(Some(Err(err))) => {
+                return Err(PolicyDemoError::LiveReconciliation(format!(
+                    "{venue} demo user-data stream read failed: {err}"
+                )));
+            }
+            Ok(None) | Err(_) => return Ok(None),
+        };
+        match frame {
+            Message::Text(_) | Message::Binary(_) => return Ok(Some(frame)),
+            _ => continue,
+        }
+    }
 }
 
 fn assign_spot_client_order_ids(orders: &mut [SpotPlaceOrderRequest], prefix: &str) {
