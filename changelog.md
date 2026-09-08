@@ -4,6 +4,7 @@ Project journal for shipped work. Active backlog lives in [`WORKPLAN.md`](WORKPL
 
 ## WIP
 
+- Microstructure successor (WP-032–WP-034): depth-ladder integral cost, Gaussian inventory policy, Liquid driven along rungs `v`. Weekday GPU trainer should close this gap; live `Action::dispatch` stays 3-way until a later quantize WP.
 - Keep local GPU training checkpoint metrics improving via ClickHouse `trolly.ticks`, trajectory FIFO replay, daily `--continue` slices, and checkpoint fingerprints.
 - Add more exchange providers beyond Binance spot + USDM (stub scaffold landed; full venues remain).
 

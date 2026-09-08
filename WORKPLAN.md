@@ -31,7 +31,7 @@ Shipped so far (not the destination): global book CLI; stream-native spot/USDM b
 - **Daily progress (mandatory):** each run must leave a real increment toward the **Broad goal**. A health check, empty ready-set log, or “WP-001–WP-022 all done” line is a **failed run**. Before any local train slice, fetch-first as above so cloud and this host do not diverge. Assess current state vs the goal (`WORKPLAN.md` statuses, [`changelog.md`](changelog.md) WIP, `Env` reward stub / missing `PolicyProvider`, GPU sidecars under `checkpoints/gpu_train_orchestrator/progress.json`, ClickHouse `trolly.ticks`, `latest.fingerprint.json`, failing tests). Then pick the highest-leverage slice that fits working hours and local constraints (no sudo ROCm; do not replace the weekday GPU trainer — it already trains; you may *direct* the gap it should close).
 - **Continue training locally:** when the user asks to continue training locally (or this daily run is on the gym/policy path), **fetch first** (`git fetch origin` then `git rebase @{u}` if the tree is clean; otherwise fetch + warn and continue — see `crates/trolly-gym/scripts/continue-training-locally.sh` and the weekday systemd unit). Then run the local loop: ensure ClickHouse (`crates/trolly-gym/clickhouse/docker-compose.yml` or `TROLLY_CLICKHOUSE_URL`), ingest sim ticks into `trolly.ticks`, train a time-boxed WoLF-PPO slice (`gpu_train_orchestrator --continue-local`, or `--once` inside Mon–Fri 09:00–17:00), write `latest.safetensors` plus `latest.fingerprint.json` (weights / data-window / config SHA-256), and record the increment in `progress.json`. Do not skip the train slice.
 - Build the **ready set**: items with `status: todo` and all `depends_on` entries `done`.
-- If the ready set is **empty**, author the next free `WP-XXX` that unblocks the broad goal (prefer: stream `Env` reward + `PolicyProvider`; gym→strategy→exec join; demo place-order reconcile; then ONNX/`ort` inference). Do not invent chores (docs-only, third venue, drive-by refactors) unless they unblock the loop. Mark it `todo`, then schedule it in the same run.
+- If the ready set is **empty**, author the next free `WP-XXX` that unblocks the broad goal (prefer: stream-shaped microstructure that can actually improve — WP-032–WP-034; gym→strategy→exec join; demo place-order reconcile; then ONNX/`ort` inference). Do not invent chores (docs-only, third venue, drive-by refactors) unless they unblock the loop. Mark it `todo`, then schedule it in the same run.
 - Schedule up to `max_parallel` items per wave with **disjoint** `scope` paths.
 - Mark selected items `in_progress` before spawning workers; only the orchestrator sets `done` or `blocked` after acceptance checks.
 - Workers must not change item status; return the structured payload from the automation prompt.
@@ -418,7 +418,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - [`run_microstructure_train_with_checkpoints`](crates/trolly-gym/src/train/microstructure.rs) drives `WolfPpoTrainDriver` and saves safetensors after each update
   - default `cargo test -p trolly-gym` includes sim unit tests (no libtorch); `cargo test -p trolly-gym --features torch --test microstructure_train` passes
   - README documents microstructure vs matrix-game roles; example binary for timed checkpoint runs
-- notes: bridges WP-019 (algorithm correctness) and stream-backed trading. Complements matrix games — not a replacement for WoLF-PPO NES validation. CartPole intentionally skipped in favour of stream-shaped obs.
+- notes: bridges WP-019 (algorithm correctness) and stream-backed trading. Complements matrix games — not a replacement for WoLF-PPO NES validation. CartPole intentionally skipped in favour of stream-shaped obs. Successor that replaces the flat-fee unit-lot MDP is **WP-032** (do not reopen this item).
 - worker (2026-07-06): `sim/microstructure`, `train/microstructure`, tests + example.
 
 ### WP-023 — Stream Env PolicyProvider and market reward (`trolly-gym`)
@@ -555,6 +555,50 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - `cargo +stable test --test policy_demo_runner --locked` and `cargo +stable test --workspace --locked` pass
 - notes: This is the next bridge after WP-030: captured files prove report wiring, but demo/live Binance trading needs the guarded runner to collect its own user-stream receipts for policy-generated order IDs.
 - worker/orchestrator (2026-09-07): added explicit `--wait-for-user-data` live demo reconciliation with bounded timeout, spot signed demo WebSocket subscribe, USDM demo listenKey/private-stream lifecycle, shared exec-ingest reconciliation state, CLI wiring, docs, and offline mock frame-source tests. Acceptance: generated the ignored local `Cargo.lock`, installed `protobuf-compiler` for the `lob` build script, then `cargo +stable test --test policy_demo_runner --locked` and `cargo +stable test --workspace --locked` passed.
+
+### WP-032 — Microstructure depth-ladder sim (`trolly-gym`)
+
+- status: todo
+- repos: trolly
+- depends_on: [WP-022]
+- scope: crates/trolly-gym/src/sim/microstructure.rs, crates/trolly-gym/src/observation.rs, crates/trolly-gym/README.md
+- acceptance:
+  - replace flat `trade_cost` on `{Hold,Buy,Sell}` unit lots with a linear bid/ask **depth ladder**: offset at depth `v` is `α(v) = δ + λ v` on each side (`v` = cumulative size already taken on that side, not mid and not time)
+  - trading cost of inventory `q` is the **integral over levels** (`∫ α(v) dv` / discrete rung sum); mid is used only to mark inventory (`r = q_new * Δs − Δcost`), not inside the cost
+  - observations expose rungs, current `q`, and **level-indexed** `Δα` (do not break the stream `Env` 7-D depth extractor; use a parallel ladder frame if needed)
+  - train episodes **resample seeds**; do not use a single 64-tick Hold tape as the only mid path
+  - default `cargo test -p trolly-gym` covers cost integral / rung layout without libtorch; WP-022 discrete snap tests either remain as a compatibility path or are updated and documented
+  - README documents ladder vs old unit-lot MDP; design notes live in the Cursor microstructure plan (inventory ladder, Gaussian policy, Liquid-on-rungs)
+- notes: Successor to WP-022, not a rewrite of that item. Directs the weekday GPU trainer at a learnable cost structure `(δ, λ)`. Live `Action::{Hold,Buy,Sell}` / `PolicyProvider` stay discrete until a later quantize WP.
+
+### WP-033 — Gaussian inventory policy for ladder MDP (`trolly-gym`)
+
+- status: todo
+- repos: trolly
+- depends_on: [WP-020, WP-032]
+- scope: crates/trolly-gym/src/ppo/, crates/trolly-gym/src/train/, crates/trolly-gym/src/bin/gpu_train_orchestrator.rs, crates/trolly-gym/README.md
+- acceptance:
+  - microstructure actor is a **tanh-Gaussian** on target inventory `a ∈ (-1,1)`; walking `q → a` pays the WP-032 level integral (not a constant fee)
+  - on-policy rollouts store `action: f32` for this path; matrix self-play stays categorical 3-logit MLP/Liquid
+  - first function approximator is a **Gaussian MLP** on the flattened ladder (prove the MDP); do not add a time-transformer in this WP
+  - `gpu_train_orchestrator` microstructure job trains this policy; log held-out **mean-action** eval vs Hold (`a=0`), not last in-episode reward; mean-reverting `|q|` under planted `λ > 0`
+  - new checkpoint dir (old 3-logit microstructure weights will not load)
+  - `cargo test -p trolly-gym --features torch` covers Gaussian log-prob shapes and a short ladder train/eval; default `cargo test -p trolly-gym` unchanged
+- notes: WoLF-PPO stays the algorithm; only the policy class (Gaussian vs categorical) and FA heads change. Do not rewire live `PolicyProvider` / ONNX / Binance to floats here.
+
+### WP-034 — Liquid rung-trajectory function approximator (`trolly-gym`)
+
+- status: todo
+- repos: trolly
+- depends_on: [WP-021, WP-033]
+- scope: crates/trolly-gym/src/ppo/lnn_actor_critic.rs, crates/trolly-gym/src/ppo/, crates/trolly-gym/tests/, crates/trolly-gym/README.md
+- acceptance:
+  - microstructure Liquid consumes ladder obs as `[batch, V, F]` rungs along `v`: `x_k = [v_k, α_ask, α_bid, Δα, q]`
+  - liquid cell is driven with **`x_k` each step** (`liquid_steps = V`); do not repeat one flattened `x`; do not persist `h` across env steps
+  - optional liquid gate scaled by rung width `Δv` so the unroll tracks `∫ α(v) dv`
+  - readout is Gaussian `μ, logσ, V` (same policy class as WP-033); matrix-game Liquid stays categorical on a flat vector
+  - `cargo test -p trolly-gym --features torch` includes Liquid-on-rungs smoke; default `cargo test -p trolly-gym` unchanged
+- notes: State transform so the Liquid FA integrates along the same axis as trading cost. Transformer-over-time and transformer-over-rungs stay out of this WP (rungs transformer only if MLP and Liquid-on-rungs fail to recover `λ`).
 
 ## Integration test reference
 
