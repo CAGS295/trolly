@@ -13,6 +13,7 @@ use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{Duration, Instant};
 
 /// ISO weekday: Monday = 1 … Sunday = 7.
 pub type IsoWeekday = u8;
@@ -228,8 +229,7 @@ pub fn select_train_jobs(checkpoint_root: &Path, override_jobs: Option<&str>) ->
     if !matrix_started {
         return TrainGap {
             jobs: vec!["matrix".into()],
-            reason: "stream-shaped models complete; improve matrix NES regression gate"
-                .into(),
+            reason: "stream-shaped models complete; improve matrix NES regression gate".into(),
         };
     }
     TrainGap {
@@ -317,7 +317,12 @@ fn escape_json(raw: &str) -> String {
 
 fn json_string_or_raw(raw: &str) -> String {
     let t = raw.trim();
-    if t.starts_with('{') || t.starts_with('[') || t.parse::<f64>().is_ok() || t == "true" || t == "false" {
+    if t.starts_with('{')
+        || t.starts_with('[')
+        || t.parse::<f64>().is_ok()
+        || t == "true"
+        || t == "false"
+    {
         t.to_string()
     } else {
         format!("\"{}\"", escape_json(raw))
@@ -351,8 +356,65 @@ impl DeviceSpec {
             "" | "auto" => Some(Self::Auto),
             "cpu" => Some(Self::Cpu),
             "cuda" | "gpu" | "rocm" | "hip" => Some(Self::Cuda(0)),
-            _ => s.strip_prefix("cuda:").and_then(|n| n.parse().ok().map(Self::Cuda)),
+            _ => s
+                .strip_prefix("cuda:")
+                .and_then(|n| n.parse().ok().map(Self::Cuda)),
         }
+    }
+}
+
+/// Default gap between `latest.safetensors` writes on a long GPU slice.
+pub const DEFAULT_CHECKPOINT_INTERVAL_SECS: u64 = 60;
+
+/// Parse `TROLLY_CHECKPOINT_INTERVAL_SECS`. Empty/invalid → 60s. `0` means
+/// persist after every update (old behavior).
+pub fn parse_checkpoint_interval_secs(raw: Option<&str>) -> Duration {
+    let secs = match raw.map(str::trim).filter(|s| !s.is_empty()) {
+        None => DEFAULT_CHECKPOINT_INTERVAL_SECS,
+        Some(s) => s.parse().unwrap_or(DEFAULT_CHECKPOINT_INTERVAL_SECS),
+    };
+    Duration::from_secs(secs)
+}
+
+pub fn checkpoint_interval_from_env() -> Duration {
+    let owned = std::env::var("TROLLY_CHECKPOINT_INTERVAL_SECS").ok();
+    parse_checkpoint_interval_secs(owned.as_deref())
+}
+
+/// Wall-clock gate for overwriting `latest.safetensors` during a train slice.
+///
+/// Starts counting when constructed. Interval `0` is always due. The weekday
+/// trainer also flushes once when a slice ends, so a SIGTERM loses at most
+/// one interval of work.
+#[derive(Debug, Clone)]
+pub struct CheckpointClock {
+    pub interval: Duration,
+    started: Instant,
+    last_save: Option<Instant>,
+}
+
+impl CheckpointClock {
+    pub fn from_env() -> Self {
+        Self::new(checkpoint_interval_from_env())
+    }
+
+    pub fn new(interval: Duration) -> Self {
+        Self {
+            interval,
+            started: Instant::now(),
+            last_save: None,
+        }
+    }
+
+    pub fn due(&self) -> bool {
+        if self.interval.is_zero() {
+            return true;
+        }
+        self.last_save.unwrap_or(self.started).elapsed() >= self.interval
+    }
+
+    pub fn mark(&mut self) {
+        self.last_save = Some(Instant::now());
     }
 }
 
@@ -584,11 +646,8 @@ mod tests {
     }
 
     fn temp_root(name: &str) -> PathBuf {
-        let root = std::env::temp_dir().join(format!(
-            "trolly-orch-{}-{}",
-            name,
-            std::process::id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("trolly-orch-{}-{}", name, std::process::id()));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).unwrap();
         root
@@ -623,7 +682,11 @@ mod tests {
     fn complete_microstructure_without_matrix_picks_nes_gate() {
         let root = temp_root("micro-done");
         touch(&root.join("microstructure/mlp").join(COMPLETED_MARKER_NAME));
-        touch(&root.join("microstructure/liquid").join(COMPLETED_MARKER_NAME));
+        touch(
+            &root
+                .join("microstructure/liquid")
+                .join(COMPLETED_MARKER_NAME),
+        );
         let gap = select_train_jobs(&root, None);
         assert_eq!(gap.jobs, ["matrix"]);
         let _ = fs::remove_dir_all(&root);
@@ -652,6 +715,39 @@ mod tests {
         assert!(body.contains("2026-08-14"));
         assert!(body.contains("0.12"));
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn checkpoint_interval_defaults_and_zero() {
+        assert_eq!(
+            parse_checkpoint_interval_secs(None),
+            Duration::from_secs(DEFAULT_CHECKPOINT_INTERVAL_SECS)
+        );
+        assert_eq!(
+            parse_checkpoint_interval_secs(Some("")),
+            Duration::from_secs(DEFAULT_CHECKPOINT_INTERVAL_SECS)
+        );
+        assert_eq!(
+            parse_checkpoint_interval_secs(Some("bogus")),
+            Duration::from_secs(DEFAULT_CHECKPOINT_INTERVAL_SECS)
+        );
+        assert_eq!(parse_checkpoint_interval_secs(Some("0")), Duration::ZERO);
+        assert_eq!(
+            parse_checkpoint_interval_secs(Some("120")),
+            Duration::from_secs(120)
+        );
+    }
+
+    #[test]
+    fn checkpoint_clock_zero_is_always_due() {
+        let clock = CheckpointClock::new(Duration::ZERO);
+        assert!(clock.due());
+    }
+
+    #[test]
+    fn checkpoint_clock_waits_for_interval() {
+        let clock = CheckpointClock::new(Duration::from_secs(3600));
+        assert!(!clock.due());
     }
 
     #[test]

@@ -13,11 +13,13 @@
 //! Optional env vars:
 //! - `TRAIN_DURATION_SECS` (default 90)
 //! - `CHECKPOINT_DIR` (default `./checkpoints/microstructure_train`)
+//! - `TROLLY_CHECKPOINT_INTERVAL_SECS` (default 60; `0` = after every update)
 //! - `MICROSTRUCTURE_MID_DRIFT` (default `0.1` — drift tier; set `0` for zero-drift)
 
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use trolly_gym::orchestrator::CheckpointClock;
 use trolly_gym::ppo::{ActorCriticArchitecture, PpoConfig, WolfPpoConfig};
 use trolly_gym::sim::MicrostructureConfig;
 use trolly_gym::train::{
@@ -124,6 +126,7 @@ fn train_arch_timed(
         return;
     }
 
+    let mut clock = CheckpointClock::from_env();
     let start = Instant::now();
 
     println!(
@@ -135,30 +138,32 @@ fn train_arch_timed(
 
     while start.elapsed() < duration && !session.is_completed() {
         let (_metrics, stats) = session.train_step();
-        session.save_checkpoint(&out_root, false);
-        println!(
-            "  update {}: reward={:.4} steps={} pos={}",
-            session.update_count,
-            stats.total_reward,
-            stats.steps,
-            stats.final_position,
-        );
+        if clock.due() {
+            session.save_checkpoint(&out_root, false);
+            clock.mark();
+            println!(
+                "  checkpoint update {}: reward={:.4} steps={} pos={}",
+                session.update_count, stats.total_reward, stats.steps, stats.final_position,
+            );
+        }
 
         if let Some((eval, completed)) = session.maybe_evaluate_completion(&out_root) {
             println!(
                 "  eval: mean_reward={:.4} oracle={:.4} hold={:.4} trades={:.2}",
-                eval.mean_reward,
-                eval.oracle_reward,
-                eval.hold_baseline,
-                eval.mean_trades,
+                eval.mean_reward, eval.oracle_reward, eval.hold_baseline, eval.mean_trades,
             );
             if completed {
-                println!("  training complete -> {}/{}", out_root.display(), COMPLETED_MARKER);
+                println!(
+                    "  training complete -> {}/{}",
+                    out_root.display(),
+                    COMPLETED_MARKER
+                );
                 break;
             }
         }
     }
 
+    session.save_checkpoint(&out_root, false);
     if !session.is_completed() {
         session.finalize_checkpoints(&out_root);
         println!("  final snapshot: {}/final.safetensors", out_root.display());

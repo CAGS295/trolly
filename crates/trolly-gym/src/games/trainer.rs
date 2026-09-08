@@ -24,14 +24,14 @@ use std::path::{Path, PathBuf};
 
 use tch::{Device, Kind, Tensor};
 
+use super::matrix_game::MatrixGame;
+use super::metrics::euclidean_distance_to_nes;
 use crate::ppo::{ActorCritic, PpoConfig, PpoTrainer, RolloutBatch, WolfPpoConfig, WolfPpoTrainer};
 use crate::train::checkpoint::{
     load_checkpoint_if_exists, resolve_resume_checkpoint, save_checkpoint,
     save_checkpoint_with_fingerprint, FINAL_CHECKPOINT, FINAL_ROW_CHECKPOINT, LATEST_CHECKPOINT,
     LATEST_OPPONENT_CHECKPOINT,
 };
-use super::matrix_game::MatrixGame;
-use super::metrics::euclidean_distance_to_nes;
 
 /// Observation dimension for matrix games.
 ///
@@ -79,11 +79,7 @@ pub struct SelfPlayResult {
 ///
 /// Both `p1` (row) and `p2` (column) use the same `config.ppo_config`.
 /// `p2`'s payoff is the negation of `p1`'s (zero-sum).
-pub fn run_ppo_self_play(
-    game: &MatrixGame,
-    nes: &[f64],
-    config: SelfPlayConfig,
-) -> SelfPlayResult {
+pub fn run_ppo_self_play(game: &MatrixGame, nes: &[f64], config: SelfPlayConfig) -> SelfPlayResult {
     let num_actions = game.num_row_actions as i64;
     let mut p1 = PpoTrainer::new(OBS_DIM, num_actions, config.ppo_config.clone());
     let mut p2 = PpoTrainer::new(OBS_DIM, num_actions, config.ppo_config);
@@ -156,18 +152,22 @@ pub fn run_wolf_ppo_self_play_with_checkpoints(
     std::fs::create_dir_all(checkpoint_dir).expect("create checkpoint dir");
 
     let mut session = WolfPpoSelfPlaySession::new(game, &config, wolf_config);
-    let distances = session.run_updates(game, nes, config.num_updates, checkpoint_dir, true);
+    let distances = session.run_updates(game, nes, config.num_updates, checkpoint_dir, true, true);
     let checkpoint_paths: Vec<PathBuf> = (0..config.num_updates)
         .map(|update| checkpoint_dir.join(format!("update_{update}.safetensors")))
         .collect();
 
-    (to_result(&session.p1.inner.actor_critic, distances), checkpoint_paths)
+    (
+        to_result(&session.p1.inner.actor_critic, distances),
+        checkpoint_paths,
+    )
 }
 
 /// Long-lived WoLF-PPO self-play session that can resume from checkpoints.
 ///
 /// Saves `latest.safetensors` (row player) and `latest_opponent.safetensors`
-/// after each update. On resume, loads both when present.
+/// when `save_latest` is set. The GPU orchestrator throttles those writes
+/// with a wall-clock interval. On resume, loads both when present.
 pub struct WolfPpoSelfPlaySession {
     pub p1: WolfPpoTrainer,
     pub p2: WolfPpoTrainer,
@@ -177,11 +177,7 @@ pub struct WolfPpoSelfPlaySession {
 
 impl WolfPpoSelfPlaySession {
     /// Create a fresh session with new row and column players.
-    pub fn new(
-        game: &MatrixGame,
-        config: &SelfPlayConfig,
-        wolf_config: WolfPpoConfig,
-    ) -> Self {
+    pub fn new(game: &MatrixGame, config: &SelfPlayConfig, wolf_config: WolfPpoConfig) -> Self {
         Self::new_on_device(game, config, wolf_config, Device::Cpu)
     }
 
@@ -230,9 +226,11 @@ impl WolfPpoSelfPlaySession {
         session
     }
 
-    /// Run `num_updates` policy updates, optionally saving numbered checkpoints.
+    /// Run `num_updates` policy updates, optionally saving numbered snapshots.
     ///
-    /// Always writes `latest.safetensors` and `latest_opponent.safetensors`.
+    /// When `save_latest` is true, writes `latest.safetensors` and
+    /// `latest_opponent.safetensors` once after the batch (not after every
+    /// update). The GPU orchestrator passes false and uses [`crate::orchestrator::CheckpointClock`].
     pub fn run_updates(
         &mut self,
         game: &MatrixGame,
@@ -240,6 +238,7 @@ impl WolfPpoSelfPlaySession {
         num_updates: usize,
         checkpoint_dir: &Path,
         save_numbered: bool,
+        save_latest: bool,
     ) -> Vec<f64> {
         std::fs::create_dir_all(checkpoint_dir).expect("create checkpoint dir");
         let mut distances = Vec::with_capacity(num_updates);
@@ -263,26 +262,34 @@ impl WolfPpoSelfPlaySession {
             self.update_count += 1;
 
             if save_numbered {
-                let path = checkpoint_dir
-                    .join(format!("update_{}.safetensors", self.update_count - 1));
+                let path =
+                    checkpoint_dir.join(format!("update_{}.safetensors", self.update_count - 1));
                 save_checkpoint(&self.p1.inner.vs, &path).expect("save numbered checkpoint");
             }
+        }
 
-            save_checkpoint_with_fingerprint(
-                &self.p1.inner.vs,
-                &checkpoint_dir.join(LATEST_CHECKPOINT),
-                &format!("matrix:{}", checkpoint_dir.display()),
-                "wolf-ppo-self-play",
-            )
-            .expect("save latest row checkpoint + fingerprint");
-            save_checkpoint(
-                &self.p2.inner.vs,
-                &checkpoint_dir.join(LATEST_OPPONENT_CHECKPOINT),
-            )
-            .expect("save latest opponent checkpoint");
+        if save_latest {
+            self.persist_latest(checkpoint_dir);
         }
 
         distances
+    }
+
+    /// Overwrite `latest.safetensors` and `latest_opponent.safetensors`.
+    pub fn persist_latest(&self, checkpoint_dir: &Path) {
+        std::fs::create_dir_all(checkpoint_dir).expect("create checkpoint dir");
+        save_checkpoint_with_fingerprint(
+            &self.p1.inner.vs,
+            &checkpoint_dir.join(LATEST_CHECKPOINT),
+            &format!("matrix:{}", checkpoint_dir.display()),
+            "wolf-ppo-self-play",
+        )
+        .expect("save latest row checkpoint + fingerprint");
+        save_checkpoint(
+            &self.p2.inner.vs,
+            &checkpoint_dir.join(LATEST_OPPONENT_CHECKPOINT),
+        )
+        .expect("save latest opponent checkpoint");
     }
 
     /// Copy latest row weights to `final.safetensors` and `final_row_player.safetensors`.
@@ -365,9 +372,7 @@ fn policy_probs(ac: &ActorCritic) -> Vec<f64> {
     let (logits, _) = ac.forward(&obs);
     let probs = logits.softmax(-1, Kind::Float).squeeze();
     let n = probs.size()[0] as usize;
-    (0..n)
-        .map(|i| probs.double_value(&[i as i64]))
-        .collect()
+    (0..n).map(|i| probs.double_value(&[i as i64])).collect()
 }
 
 /// Aggregate distance history into a [`SelfPlayResult`].

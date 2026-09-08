@@ -14,6 +14,7 @@
 //! - `TRAIN_DURATION_SECS` (default 90) — wall-clock budget per game × architecture
 //! - `CHECKPOINT_DIR` (default `./checkpoints/matrix_train`) — output root
 //! - `TROLLY_TRAIN_DEVICE` (`auto`/`cpu`/`cuda`/`cuda:N`) — default `auto`
+//! - `TROLLY_CHECKPOINT_INTERVAL_SECS` (default 60; `0` = after every batch)
 
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -23,6 +24,7 @@ use trolly_gym::games::{
     rock_paper_scissors::{rps_weighted, WEIGHTED_NES as RPS_WEIGHTED_NES},
     SelfPlayConfig, WolfPpoSelfPlaySession,
 };
+use trolly_gym::orchestrator::CheckpointClock;
 use trolly_gym::ppo::{ActorCriticArchitecture, PpoConfig, WolfPpoConfig};
 use trolly_gym::train::checkpoint::LATEST_CHECKPOINT;
 
@@ -90,6 +92,7 @@ fn train_game_timed(
     let mut session =
         WolfPpoSelfPlaySession::resume_from_on_device(&out_dir, game, &config, wolf, device);
 
+    let mut clock = CheckpointClock::from_env();
     let start = Instant::now();
     let mut batch = 0_u64;
 
@@ -100,17 +103,25 @@ fn train_game_timed(
     );
 
     while start.elapsed() < duration {
-        let distances = session.run_updates(game, nes, 10, &out_dir, false);
+        let distances = session.run_updates(game, nes, 10, &out_dir, false, false);
         batch += 1;
-        let elapsed = start.elapsed().as_secs_f64();
         let last_dist = distances.last().copied().unwrap_or(0.0);
-        println!(
-            "  batch {batch}: {} updates (total {}), nes_dist={last_dist:.4}, elapsed={elapsed:.1}s",
-            distances.len(),
-            session.update_count,
-        );
+        if clock.due() {
+            session.persist_latest(&out_dir);
+            clock.mark();
+            println!(
+                "  checkpoint batch {batch}: {} updates (total {}), nes_dist={last_dist:.4}, elapsed={:.1}s",
+                distances.len(),
+                session.update_count,
+                start.elapsed().as_secs_f64(),
+            );
+        }
     }
 
+    session.persist_latest(&out_dir);
     session.finalize_checkpoints(&out_dir);
-    println!("  final snapshot: {}/final_row_player.safetensors", out_dir.display());
+    println!(
+        "  final snapshot: {}/final_row_player.safetensors",
+        out_dir.display()
+    );
 }

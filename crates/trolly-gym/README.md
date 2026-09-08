@@ -80,6 +80,9 @@ the iGPU are refused. The trainer searches visible HIP devices by name
 index 0). The user must be in the `render` and `video` groups. Training
 also **bails** if ClickHouse is not reachable (`TROLLY_CLICKHOUSE_URL`,
 default `http://127.0.0.1:8123`); it will not fall back to an in-memory tape.
+`latest.safetensors` is overwritten every `TROLLY_CHECKPOINT_INTERVAL_SECS`
+(default 60) and again when each architecture slice ends. Set the interval to
+`0` to persist after every update.
 
 ## Daily local GPU training orchestrator
 

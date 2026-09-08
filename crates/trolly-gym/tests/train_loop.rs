@@ -247,7 +247,7 @@ fn matrix_session_resumes_continuous_training() {
     let dir = temp_dir("matrix_session_resume");
 
     let mut first = WolfPpoSelfPlaySession::new(&game, &config, wolf.clone());
-    first.run_updates(&game, nes, 5, &dir, false);
+    first.run_updates(&game, nes, 5, &dir, false, true);
     let probs_after_first = policy_probs_from_session(&first);
 
     let resumed = WolfPpoSelfPlaySession::resume_from(&dir, &game, &config, wolf.clone());
@@ -255,7 +255,7 @@ fn matrix_session_resumes_continuous_training() {
     assert_eq!(probs_resumed, probs_after_first);
 
     let mut continued = resumed;
-    continued.run_updates(&game, nes, 5, &dir, false);
+    continued.run_updates(&game, nes, 5, &dir, false, true);
     let probs_after_more = policy_probs_from_session(&continued);
     assert_ne!(probs_after_more, probs_resumed);
     assert!(dir.join("latest.safetensors").exists());

@@ -32,16 +32,16 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use trolly_gym::device::{describe_device, gpu_available, require_rx_training_device};
+use trolly_gym::fingerprint::load_sidecar;
 use trolly_gym::games::{
     matching_pennies::{matching_pennies_weighted, WEIGHTED_NES},
     rock_paper_scissors::{rps_weighted, WEIGHTED_NES as RPS_WEIGHTED_NES},
     SelfPlayConfig, WolfPpoSelfPlaySession,
 };
-use trolly_gym::fingerprint::load_sidecar;
 use trolly_gym::orchestrator::{
-    local_weekday_and_minutes, prepare_local_training, select_train_jobs, sync_local_git_upstream,
-    write_progress_log, DeviceSpec, LocalTrainPrep, TrainGap, WorkingHours, BROAD_GOAL,
-    CONTINUE_TRAINING_LOCALLY,
+    checkpoint_interval_from_env, local_weekday_and_minutes, prepare_local_training,
+    select_train_jobs, sync_local_git_upstream, write_progress_log, CheckpointClock, DeviceSpec,
+    LocalTrainPrep, TrainGap, WorkingHours, BROAD_GOAL, CONTINUE_TRAINING_LOCALLY,
 };
 use trolly_gym::ppo::{ActorCriticArchitecture, PpoConfig, WolfPpoConfig};
 use trolly_gym::sim::MicrostructureConfig;
@@ -50,9 +50,7 @@ use trolly_gym::ticks::{
     ClickHouseTicks,
 };
 use trolly_gym::train::checkpoint::LATEST_CHECKPOINT;
-use trolly_gym::train::{
-    MicrostructureTrainConfig, MicrostructureTrainSession, TrainDriverConfig,
-};
+use trolly_gym::train::{MicrostructureTrainConfig, MicrostructureTrainSession, TrainDriverConfig};
 
 fn main() {
     let mode = parse_mode();
@@ -138,7 +136,7 @@ fn print_help() {
          Env: TROLLY_WORK_START TROLLY_WORK_END TROLLY_WORK_WEEKDAYS\n\
               TROLLY_TRAIN_DEVICE TROLLY_TRAIN_JOBS TROLLY_TRAIN_DURATION_SECS\n\
               TROLLY_TRAIN_GPU_MATCH TROLLY_CONTINUE_LOCAL TROLLY_CLICKHOUSE_URL\n\
-              CHECKPOINT_DIR"
+              TROLLY_CHECKPOINT_INTERVAL_SECS CHECKPOINT_DIR"
     );
 }
 
@@ -148,8 +146,11 @@ fn probe(hours: &WorkingHours, spec: DeviceSpec) -> Result<(), String> {
     let ch = require_clickhouse_reachable()?;
     let gap = planned_jobs();
     println!("goal: {BROAD_GOAL}");
-    println!("schedule: weekdays={:?} {:02}:{:02}-{:02}:{:02} local",
-        (1..=7).filter(|d| hours.weekdays[*d as usize]).collect::<Vec<_>>(),
+    println!(
+        "schedule: weekdays={:?} {:02}:{:02}-{:02}:{:02} local",
+        (1..=7)
+            .filter(|d| hours.weekdays[*d as usize])
+            .collect::<Vec<_>>(),
         hours.start_minutes / 60,
         hours.start_minutes % 60,
         hours.end_minutes / 60,
@@ -161,8 +162,16 @@ fn probe(hours: &WorkingHours, spec: DeviceSpec) -> Result<(), String> {
         minutes % 60,
         hours.contains(weekday, minutes)
     );
-    println!("device_spec={spec} resolved={} gpu_available={}", describe_device(device), gpu_available());
+    println!(
+        "device_spec={spec} resolved={} gpu_available={}",
+        describe_device(device),
+        gpu_available()
+    );
     println!("clickhouse: {} ok", ch.url);
+    println!(
+        "checkpoint_interval={}s (TROLLY_CHECKPOINT_INTERVAL_SECS; 0=every update)",
+        checkpoint_interval_from_env().as_secs()
+    );
     println!("jobs={:?} reason={}", gap.jobs, gap.reason);
     println!("continue: {CONTINUE_TRAINING_LOCALLY}");
     Ok(())
@@ -205,9 +214,8 @@ fn run_daemon(hours: &WorkingHours, spec: DeviceSpec) -> Result<(), String> {
 
 fn train_window(spec: DeviceSpec, remaining_secs: u64) -> Result<(), String> {
     let device = require_rx_training_device(spec)?;
-    ensure_local_clickhouse().map_err(|err| {
-        clickhouse_unreachable_error(&ClickHouseTicks::default().url, err)
-    })?;
+    ensure_local_clickhouse()
+        .map_err(|err| clickhouse_unreachable_error(&ClickHouseTicks::default().url, err))?;
     let git_note = sync_local_git_upstream();
     println!("git: {git_note}");
     let cap = std::env::var("TROLLY_TRAIN_DURATION_SECS")
@@ -220,12 +228,16 @@ fn train_window(spec: DeviceSpec, remaining_secs: u64) -> Result<(), String> {
     let slice = (budget / gap.jobs.len() as u64).max(1);
     println!("goal: {BROAD_GOAL}");
     println!(
-        "gpu_train_orchestrator: device={} spec={spec} budget={budget}s jobs={:?} reason={}",
+        "gpu_train_orchestrator: device={} spec={spec} budget={budget}s jobs={:?} reason={} checkpoint_interval={}s",
         describe_device(device),
         gap.jobs,
-        gap.reason
+        gap.reason,
+        checkpoint_interval_from_env().as_secs()
     );
-    println!("ticks: {} ch_ok={} {}", prep.ticks_written, prep.clickhouse_ok, prep.note);
+    println!(
+        "ticks: {} ch_ok={} {}",
+        prep.ticks_written, prep.clickhouse_ok, prep.note
+    );
 
     let mut extras = vec![
         ("budget_secs", budget.to_string()),
@@ -331,24 +343,36 @@ fn train_matrix(device: tch::Device, duration: Duration) -> Result<String, Strin
                 ..WolfPpoConfig::default().with_alpha_lose(0.1)
             };
             let resumed = out_dir.join(LATEST_CHECKPOINT).exists();
-            let mut session =
-                WolfPpoSelfPlaySession::resume_from_on_device(&out_dir, game, &config, wolf, device);
+            let mut session = WolfPpoSelfPlaySession::resume_from_on_device(
+                &out_dir, game, &config, wolf, device,
+            );
             println!(
                 "=== matrix {arch_name}/{name} {}s ({}) ===",
                 per.as_secs(),
                 if resumed { "resumed" } else { "fresh" }
             );
+            let mut clock = CheckpointClock::from_env();
             let start = Instant::now();
             while start.elapsed() < per {
-                let distances = session.run_updates(game, nes, 10, &out_dir, false);
+                let distances = session.run_updates(game, nes, 10, &out_dir, false, false);
                 last_nes = distances.last().copied().unwrap_or(last_nes);
-                println!(
-                    "  updates={} nes_dist={last_nes:.4} elapsed={:.1}s",
-                    session.update_count,
-                    start.elapsed().as_secs_f64()
-                );
+                if clock.due() {
+                    session.persist_latest(&out_dir);
+                    clock.mark();
+                    println!(
+                        "  checkpoint updates={} nes_dist={last_nes:.4} elapsed={:.1}s",
+                        session.update_count,
+                        start.elapsed().as_secs_f64()
+                    );
+                }
             }
+            session.persist_latest(&out_dir);
             session.finalize_checkpoints(&out_dir);
+            println!(
+                "  done updates={} nes_dist={last_nes:.4} elapsed={:.1}s",
+                session.update_count,
+                start.elapsed().as_secs_f64()
+            );
         }
     }
     Ok(format!("{last_nes:.4}"))
@@ -397,20 +421,32 @@ fn train_microstructure(
             per.as_secs(),
             session.is_completed()
         );
+        let mut clock = CheckpointClock::from_env();
         let start = Instant::now();
         while start.elapsed() < per && !session.is_completed() {
             let (metrics, stats) = session.train_step();
-            if let Some(dir) = &config.checkpoint_dir {
-                session.save_checkpoint(dir, false);
-            }
             last_reward = stats.total_reward;
-            println!(
-                "  loss={:.4} reward={:.3} elapsed={:.1}s",
-                metrics.policy_loss,
-                stats.total_reward,
-                start.elapsed().as_secs_f64()
-            );
+            if let Some(dir) = &config.checkpoint_dir {
+                if clock.due() {
+                    session.save_checkpoint(dir, false);
+                    clock.mark();
+                    println!(
+                        "  checkpoint loss={:.4} reward={:.3} elapsed={:.1}s",
+                        metrics.policy_loss,
+                        stats.total_reward,
+                        start.elapsed().as_secs_f64()
+                    );
+                }
+            }
         }
+        if let Some(dir) = &config.checkpoint_dir {
+            session.save_checkpoint(dir, false);
+        }
+        println!(
+            "  done updates={} reward={last_reward:.3} elapsed={:.1}s",
+            session.update_count,
+            start.elapsed().as_secs_f64()
+        );
         if let Some(fp) = load_sidecar(&out_dir) {
             println!(
                 "  fingerprint weights={} data={}",
