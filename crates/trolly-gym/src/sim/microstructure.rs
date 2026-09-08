@@ -1,15 +1,20 @@
 //! Synthetic order-book microstructure for offline RL development.
 //!
-//! Generates [`StreamEvent::Depth`]-shaped observations (via the same feature
-//! extractor as the stream [`Env`](crate::env::Env)) and mark-to-market rewards
-//! on discrete hold/buy/sell actions.
+//! Stream observations stay on the 7-D [`features_from_event`] extractor used
+//! by the live [`Env`](crate::env::Env). Trading cost is a linear bid/ask
+//! **depth ladder** `α(v) = δ + λ v` (WP-032). Mid is used only to mark
+//! inventory: `r = q_new · Δs − Δcost`. Discrete `{Hold,Buy,Sell}` unit lots
+//! remain the live action set; `λ = 0` is the WP-022 flat-fee compatibility
+//! path.
 
 use trolly_strategy::{DepthUpdate, PriceLevel, StreamEvent};
 
 use crate::action::Action;
 use crate::env::StepResult;
-use crate::observation::{features_from_event, ObservationWindow};
+use crate::observation::{features_from_event, ladder_features, ObservationWindow};
 use crate::ticks::{now_ts_ms, TickRow, TickTape};
+
+pub use crate::observation::{DepthLadderSpec, LADDER_FEATURES_PER_RUNG};
 
 /// Features per depth frame (see [`crate::observation::depth_features`]).
 pub const FEATURES_PER_FRAME: usize = 7;
@@ -28,8 +33,16 @@ pub struct MicrostructureConfig {
     pub mid_drift: f32,
     /// Uniform noise amplitude in `[-mid_noise, mid_noise]` per step.
     pub mid_noise: f32,
-    /// Half-spread paid when changing net position (buy at ask, sell at bid).
+    /// Ladder intercept δ. WP-022 name: flat unit-lot fee when `lambda == 0`.
     pub trade_cost: f32,
+    /// Ladder slope λ. Default is a learnable impact; set `0` for unit-lot snap.
+    pub lambda: f32,
+    /// Number of parallel ladder rungs `V`.
+    pub rung_count: usize,
+    /// Rung width `Δv` (inventory units).
+    pub rung_width: f32,
+    /// When true, each [`MicrostructureSim::reset`] draws a new mid-path seed.
+    pub resample_episode_seeds: bool,
     pub seed: u64,
 }
 
@@ -44,20 +57,51 @@ impl Default for MicrostructureConfig {
             mid_drift: 0.0,
             mid_noise: 0.25,
             trade_cost: 0.5,
+            lambda: 0.25,
+            rung_count: 8,
+            rung_width: 0.25,
+            resample_episode_seeds: true,
             seed: 42,
         }
     }
 }
 
 impl MicrostructureConfig {
+    /// WP-022 unit-lot snap: `α(v) = δ` (λ = 0), fixed episode seed.
+    pub fn unit_lot_compat() -> Self {
+        Self {
+            lambda: 0.0,
+            resample_episode_seeds: false,
+            ..Default::default()
+        }
+    }
+
     pub fn obs_dim(&self) -> i64 {
         microstructure_obs_dim(self.window_frames)
     }
+
+    pub fn ladder_obs_dim(&self) -> i64 {
+        ladder_obs_dim(self.rung_count)
+    }
+
+    pub fn ladder_spec(&self) -> DepthLadderSpec {
+        DepthLadderSpec {
+            delta: self.trade_cost,
+            lambda: self.lambda,
+            rung_count: self.rung_count,
+            rung_width: self.rung_width,
+        }
+    }
 }
 
-/// Flattened observation size for the given window length.
+/// Flattened stream observation size for the given window length (7-D frames).
 pub fn microstructure_obs_dim(window_frames: usize) -> i64 {
     (FEATURES_PER_FRAME * window_frames.max(1)) as i64
+}
+
+/// Flattened parallel ladder observation size (`V × 5`).
+pub fn ladder_obs_dim(rung_count: usize) -> i64 {
+    (rung_count.max(1) * LADDER_FEATURES_PER_RUNG) as i64
 }
 
 /// Aggregate stats from a completed episode.
@@ -89,12 +133,42 @@ pub enum BaselinePolicy {
 }
 
 /// Analytic oracle reward: enter once in the drift direction, then hold.
+///
+/// Entry pays the ladder walk `0 → sign(drift)`, not a flat fee unless `λ = 0`.
 pub fn oracle_reward_estimate(config: &MicrostructureConfig) -> f32 {
     if config.mid_drift.abs() <= f32::EPSILON {
         0.0
     } else {
-        config.episode_steps as f32 * config.mid_drift.abs() - config.trade_cost
+        let target = if config.mid_drift > 0.0 { 1.0 } else { -1.0 };
+        let entry_cost = config.ladder_spec().walk_cost(0.0, target);
+        config.episode_steps as f32 * config.mid_drift.abs() - entry_cost
     }
+}
+
+/// Hold-path book ticks from several mid-path seeds (not one 64-tick tape).
+pub fn generate_resampled_tick_rows(
+    config: &MicrostructureConfig,
+    session_id: &str,
+    episode_count: usize,
+    steps_per_episode: usize,
+) -> Vec<TickRow> {
+    let mut rows = Vec::new();
+    let episodes = episode_count.max(1);
+    let steps = steps_per_episode.max(1);
+    for episode in 0..episodes {
+        let mut cfg = config.clone();
+        cfg.seed = config.seed.wrapping_add(episode as u64);
+        cfg.resample_episode_seeds = false;
+        cfg.episode_steps = steps;
+        let mut sim = MicrostructureSim::new(cfg);
+        sim.reset();
+        rows.push(sim.last_tick(session_id, "sim"));
+        for _ in 0..steps {
+            sim.step(Action::Hold);
+            rows.push(sim.last_tick(session_id, "sim"));
+        }
+    }
+    rows
 }
 
 /// Run a full episode with a baseline policy and eval seed.
@@ -184,6 +258,7 @@ pub struct MicrostructureSim {
     position: i8,
     step: usize,
     rng_state: u64,
+    episode_index: u64,
     episode_reward: f32,
     tape: Option<TickTape>,
 }
@@ -197,6 +272,7 @@ impl MicrostructureSim {
             mid: 0.0,
             position: 0,
             step: 0,
+            episode_index: 0,
             episode_reward: 0.0,
             tape: None,
         };
@@ -229,13 +305,31 @@ impl MicrostructureSim {
         self.window.flattened()
     }
 
-    /// Start a new episode; returns the initial observation.
+    /// Parallel ladder frame (`V × [v, α_ask, α_bid, Δα, q]`). Stream 7-D obs stay separate.
+    pub fn ladder_observation(&self) -> Vec<f32> {
+        ladder_features(&self.config.ladder_spec(), self.position as f32).0
+    }
+
+    pub fn ladder_spec(&self) -> DepthLadderSpec {
+        self.config.ladder_spec()
+    }
+
+    pub fn episode_seed(&self) -> u64 {
+        self.rng_state
+    }
+
+    /// Start a new episode; returns the initial stream observation.
     pub fn reset(&mut self) -> Vec<f32> {
         self.mid = self.config.initial_mid;
         self.position = 0;
         self.step = 0;
         self.episode_reward = 0.0;
-        self.rng_state = self.config.seed;
+        if self.config.resample_episode_seeds {
+            self.rng_state = self.config.seed.wrapping_add(self.episode_index);
+            self.episode_index = self.episode_index.wrapping_add(1);
+        } else {
+            self.rng_state = self.config.seed;
+        }
         self.window = ObservationWindow::new(self.config.window_frames);
         if let Some(tape) = &mut self.tape {
             tape.reset();
@@ -251,18 +345,17 @@ impl MicrostructureSim {
         let old_mid = self.mid;
         let old_position = self.position;
         self.apply_action(action);
-        let trade_cost = if self.position != old_position {
-            self.config.trade_cost
-        } else {
-            0.0
-        };
+        let delta_cost = self
+            .config
+            .ladder_spec()
+            .walk_cost(old_position as f32, self.position as f32);
         if self.tape.is_some() {
             self.advance_from_tape();
         } else {
             self.advance_mid();
             self.push_depth_frame();
         }
-        let reward = self.position as f32 * (self.mid - old_mid) - trade_cost;
+        let reward = self.position as f32 * (self.mid - old_mid) - delta_cost;
         self.episode_reward += reward;
         self.step += 1;
         let tape_done = self
@@ -341,18 +434,27 @@ impl MicrostructureSim {
     }
 
     fn depth_event(&self) -> StreamEvent {
-        let bid = self.mid - self.config.half_spread;
-        let ask = self.mid + self.config.half_spread;
+        let spec = self.config.ladder_spec();
+        let qty = format!("{:.4}", spec.rung_width());
+        let mut bids = Vec::with_capacity(spec.rung_count());
+        let mut asks = Vec::with_capacity(spec.rung_count());
+        for k in 0..spec.rung_count() {
+            let extra = spec.lambda * spec.rung_v(k);
+            let bid = self.mid - self.config.half_spread - extra;
+            let ask = self.mid + self.config.half_spread + extra;
+            bids.push(PriceLevel {
+                price: format!("{bid:.4}"),
+                qty: qty.clone(),
+            });
+            asks.push(PriceLevel {
+                price: format!("{ask:.4}"),
+                qty: qty.clone(),
+            });
+        }
         StreamEvent::Depth(DepthUpdate {
             symbol: self.config.symbol.clone(),
-            bids: vec![PriceLevel {
-                price: format!("{bid:.4}"),
-                qty: "1".into(),
-            }],
-            asks: vec![PriceLevel {
-                price: format!("{ask:.4}"),
-                qty: "1".into(),
-            }],
+            bids,
+            asks,
             update_id: Some(self.step as u64),
         })
     }
@@ -466,11 +568,123 @@ mod tests {
             mid_drift: 0.1,
             mid_noise: 0.0,
             trade_cost: 0.5,
+            resample_episode_seeds: false,
             ..Default::default()
         };
         let stats = run_baseline_episode(&config, 2000, BaselinePolicy::Oracle);
         let expected = oracle_reward_estimate(&config);
         assert!((stats.total_reward - expected).abs() < 0.05, "{} vs {expected}", stats.total_reward);
         assert_eq!(stats.trades, 1);
+        let flat = config.trade_cost + 0.5 * config.lambda;
+        assert!((expected - (12.8 - flat)).abs() < 1e-5);
+    }
+
+    #[test]
+    fn unit_lot_compat_matches_flat_trade_cost() {
+        let config = MicrostructureConfig {
+            lambda: 0.0,
+            trade_cost: 0.5,
+            mid_drift: 0.1,
+            mid_noise: 0.0,
+            episode_steps: 16,
+            resample_episode_seeds: false,
+            ..Default::default()
+        };
+        let stats = run_baseline_episode(&config, 7, BaselinePolicy::Oracle);
+        let expected = oracle_reward_estimate(&config);
+        assert!(
+            (stats.total_reward - expected).abs() < 1e-4,
+            "oracle {} vs estimate {expected} (steps={} trades={})",
+            stats.total_reward,
+            stats.steps,
+            stats.trades
+        );
+        assert!((expected - (config.episode_steps as f32 * 0.1 - 0.5)).abs() < 1e-5);
+    }
+
+    #[test]
+    fn buy_pays_ladder_integral_not_mid() {
+        let mut sim = MicrostructureSim::new(MicrostructureConfig {
+            mid_drift: 0.0,
+            mid_noise: 0.0,
+            trade_cost: 0.5,
+            lambda: 0.25,
+            episode_steps: 4,
+            resample_episode_seeds: false,
+            ..Default::default()
+        });
+        sim.reset();
+        let result = sim.step(Action::Buy);
+        let expected_cost = 0.5 + 0.5 * 0.25;
+        assert!(
+            (result.reward + expected_cost).abs() < 1e-5,
+            "reward {} should be -∫α = -{expected_cost} when Δmid=0",
+            result.reward
+        );
+        assert_eq!(sim.position(), 1);
+    }
+
+    #[test]
+    fn ladder_observation_is_parallel_to_stream_features() {
+        let sim = MicrostructureSim::new(MicrostructureConfig {
+            window_frames: 2,
+            rung_count: 4,
+            rung_width: 0.5,
+            lambda: 0.25,
+            trade_cost: 0.5,
+            resample_episode_seeds: false,
+            ..Default::default()
+        });
+        assert_eq!(sim.observation().len(), FEATURES_PER_FRAME * 2);
+        let ladder = sim.ladder_observation();
+        assert_eq!(ladder.len(), 4 * LADDER_FEATURES_PER_RUNG);
+        assert!((ladder[3] - 0.125).abs() < 1e-6);
+        assert!((ladder[4] - 0.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn reset_resamples_mid_path_seeds() {
+        let mut sim = MicrostructureSim::new(MicrostructureConfig {
+            mid_noise: 1.0,
+            mid_drift: 0.0,
+            episode_steps: 2,
+            resample_episode_seeds: true,
+            seed: 11,
+            ..Default::default()
+        });
+        let mut mids = Vec::new();
+        for _ in 0..4 {
+            sim.reset();
+            sim.step(Action::Hold);
+            mids.push(sim.mid());
+        }
+        let unique = mids
+            .iter()
+            .map(|m| (m * 1e4).round() as i32)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert!(
+            unique.len() > 1,
+            "resampled episodes must not share one mid path: {mids:?}"
+        );
+    }
+
+    #[test]
+    fn resampled_tick_rows_use_several_seeds() {
+        let config = MicrostructureConfig {
+            mid_noise: 0.5,
+            episode_steps: 4,
+            resample_episode_seeds: true,
+            ..Default::default()
+        };
+        let rows = generate_resampled_tick_rows(&config, "ladder-test", 3, 4);
+        assert!(rows.len() >= 15);
+        let mids: std::collections::BTreeSet<i64> = rows
+            .iter()
+            .map(|r| (r.mid * 1e4).round() as i64)
+            .collect();
+        assert!(
+            mids.len() > 2,
+            "expected several mid values from resampled seeds, got {mids:?}"
+        );
     }
 }

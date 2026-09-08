@@ -4,11 +4,12 @@ Project journal for shipped work. Active backlog lives in [`WORKPLAN.md`](WORKPL
 
 ## WIP
 
-- Microstructure successor (WP-032–WP-034): depth-ladder integral cost, Gaussian inventory policy, Liquid driven along rungs `v`. Weekday GPU trainer should close this gap; live `Action::dispatch` stays 3-way until a later quantize WP.
+- Microstructure successor remainder (WP-033–WP-034): Gaussian inventory policy on the WP-032 ladder, then Liquid driven along rungs `v`. Weekday GPU trainer should close this gap; live `Action::dispatch` stays 3-way until a later quantize WP.
 - Keep local GPU training checkpoint metrics improving via ClickHouse `trolly.ticks`, trajectory FIFO replay, daily `--continue` slices, and checkpoint fingerprints.
 - Add more exchange providers beyond Binance spot + USDM (stub scaffold landed; full venues remain).
 
 ## change log
++ `trolly-gym`: microstructure depth ladder `α(v)=δ+λv`, integral walk cost, parallel rung observations, resampled episode seeds (WP-032). Trainer guidance missing (silent); scheduled only ready item WP-032.
 + Policy demo runner: explicit guarded `--wait-for-user-data` mode waits on spot/USDM demo user-data streams after placement and fills typed reconciliation rows through existing exec ingest paths (WP-031).
 + Policy demo runner: typed receipt-to-user-stream reconciliation rows from captured spot/USDM user-data frames, CLI `--reconcile-user-data-json`, and offline mock reconciliation tests (WP-030).
 + Policy demo runner: deterministic demo client order IDs, typed spot/USDM placement receipts, CLI receipt output, and offline mock placement tests for the guarded demo path (WP-029).

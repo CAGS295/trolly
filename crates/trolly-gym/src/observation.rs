@@ -134,6 +134,148 @@ fn kind_tag_features(kind: EventKind) -> FeatureVector {
     FeatureVector(vec![tag])
 }
 
+/// Features per ladder rung: `[v, α_ask, α_bid, Δα, q]`.
+///
+/// This is a **parallel** frame to the 7-D stream depth extractor.
+/// Stream `Env` observations stay 7-D; microstructure policies that need
+/// the inventory ladder read this layout instead.
+pub const LADDER_FEATURES_PER_RUNG: usize = 5;
+
+/// Linear bid/ask depth ladder `α(v) = δ + λ v`.
+///
+/// `v` is cumulative size already taken on that side (inventory depth), not
+/// mid and not wall-clock time. Mid is used only to mark inventory.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DepthLadderSpec {
+    /// Touch offset δ (`MicrostructureConfig::trade_cost` WP-022 alias).
+    pub delta: f32,
+    /// Linear impact λ. Zero recovers the unit-lot flat fee.
+    pub lambda: f32,
+    /// Number of rungs `V` along depth.
+    pub rung_count: usize,
+    /// Width `Δv` of each rung.
+    pub rung_width: f32,
+}
+
+impl Default for DepthLadderSpec {
+    fn default() -> Self {
+        Self {
+            delta: 0.5,
+            lambda: 0.25,
+            rung_count: 8,
+            rung_width: 0.25,
+        }
+    }
+}
+
+impl DepthLadderSpec {
+    pub fn rung_count(&self) -> usize {
+        self.rung_count.max(1)
+    }
+
+    pub fn rung_width(&self) -> f32 {
+        if self.rung_width > 0.0 {
+            self.rung_width
+        } else {
+            1.0
+        }
+    }
+
+    /// Depth coordinate of rung `k` (start of the rung).
+    pub fn rung_v(&self, k: usize) -> f32 {
+        k as f32 * self.rung_width()
+    }
+
+    /// Half-spread / impact at depth `v`: `α(v) = δ + λ v`.
+    pub fn alpha(&self, v: f32) -> f32 {
+        self.delta + self.lambda * v.max(0.0)
+    }
+
+    /// Level-indexed `Δα` (same on every rung for a linear ladder): `λ Δv`.
+    pub fn d_alpha(&self) -> f32 {
+        self.lambda * self.rung_width()
+    }
+
+    /// Continuous integral `∫_{v0}^{v1} (δ + λ v) dv` with `v ≥ 0`.
+    pub fn integral_alpha(&self, v0: f32, v1: f32) -> f32 {
+        let v0 = v0.max(0.0);
+        let v1 = v1.max(0.0);
+        if (v1 - v0).abs() <= f32::EPSILON {
+            return 0.0;
+        }
+        let (lo, hi, sign) = if v1 >= v0 {
+            (v0, v1, 1.0)
+        } else {
+            (v1, v0, -1.0)
+        };
+        sign * (self.delta * (hi - lo) + 0.5 * self.lambda * (hi * hi - lo * lo))
+    }
+
+    /// Discrete rung-sum of `α(v_k) Δv` on `[v0, v1)` (same sign as the walk).
+    pub fn rung_sum_alpha(&self, v0: f32, v1: f32) -> f32 {
+        let v0 = v0.max(0.0);
+        let v1 = v1.max(0.0);
+        if (v1 - v0).abs() <= f32::EPSILON {
+            return 0.0;
+        }
+        let (lo, hi, sign) = if v1 >= v0 {
+            (v0, v1, 1.0)
+        } else {
+            (v1, v0, -1.0)
+        };
+        let dv = self.rung_width();
+        let mut sum = 0.0;
+        let start = (lo / dv).floor() as i32;
+        let end = (hi / dv).ceil() as i32;
+        for k in start..end {
+            let k = k.max(0) as usize;
+            let left = (k as f32 * dv).max(lo);
+            let right = ((k + 1) as f32 * dv).min(hi);
+            if right > left {
+                sum += self.alpha(k as f32 * dv) * (right - left);
+            }
+        }
+        sign * sum
+    }
+
+    /// Trading cost of walking inventory `q_from → q_to`.
+    ///
+    /// Buying (`q` increases) consumes the ask ladder at `v = max(q, 0)`.
+    /// Selling consumes the bid ladder at `v = max(-q, 0)`. Crossing zero
+    /// splits at the origin (no refund of the side just left).
+    pub fn walk_cost(&self, q_from: f32, q_to: f32) -> f32 {
+        if (q_to - q_from).abs() <= f32::EPSILON {
+            return 0.0;
+        }
+        if q_from * q_to < 0.0 {
+            return self.walk_cost(q_from, 0.0) + self.walk_cost(0.0, q_to);
+        }
+        if q_to > q_from {
+            let v0 = q_from.max(0.0);
+            self.integral_alpha(v0, v0 + (q_to - q_from))
+        } else {
+            let v0 = (-q_from).max(0.0);
+            self.integral_alpha(v0, v0 + (q_from - q_to))
+        }
+    }
+
+    pub fn obs_dim(&self) -> usize {
+        self.rung_count() * LADDER_FEATURES_PER_RUNG
+    }
+}
+
+/// Flattened ladder frame: `V` rungs of `[v_k, α_ask, α_bid, Δα, q]`.
+pub fn ladder_features(spec: &DepthLadderSpec, inventory: f32) -> FeatureVector {
+    let d_alpha = spec.d_alpha();
+    let mut values = Vec::with_capacity(spec.obs_dim());
+    for k in 0..spec.rung_count() {
+        let v = spec.rung_v(k);
+        let alpha = spec.alpha(v);
+        values.extend_from_slice(&[v, alpha, alpha, d_alpha, inventory]);
+    }
+    FeatureVector(values)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -167,5 +309,58 @@ mod tests {
         window.push(FeatureVector(vec![3.0]));
         assert_eq!(window.len(), 2);
         assert_eq!(window.flattened(), vec![2.0, 3.0]);
+    }
+
+    #[test]
+    fn ladder_features_expose_rungs_inventory_and_level_indexed_d_alpha() {
+        let spec = DepthLadderSpec {
+            delta: 0.5,
+            lambda: 0.25,
+            rung_count: 4,
+            rung_width: 0.5,
+        };
+        let frame = ladder_features(&spec, 1.0);
+        assert_eq!(frame.len(), 4 * LADDER_FEATURES_PER_RUNG);
+        let s = frame.as_slice();
+        assert!((s[0] - 0.0).abs() < f32::EPSILON);
+        assert!((s[1] - spec.alpha(0.0)).abs() < 1e-6);
+        assert!((s[2] - spec.alpha(0.0)).abs() < 1e-6);
+        assert!((s[3] - spec.d_alpha()).abs() < 1e-6);
+        assert!((s[4] - 1.0).abs() < f32::EPSILON);
+        assert!((s[5] - 0.5).abs() < f32::EPSILON);
+        for k in 0..4 {
+            let d_alpha = s[k * LADDER_FEATURES_PER_RUNG + 3];
+            assert!(
+                (d_alpha - 0.125).abs() < 1e-6,
+                "Δα must be level-indexed λΔv, got {d_alpha} at rung {k}"
+            );
+            assert!((s[k * LADDER_FEATURES_PER_RUNG + 4] - 1.0).abs() < f32::EPSILON);
+        }
+    }
+
+    #[test]
+    fn walk_cost_integral_matches_closed_form() {
+        let spec = DepthLadderSpec {
+            delta: 0.5,
+            lambda: 0.25,
+            ..Default::default()
+        };
+        let expected = spec.delta + 0.5 * spec.lambda; // ∫_0^1 (δ + λv) dv
+        assert!((spec.walk_cost(0.0, 1.0) - expected).abs() < 1e-6);
+        assert!((spec.walk_cost(0.0, -1.0) - expected).abs() < 1e-6);
+        assert!((spec.walk_cost(1.0, -1.0) - 2.0 * expected).abs() < 1e-6);
+        assert_eq!(spec.walk_cost(1.0, 1.0), 0.0);
+        assert!((spec.integral_alpha(0.0, 1.0) - spec.rung_sum_alpha(0.0, 1.0)).abs() < 0.15);
+    }
+
+    #[test]
+    fn zero_lambda_recovers_flat_unit_lot_fee() {
+        let spec = DepthLadderSpec {
+            delta: 0.5,
+            lambda: 0.0,
+            ..Default::default()
+        };
+        assert!((spec.walk_cost(0.0, 1.0) - 0.5).abs() < f32::EPSILON);
+        assert!((spec.walk_cost(1.0, 0.0) - 0.5).abs() < f32::EPSILON);
     }
 }

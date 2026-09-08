@@ -710,8 +710,8 @@ the live stream [`Env`](src/env.rs).
 |------|----------------------|-------------------------|
 | WoLF-PPO / NES correctness | ✅ primary | ❌ single-agent |
 | Rollout + GAE + checkpoints | partial | ✅ full episodic MDP |
-| Observation layout | constant scalar | depth features (7/frame) |
-| Reward | in-game payoff | position × Δmid − spread cost |
+| Observation layout | constant scalar | depth features (7/frame); WP-032 adds a parallel ladder frame |
+| Reward | in-game payoff | `q_new × Δmid − Δcost` (ladder integral; mid is mark-only) |
 
 ### Public API
 
@@ -746,6 +746,59 @@ export LIBTORCH=/path/to/libtorch
 export LD_LIBRARY_PATH=$LIBTORCH/lib:$LD_LIBRARY_PATH
 cargo run -p trolly-gym --features torch --example microstructure_train_snapshots
 ```
+
+---
+
+## Depth-ladder microstructure (WP-032)
+
+WP-022's unit-lot MDP charged a **flat** `trade_cost` on `{Hold,Buy,Sell}` snaps
+to `q ∈ {-1,0,1}`. That fee did not depend on depth, so the weekday trainer had
+nothing learnable in `(δ, λ)`. WP-032 replaces the fee with a linear bid/ask
+**depth ladder**:
+
+```
+α(v) = δ + λ v
+```
+
+`v` is cumulative size already taken on that side (inventory depth), not mid
+and not wall-clock. Walking inventory `q_from → q_to` pays the integral
+`∫ α(v) dv` (or the matching discrete rung sum) on the consumed side. Crossing
+zero splits at the origin; paid cost is not refunded. Mid `s` is used only to
+mark inventory:
+
+```
+r = q_new · Δs − Δcost
+```
+
+`δ` keeps the WP-022 name `trade_cost`. Default `λ = 0.25`. Set
+`MicrostructureConfig::unit_lot_compat()` (`λ = 0`, fixed seed) to recover the
+old flat-fee snap for regression.
+
+### Parallel ladder observations
+
+The stream [`Env`](src/env.rs) **7-D** depth extractor
+(`best_bid, bid_qty, best_ask, ask_qty, spread, mid, update_id`) is unchanged.
+Live `Action::{Hold,Buy,Sell}` / `PolicyProvider` / ONNX stay on that layout.
+
+The sim exposes a **parallel** ladder frame (`sim.ladder_observation()`):
+
+| per rung | meaning |
+|----------|---------|
+| `v_k` | depth coordinate `k · Δv` |
+| `α_ask`, `α_bid` | `δ + λ v_k` on each side |
+| `Δα` | level-indexed `λ Δv` (not a time difference) |
+| `q` | current inventory |
+
+Flattened size is `V × 5` (`ladder_obs_dim`). WP-033's Gaussian MLP will read
+this frame; do not concatenate it into the 7-D stream window.
+
+### Seed resampling
+
+Train episodes **resample mid-path seeds** (`resample_episode_seeds`, default
+on). `ingest_sim_ticks` / `generate_resampled_tick_rows` split a requested
+length across several Hold episodes so a single 64-tick Hold tape is not the
+only mid path. Discrete unit-lot tests that need a frozen seed should set
+`resample_episode_seeds: false`.
 
 ---
 

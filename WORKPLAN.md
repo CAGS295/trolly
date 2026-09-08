@@ -21,7 +21,7 @@ Shipped so far (not the destination): global book CLI; stream-native spot/USDM b
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: 2026-09-07
+- last_run: 2026-09-08
 - max_parallel: 3
 - ship_branch: integrate/orchestrator-branches
 
@@ -558,7 +558,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-032 — Microstructure depth-ladder sim (`trolly-gym`)
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-022]
 - scope: crates/trolly-gym/src/sim/microstructure.rs, crates/trolly-gym/src/observation.rs, crates/trolly-gym/README.md
@@ -570,6 +570,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - default `cargo test -p trolly-gym` covers cost integral / rung layout without libtorch; WP-022 discrete snap tests either remain as a compatibility path or are updated and documented
   - README documents ladder vs old unit-lot MDP; design notes live in the Cursor microstructure plan (inventory ladder, Gaussian policy, Liquid-on-rungs)
 - notes: Successor to WP-022, not a rewrite of that item. Directs the weekday GPU trainer at a learnable cost structure `(δ, λ)`. Live `Action::{Hold,Buy,Sell}` / `PolicyProvider` stay discrete until a later quantize WP.
+- worker/orchestrator (2026-09-08): trainer guidance missing (silent). Replaced flat `trade_cost` with `α(v)=δ+λv` walk integral; parallel `V×[v,α_ask,α_bid,Δα,q]` frame; 7-D stream extractor unchanged; episodes resample seeds; `unit_lot_compat()` / `λ=0` keeps WP-022 snap. Acceptance: `cargo +stable test -p trolly-gym` passes (50 lib + matrix/smoke).
 
 ### WP-033 — Gaussian inventory policy for ladder MDP (`trolly-gym`)
 
