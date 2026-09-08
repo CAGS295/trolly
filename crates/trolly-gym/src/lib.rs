@@ -51,8 +51,8 @@ pub use replay::{
     TrajectoryReplay, Transition,
 };
 pub use ticks::{
-    ensure_local_clickhouse, ingest_and_reload_sim, ClickHouseTicks, TickRow, TickTape,
-    DEFAULT_CLICKHOUSE_URL,
+    ensure_local_clickhouse, ingest_and_reload_sim, require_clickhouse_reachable, ClickHouseTicks,
+    TickRow, TickTape, DEFAULT_CLICKHOUSE_URL,
 };
 
 /// Whether the crate was built with libtorch support.

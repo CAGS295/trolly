@@ -409,6 +409,23 @@ fn ingest_enabled() -> bool {
         || std::env::var("TROLLY_CLICKHOUSE_URL").is_ok()
 }
 
+/// Error when the weekday trainer cannot talk to ClickHouse.
+pub fn clickhouse_unreachable_error(url: &str, err: impl std::fmt::Display) -> String {
+    format!("training bails: ClickHouse is not reachable at {url} ({err})")
+}
+
+/// Ping the configured ClickHouse URL. Does not start Docker.
+///
+/// The weekday trainer must call this (or [`ensure_local_clickhouse`]) and
+/// refuse to train on an in-memory tape when the database is down.
+pub fn require_clickhouse_reachable() -> Result<ClickHouseTicks, String> {
+    let client = ClickHouseTicks::default();
+    client
+        .ping()
+        .map_err(|err| clickhouse_unreachable_error(&client.url, err))?;
+    Ok(client)
+}
+
 /// Ping, or start `clickhouse/docker-compose.yml` and wait.
 pub fn ensure_local_clickhouse() -> Result<ClickHouseTicks, String> {
     let client = ClickHouseTicks::default();
@@ -499,6 +516,21 @@ mod tests {
         let got = ch.query_session(&row.session_id).expect("query");
         assert_eq!(got.len(), 1);
         assert!((got[0].mid - row.mid).abs() < 1e-6);
+    }
+
+    #[test]
+    fn require_clickhouse_bails_on_dead_url() {
+        let client = ClickHouseTicks {
+            url: "http://127.0.0.1:1".into(),
+            database: DEFAULT_DATABASE.into(),
+            table: DEFAULT_TABLE.into(),
+        };
+        let err = clickhouse_unreachable_error(
+            &client.url,
+            client.ping().expect_err("port 1 must refuse"),
+        );
+        assert!(err.contains("training bails: ClickHouse is not reachable"));
+        assert!(err.contains("http://127.0.0.1:1"));
     }
 
     #[test]

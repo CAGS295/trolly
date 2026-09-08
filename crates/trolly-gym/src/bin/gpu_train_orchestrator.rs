@@ -31,7 +31,7 @@ use std::path::PathBuf;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use trolly_gym::device::{describe_device, gpu_available, resolve_training_device};
+use trolly_gym::device::{describe_device, gpu_available, require_rx_training_device};
 use trolly_gym::games::{
     matching_pennies::{matching_pennies_weighted, WEIGHTED_NES},
     rock_paper_scissors::{rps_weighted, WEIGHTED_NES as RPS_WEIGHTED_NES},
@@ -45,6 +45,10 @@ use trolly_gym::orchestrator::{
 };
 use trolly_gym::ppo::{ActorCriticArchitecture, PpoConfig, WolfPpoConfig};
 use trolly_gym::sim::MicrostructureConfig;
+use trolly_gym::ticks::{
+    clickhouse_unreachable_error, ensure_local_clickhouse, require_clickhouse_reachable,
+    ClickHouseTicks,
+};
 use trolly_gym::train::checkpoint::LATEST_CHECKPOINT;
 use trolly_gym::train::{
     MicrostructureTrainConfig, MicrostructureTrainSession, TrainDriverConfig,
@@ -125,19 +129,23 @@ fn print_help() {
          \n\
          Local weekday GPU training. Defaults: Mon–Fri 09:00–17:00 local.\n\
          --continue-local (alias --continue, TROLLY_CONTINUE_LOCAL=1): fetch\n\
-         origin (rebase @{u} if clean), ingest ticks to ClickHouse, train a\n\
+         origin (rebase onto git upstream if clean), ingest ticks to ClickHouse, train a\n\
          daily slice, store hash fingerprints.\n\
          Goal: {BROAD_GOAL}\n\
          {CONTINUE_TRAINING_LOCALLY}\n\
+         Training bails unless HIP sees a discrete RX card (not CPU, not iGPU)\n\
+         and ClickHouse answers on TROLLY_CLICKHOUSE_URL (no in-memory tape).\n\
          Env: TROLLY_WORK_START TROLLY_WORK_END TROLLY_WORK_WEEKDAYS\n\
               TROLLY_TRAIN_DEVICE TROLLY_TRAIN_JOBS TROLLY_TRAIN_DURATION_SECS\n\
-              TROLLY_CONTINUE_LOCAL TROLLY_CLICKHOUSE_URL CHECKPOINT_DIR"
+              TROLLY_TRAIN_GPU_MATCH TROLLY_CONTINUE_LOCAL TROLLY_CLICKHOUSE_URL\n\
+              CHECKPOINT_DIR"
     );
 }
 
 fn probe(hours: &WorkingHours, spec: DeviceSpec) -> Result<(), String> {
     let (weekday, minutes) = local_weekday_and_minutes().map_err(|e| e.to_string())?;
-    let device = resolve_training_device()?;
+    let device = require_rx_training_device(spec)?;
+    let ch = require_clickhouse_reachable()?;
     let gap = planned_jobs();
     println!("goal: {BROAD_GOAL}");
     println!("schedule: weekdays={:?} {:02}:{:02}-{:02}:{:02} local",
@@ -154,6 +162,7 @@ fn probe(hours: &WorkingHours, spec: DeviceSpec) -> Result<(), String> {
         hours.contains(weekday, minutes)
     );
     println!("device_spec={spec} resolved={} gpu_available={}", describe_device(device), gpu_available());
+    println!("clickhouse: {} ok", ch.url);
     println!("jobs={:?} reason={}", gap.jobs, gap.reason);
     println!("continue: {CONTINUE_TRAINING_LOCALLY}");
     Ok(())
@@ -195,16 +204,19 @@ fn run_daemon(hours: &WorkingHours, spec: DeviceSpec) -> Result<(), String> {
 }
 
 fn train_window(spec: DeviceSpec, remaining_secs: u64) -> Result<(), String> {
+    let device = require_rx_training_device(spec)?;
+    ensure_local_clickhouse().map_err(|err| {
+        clickhouse_unreachable_error(&ClickHouseTicks::default().url, err)
+    })?;
     let git_note = sync_local_git_upstream();
     println!("git: {git_note}");
-    let device = resolve_training_device()?;
     let cap = std::env::var("TROLLY_TRAIN_DURATION_SECS")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(remaining_secs);
     let budget = remaining_secs.min(cap).max(1);
     let gap = planned_jobs();
-    let prep = prepare_local_training();
+    let prep = prepare_local_training()?;
     let slice = (budget / gap.jobs.len() as u64).max(1);
     println!("goal: {BROAD_GOAL}");
     println!(

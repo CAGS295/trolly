@@ -43,9 +43,32 @@ esac
 export LIBTORCH_USE_PYTORCH="${LIBTORCH_USE_PYTORCH:-1}"
 export LIBTORCH_BYPASS_VERSION_CHECK="${LIBTORCH_BYPASS_VERSION_CHECK:-1}"
 export TROLLY_TRAIN_DURATION_SECS="${TROLLY_TRAIN_DURATION_SECS:-120}"
+TORCH_LIB="${HOME}/.local/lib/python3.10/site-packages/torch/lib"
+if [[ -d "$TORCH_LIB" ]]; then
+  export LD_LIBRARY_PATH="${TORCH_LIB}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+fi
+CH_URL="${TROLLY_CLICKHOUSE_URL:-http://127.0.0.1:8123}"
+CH_PING="${CH_URL%/}/ping"
 COMPOSE="$ROOT/crates/trolly-gym/clickhouse/docker-compose.yml"
-if ! curl -fsS http://127.0.0.1:8123/ping >/dev/null 2>&1; then
-  docker compose -f "$COMPOSE" up -d
+if ! curl -fsS "$CH_PING" >/dev/null 2>&1; then
+  if command -v docker >/dev/null 2>&1; then
+    docker compose -f "$COMPOSE" up -d
+    ready=0
+    for _ in $(seq 1 40); do
+      if curl -fsS "$CH_PING" >/dev/null 2>&1; then
+        ready=1
+        break
+      fi
+      sleep 0.5
+    done
+    if [[ "$ready" -ne 1 ]]; then
+      echo "error: ClickHouse is not reachable at $CH_URL after docker compose up" >&2
+      exit 1
+    fi
+  else
+    echo "error: ClickHouse is not reachable at $CH_URL and docker is not available" >&2
+    exit 1
+  fi
 fi
 if [[ -x "$ROOT/target/release/gpu_train_orchestrator" ]]; then
   exec "$ROOT/target/release/gpu_train_orchestrator" "$MODE"

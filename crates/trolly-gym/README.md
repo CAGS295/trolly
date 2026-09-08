@@ -71,9 +71,15 @@ is not discoverable by the platform loader. This keeps default
 
 AMD GPUs (ROCm/HIP) use the same `tch::Device::Cuda` API as NVIDIA. Set
 `TROLLY_TRAIN_DEVICE=auto` (default for the orchestrator), `cpu`, `cuda`, or
-`cuda:N`. The inbox `amdgpu` kernel plus ROCm userspace and a ROCm PyTorch /
-libtorch build are required; `HSA_OVERRIDE_GFX_VERSION=11.0.2` may be needed
-for Radeon RX 7600 (gfx1102).
+`cuda:N`. The inbox `amdgpu` kernel plus a ROCm PyTorch / libtorch build with
+**gfx1102** in `torch.cuda.get_arch_list()` are required for the RX 7600
+(PyTorch 2.7+ ROCm wheels). `gpu_train_orchestrator` **bails** unless HIP
+names a discrete RX card (`TROLLY_TRAIN_GPU_MATCH`, default `RX`) — CPU and
+the iGPU are refused. The trainer searches visible HIP devices by name
+(do not pin `HIP_VISIBLE_DEVICES=0`; that can hide the RX card if it is not
+index 0). The user must be in the `render` and `video` groups. Training
+also **bails** if ClickHouse is not reachable (`TROLLY_CLICKHOUSE_URL`,
+default `http://127.0.0.1:8123`); it will not fall back to an in-memory tape.
 
 ## Daily local GPU training orchestrator
 
@@ -94,7 +100,7 @@ unless `TROLLY_TRAIN_JOBS` overrides. The weekday window is unchanged.
 `TROLLY_CONTINUE_LOCAL=1` / `scripts/continue-training-locally.sh`):
 `git fetch origin` and rebase onto `@{u}` when the tree is clean (fetch +
 warn and skip rebase if uncommitted work would be destroyed), then ignore
-the weekday window, ensure ClickHouse, ingest sim ticks into `trolly.ticks`,
+the weekday window, require a reachable ClickHouse, ingest sim ticks into `trolly.ticks`,
 train a `TROLLY_TRAIN_DURATION_SECS` slice (default 120s), and write
 checkpoint fingerprints. Compose file: `clickhouse/docker-compose.yml`
 (`TROLLY_CLICKHOUSE_URL`, default `http://127.0.0.1:8123`).

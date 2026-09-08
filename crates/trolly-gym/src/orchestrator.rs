@@ -52,7 +52,8 @@ When asked to continue training locally: (1) git fetch origin then rebase \
 onto @{u} if the working tree is clean (fetch+warn and continue if rebase \
 would destroy uncommitted work; never reset --hard, never rebase -i); \
 (2) assess state vs BROAD_GOAL; \
-(3) ensure ClickHouse and ingest sim ticks into trolly.ticks; \
+(3) ensure ClickHouse is reachable and ingest sim ticks into trolly.ticks \
+(bail if the DB is down; no in-memory tape); \
 (4) train a time-boxed WoLF-PPO slice (gpu_train_orchestrator --continue, \
 weekday window for --once); (5) write latest.safetensors plus \
 latest.fingerprint.json (weights/data-window/config hashes); \
@@ -137,7 +138,11 @@ pub fn sync_local_git_upstream() -> String {
 }
 
 /// Start (or reuse) ClickHouse, write sim ticks, return a training tape.
-pub fn prepare_local_training() -> LocalTrainPrep {
+///
+/// Fails if ClickHouse cannot be reached after a docker-compose attempt, or
+/// if the insert does not land. The weekday trainer must not fall back to
+/// an in-memory tape.
+pub fn prepare_local_training() -> Result<LocalTrainPrep, String> {
     let session_id = format!("sim-SYNTHUSDT-{}", now_session_stamp());
     let rows = crate::sim::ingest_sim_ticks(
         &crate::sim::MicrostructureConfig::default(),
@@ -145,43 +150,32 @@ pub fn prepare_local_training() -> LocalTrainPrep {
         64,
     );
     let tape = crate::ticks::TickTape::new(rows.clone());
+    let ch = crate::ticks::ensure_local_clickhouse().map_err(|err| {
+        crate::ticks::clickhouse_unreachable_error(
+            &crate::ticks::ClickHouseTicks::default().url,
+            err,
+        )
+    })?;
+    let n = ch.insert(&rows).map_err(|err| {
+        format!(
+            "training bails: ClickHouse is reachable at {} but insert failed ({err})",
+            ch.url
+        )
+    })?;
+    // Fulfill: train from the same rows the DB just stored.
+    let tape = match ch.query_session(&session_id) {
+        Ok(loaded) if !loaded.is_empty() => crate::ticks::TickTape::new(loaded),
+        _ => tape,
+    };
     let data_window = tape.window_hash();
-    match crate::ticks::ensure_local_clickhouse() {
-        Ok(ch) => match ch.insert(&rows) {
-            Ok(n) => {
-                // Fulfill: train from the same rows the DB just stored.
-                let tape = match ch.query_session(&session_id) {
-                    Ok(loaded) if !loaded.is_empty() => crate::ticks::TickTape::new(loaded),
-                    _ => tape,
-                };
-                let data_window = tape.window_hash();
-                LocalTrainPrep {
-                    session_id: session_id.clone(),
-                    ticks_written: n,
-                    data_window,
-                    clickhouse_ok: true,
-                    tape: Some(tape),
-                    note: format!("inserted+reloaded {n} ticks session={session_id}"),
-                }
-            }
-            Err(err) => LocalTrainPrep {
-                session_id,
-                ticks_written: 0,
-                data_window,
-                clickhouse_ok: true,
-                tape: Some(tape),
-                note: format!("schema ok but insert failed: {err}"),
-            },
-        },
-        Err(err) => LocalTrainPrep {
-            session_id,
-            ticks_written: 0,
-            data_window,
-            clickhouse_ok: false,
-            tape: Some(tape),
-            note: format!("ClickHouse unavailable ({err}); training on in-memory tape"),
-        },
-    }
+    Ok(LocalTrainPrep {
+        session_id: session_id.clone(),
+        ticks_written: n,
+        data_window,
+        clickhouse_ok: true,
+        tape: Some(tape),
+        note: format!("inserted+reloaded {n} ticks session={session_id}"),
+    })
 }
 
 fn now_session_stamp() -> String {
@@ -334,7 +328,8 @@ fn json_string_or_raw(raw: &str) -> String {
 /// when the `torch` feature is on).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeviceSpec {
-    /// Use GPU when libtorch reports one, otherwise CPU.
+    /// Use GPU when libtorch reports one, otherwise CPU (examples/tests).
+    /// The GPU orchestrator refuses CPU and non-RX HIP devices.
     Auto,
     Cpu,
     /// Libtorch CUDA index. ROCm/HIP builds expose HIP devices through this API.
@@ -662,6 +657,7 @@ mod tests {
     #[test]
     fn continue_training_prompt_names_clickhouse_and_fingerprints() {
         assert!(CONTINUE_TRAINING_LOCALLY.contains("ClickHouse"));
+        assert!(CONTINUE_TRAINING_LOCALLY.contains("bail if the DB is down"));
         assert!(CONTINUE_TRAINING_LOCALLY.contains("fingerprint"));
         assert!(CONTINUE_TRAINING_LOCALLY.contains("continue training locally"));
         assert!(CONTINUE_TRAINING_LOCALLY.contains("git fetch"));
