@@ -98,6 +98,10 @@ exec-crate order placement. Each `--once` window must leave a real increment
 `checkpoints/gpu_train_orchestrator/progress.json`). Job choice prefers
 incomplete stream-shaped microstructure checkpoints over matrix NES drills
 unless `TROLLY_TRAIN_JOBS` overrides. The weekday window is unchanged.
+Do **not** resume `checkpoints/gpu_train_orchestrator/_retired_unit_lot_microstructure/`
+(old 3-logit unit-lot snap). Matrix Liquid Matching Pennies stays under
+`checkpoints/gpu_train_orchestrator/matrix/` as the NES gate. Demo harnesses
+still load `checkpoints/microstructure_train/`.
 
 **Continue training locally** (`--continue-local` / `--continue` /
 `TROLLY_CONTINUE_LOCAL=1` / `scripts/continue-training-locally.sh`):

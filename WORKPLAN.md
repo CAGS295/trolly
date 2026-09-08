@@ -582,9 +582,9 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - on-policy rollouts store `action: f32` for this path; matrix self-play stays categorical 3-logit MLP/Liquid
   - first function approximator is a **Gaussian MLP** on the flattened ladder (prove the MDP); do not add a time-transformer in this WP
   - `gpu_train_orchestrator` microstructure job trains this policy; log held-out **mean-action** eval vs Hold (`a=0`), not last in-episode reward; mean-reverting `|q|` under planted `λ > 0`
-  - new checkpoint dir (old 3-logit microstructure weights will not load)
+  - new checkpoint dir (old 3-logit microstructure weights will not load). Host fossils live in `checkpoints/gpu_train_orchestrator/_retired_unit_lot_microstructure/` — do not resume them.
   - `cargo test -p trolly-gym --features torch` covers Gaussian log-prob shapes and a short ladder train/eval; default `cargo test -p trolly-gym` unchanged
-- notes: WoLF-PPO stays the algorithm; only the policy class (Gaussian vs categorical) and FA heads change. Do not rewire live `PolicyProvider` / ONNX / Binance to floats here.
+- notes: WoLF-PPO stays the algorithm; only the policy class (Gaussian vs categorical) and FA heads change. Do not rewire live `PolicyProvider` / ONNX / Binance to floats here. Do not resume `_retired_unit_lot_microstructure`.
 
 ### WP-034 — Liquid rung-trajectory function approximator (`trolly-gym`)
 
