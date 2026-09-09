@@ -21,7 +21,7 @@ Shipped so far (not the destination): global book CLI; stream-native spot/USDM b
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: 2026-09-08
+- last_run: 2026-09-09
 - max_parallel: 3
 - ship_branch: integrate/orchestrator-branches
 
@@ -574,7 +574,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-033 — Gaussian inventory policy for ladder MDP (`trolly-gym`)
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-020, WP-032]
 - scope: crates/trolly-gym/src/ppo/, crates/trolly-gym/src/train/, crates/trolly-gym/src/bin/gpu_train_orchestrator.rs, crates/trolly-gym/README.md
@@ -586,10 +586,11 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - new checkpoint dir (old 3-logit microstructure weights will not load). Host fossils live in `checkpoints/gpu_train_orchestrator/_retired_unit_lot_microstructure/` — do not resume them.
   - `cargo test -p trolly-gym --features torch` covers Gaussian log-prob shapes and a short ladder train/eval; default `cargo test -p trolly-gym` unchanged
 - notes: WoLF-PPO stays the algorithm; only the policy class (Gaussian vs categorical) and FA heads change. Do not rewire live `PolicyProvider` / ONNX / Binance to floats here. Do not resume `_retired_unit_lot_microstructure`.
+- worker/orchestrator (2026-09-09): trainer guidance missing (silent). Added `step_target` inventory walk, tanh-Gaussian MLP on flattened ladder, `action: f32` rollouts, `microstructure/gaussian_mlp` job with mean-action vs Hold eval. Live 3-way `Action` unchanged. Acceptance: `cargo +stable test -p trolly-gym --lib` 53 pass; `cargo +stable test -p trolly-gym --features torch --lib gaussian` 6 pass (CPU torch 2.7.0).
 
 ### WP-034 — Liquid rung-trajectory function approximator (`trolly-gym`)
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-021, WP-033]
 - scope: crates/trolly-gym/src/ppo/lnn_actor_critic.rs, crates/trolly-gym/src/ppo/, crates/trolly-gym/tests/, crates/trolly-gym/README.md
@@ -600,6 +601,33 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - readout is Gaussian `μ, logσ, V` (same policy class as WP-033); matrix-game Liquid stays categorical on a flat vector
   - `cargo test -p trolly-gym --features torch` includes Liquid-on-rungs smoke; default `cargo test -p trolly-gym` unchanged
 - notes: State transform so the Liquid FA integrates along the same axis as trading cost. Transformer-over-time and transformer-over-rungs stay out of this WP (rungs transformer only if MLP and Liquid-on-rungs fail to recover `λ`).
+- worker/orchestrator (2026-09-09): `RungLiquidGaussian` unrolls `x_k` along `V` rungs with `Δv`-scaled gate; Gaussian readout; matrix Liquid unchanged. Trainer job writes `microstructure/gaussian_liquid/`. Acceptance: `cargo +stable test -p trolly-gym --features torch --lib gaussian` and `--lib rung_liquid` pass.
+
+### WP-035 — Quantize Gaussian inventory onto `Action::dispatch`
+
+- status: done
+- repos: trolly
+- depends_on: [WP-033]
+- scope: crates/trolly-gym/src/action.rs, crates/trolly-gym/src/policy.rs, crates/trolly-gym/README.md
+- acceptance:
+  - `quantize_inventory(a, deadzone)` maps `a ∈ [-1, 1]` to `{Hold,Buy,Sell}` (`|a| ≤ deadzone` → Hold)
+  - a `PolicyProvider` can wrap a target-inventory source and still call `Action::dispatch` (no parallel order builder)
+  - default `cargo test -p trolly-gym` covers the mapping and dispatch smoke without libtorch
+  - live ONNX / 3-logit `CheckpointPolicy` paths stay unchanged
+- notes: Closes the gym→strategy seam after WP-033/WP-034. Full Gaussian checkpoint load into the demo runner can follow; this WP only guarantees the typed action join.
+- worker/orchestrator (2026-09-09): added deadzone quantize + `QuantizeInventoryPolicy`; Buy/Sell still go through `Action::dispatch`. Default lib tests cover mapping and egress.
+
+### WP-036 — Load Gaussian ladder checkpoint in policy-demo
+
+- status: todo
+- repos: trolly
+- depends_on: [WP-028, WP-033, WP-035]
+- scope: src/policy_demo.rs, tests/policy_demo_runner.rs, crates/trolly-gym/src/policy.rs, crates/trolly-gym/README.md
+- acceptance:
+  - `execute policy-demo` can load `microstructure/gaussian_mlp` (torch) or a recorded mean-action vector, quantize via WP-035, and emit the same `OutboundMessage::OrderRequest` values `Action::dispatch` already produces
+  - default dry-run and Hold/ONNX paths stay unchanged; no production hosts
+  - `cargo test --test policy_demo_runner` stays offline
+- notes: Next join after WP-035. Do not resume `_retired_unit_lot_microstructure`. Do not train here.
 
 ## Integration test reference
 

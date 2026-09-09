@@ -155,7 +155,7 @@ pub fn refresh_completed_manifest(checkpoints_root: impl AsRef<Path>) {
 
     for root_name in ["microstructure", "microstructure_train"] {
         let micro_root = checkpoints_root.join(root_name);
-        for arch in ["mlp", "liquid"] {
+        for arch in ["gaussian_mlp", "gaussian_liquid", "mlp", "liquid"] {
             let dir = micro_root.join(arch);
             if let Some(record) = MicrostructureCompletionState::load_marker(&dir) {
                 if record.completed {

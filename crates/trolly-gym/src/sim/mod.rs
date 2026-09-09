@@ -3,10 +3,10 @@
 pub mod microstructure;
 
 pub use microstructure::{
-    generate_resampled_tick_rows, ladder_obs_dim, microstructure_obs_dim, oracle_reward_estimate,
-    run_baseline_episode, run_episode_with_actions, BaselinePolicy, DepthLadderSpec,
-    MicrostructureConfig, MicrostructureEvalStats, MicrostructureSim, MicrostructureStats,
-    LADDER_FEATURES_PER_RUNG,
+    clamp_inventory_target, discrete_target, generate_resampled_tick_rows, ladder_obs_dim,
+    microstructure_obs_dim, oracle_reward_estimate, run_baseline_episode, run_episode_with_actions,
+    run_episode_with_targets, BaselinePolicy, DepthLadderSpec, MicrostructureConfig,
+    MicrostructureEvalStats, MicrostructureSim, MicrostructureStats, LADDER_FEATURES_PER_RUNG,
 };
 
 /// Record Hold-path book ticks from several mid-path seeds (WP-032).

@@ -40,6 +40,12 @@ pub const LATEST_CHECKPOINT_NAME: &str = "latest.safetensors";
 /// Microstructure completion marker (`train::microstructure_completion`).
 pub const COMPLETED_MARKER_NAME: &str = "completed.json";
 
+/// WP-033 Gaussian MLP architecture directory under `microstructure/`.
+pub const GAUSSIAN_MLP_ARCH: &str = "gaussian_mlp";
+
+/// Retired 3-logit unit-lot fossils — do not treat as the live train target.
+pub const RETIRED_UNIT_LOT_DIR: &str = "_retired_unit_lot_microstructure";
+
 /// Jobs selected for this window and why they are the highest-leverage slice.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrainGap {
@@ -248,7 +254,7 @@ fn parse_job_list(raw: &str) -> Vec<String> {
 }
 
 fn microstructure_started(root: &Path) -> bool {
-    ["mlp", "liquid"].iter().any(|arch| {
+    [GAUSSIAN_MLP_ARCH, "gaussian_liquid"].iter().any(|arch| {
         root.join("microstructure")
             .join(arch)
             .join(LATEST_CHECKPOINT_NAME)
@@ -257,12 +263,10 @@ fn microstructure_started(root: &Path) -> bool {
 }
 
 fn microstructure_complete(root: &Path) -> bool {
-    ["mlp", "liquid"].iter().all(|arch| {
-        root.join("microstructure")
-            .join(arch)
-            .join(COMPLETED_MARKER_NAME)
-            .exists()
-    })
+    root.join("microstructure")
+        .join(GAUSSIAN_MLP_ARCH)
+        .join(COMPLETED_MARKER_NAME)
+        .exists()
 }
 
 fn matrix_started(root: &Path) -> bool {
@@ -672,19 +676,39 @@ mod tests {
     #[test]
     fn incomplete_microstructure_focuses_budget() {
         let root = temp_root("micro-partial");
-        touch(&root.join("microstructure/mlp").join(LATEST_CHECKPOINT_NAME));
+        touch(
+            &root
+                .join("microstructure")
+                .join(GAUSSIAN_MLP_ARCH)
+                .join(LATEST_CHECKPOINT_NAME),
+        );
         let gap = select_train_jobs(&root, None);
         assert_eq!(gap.jobs, ["microstructure"]);
         let _ = fs::remove_dir_all(&root);
     }
 
     #[test]
-    fn complete_microstructure_without_matrix_picks_nes_gate() {
-        let root = temp_root("micro-done");
-        touch(&root.join("microstructure/mlp").join(COMPLETED_MARKER_NAME));
+    fn retired_unit_lot_does_not_count_as_started() {
+        let root = temp_root("retired");
         touch(
             &root
-                .join("microstructure/liquid")
+                .join(RETIRED_UNIT_LOT_DIR)
+                .join("mlp")
+                .join(LATEST_CHECKPOINT_NAME),
+        );
+        touch(&root.join("microstructure/mlp").join(LATEST_CHECKPOINT_NAME));
+        let gap = select_train_jobs(&root, None);
+        assert_eq!(gap.jobs, ["microstructure", "matrix"]);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn complete_microstructure_without_matrix_picks_nes_gate() {
+        let root = temp_root("micro-done");
+        touch(
+            &root
+                .join("microstructure")
+                .join(GAUSSIAN_MLP_ARCH)
                 .join(COMPLETED_MARKER_NAME),
         );
         let gap = select_train_jobs(&root, None);

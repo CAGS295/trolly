@@ -64,6 +64,21 @@ impl Action {
         }
     }
 
+    /// Map a tanh-Gaussian inventory target onto the live discrete action set.
+    ///
+    /// `|a| ≤ hold_deadzone` is Hold (mean-reversion / no-trade band).
+    /// Positive targets Buy; negative targets Sell.
+    pub fn quantize_inventory(target: f32, hold_deadzone: f32) -> Self {
+        let band = hold_deadzone.abs();
+        if target.abs() <= band {
+            Self::Hold
+        } else if target > 0.0 {
+            Self::Buy
+        } else {
+            Self::Sell
+        }
+    }
+
     pub fn dispatch<E: StreamEgress>(
         &self,
         egress: &mut E,
@@ -72,5 +87,39 @@ impl Action {
         price: Option<&str>,
     ) -> Result<(), E::Error> {
         egress.dispatch(self.to_outbound(symbol, qty, price))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use trolly_strategy::{OutboundMessage, RecordingEgress};
+
+    #[test]
+    fn quantize_inventory_deadzone_and_signs() {
+        assert_eq!(Action::quantize_inventory(0.0, 0.25), Action::Hold);
+        assert_eq!(Action::quantize_inventory(0.25, 0.25), Action::Hold);
+        assert_eq!(Action::quantize_inventory(0.26, 0.25), Action::Buy);
+        assert_eq!(Action::quantize_inventory(-0.26, 0.25), Action::Sell);
+    }
+
+    #[test]
+    fn quantized_buy_dispatches_same_order_request() {
+        let mut egress = RecordingEgress::default();
+        let action = Action::quantize_inventory(0.8, 0.25);
+        action
+            .dispatch(&mut egress, "SYNTHUSDT", "1", None)
+            .unwrap();
+        assert_eq!(
+            egress.dispatched.last(),
+            Some(&OutboundMessage::OrderRequest {
+                symbol: "SYNTHUSDT".into(),
+                side: "BUY".into(),
+                qty: "1".into(),
+                price: None,
+                time_in_force: None,
+                position_side: None,
+            })
+        );
     }
 }

@@ -45,7 +45,7 @@ pub use observation::{features_from_event, FeatureVector, ObservationWindow};
 pub use onnx::{OnnxPolicy, OnnxPolicyError};
 #[cfg(feature = "torch")]
 pub use policy::CheckpointPolicy;
-pub use policy::{CheckpointOrHoldPolicy, HoldPolicy, PolicyProvider};
+pub use policy::{CheckpointOrHoldPolicy, HoldPolicy, PolicyProvider, QuantizeInventoryPolicy};
 pub use replay::{
     FeatureRingBuffer, OnPolicyRolloutBuffer, OnPolicyStep, ReplayBuffer, Trajectory,
     TrajectoryReplay, Transition,

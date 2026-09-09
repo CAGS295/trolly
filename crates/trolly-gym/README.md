@@ -99,9 +99,12 @@ exec-crate order placement. Each `--once` window must leave a real increment
 incomplete stream-shaped microstructure checkpoints over matrix NES drills
 unless `TROLLY_TRAIN_JOBS` overrides. The weekday window is unchanged.
 Do **not** resume `checkpoints/gpu_train_orchestrator/_retired_unit_lot_microstructure/`
-(old 3-logit unit-lot snap). Matrix Liquid Matching Pennies stays under
-`checkpoints/gpu_train_orchestrator/matrix/` as the NES gate. Demo harnesses
-still load `checkpoints/microstructure_train/`.
+(old 3-logit unit-lot snap). The live microstructure job writes
+`microstructure/gaussian_mlp/` (WP-033 tanh-Gaussian on the ladder). Matrix
+Liquid Matching Pennies stays under `checkpoints/gpu_train_orchestrator/matrix/`
+as the NES gate. Demo harnesses still load `checkpoints/microstructure_train/`
+and stay on discrete `{Hold,Buy,Sell}` via
+[`Action::quantize_inventory`](src/action.rs) (WP-035 deadzone map).
 
 **Continue training locally** (`--continue-local` / `--continue` /
 `TROLLY_CONTINUE_LOCAL=1` / `scripts/continue-training-locally.sh`):
@@ -791,6 +794,35 @@ The sim exposes a **parallel** ladder frame (`sim.ladder_observation()`):
 
 Flattened size is `V × 5` (`ladder_obs_dim`). WP-033's Gaussian MLP will read
 this frame; do not concatenate it into the 7-D stream window.
+
+## Gaussian inventory policy (WP-033)
+
+The weekday microstructure job now trains a **tanh-Gaussian MLP** on the
+flattened ladder (`V × 5`), not the old 3-logit unit-lot snap.
+
+- Actor: `z ~ N(μ, σ)`, target inventory `a = tanh(z) ∈ (-1, 1)`
+- Env: `MicrostructureSim::step_target(a)` walks `q → a` and pays `∫ α(v) dv`
+- Rollouts store `action: f32`; matrix self-play stays categorical 3-logit
+- Checkpoints: `checkpoints/gpu_train_orchestrator/microstructure/gaussian_mlp/`
+- Do **not** resume `_retired_unit_lot_microstructure/` (shape mismatch)
+- Eval: held-out **mean-action** `tanh(μ)` vs Hold `a = 0`, plus mean `|q|`
+  (planted `λ > 0` should mean-revert inventory). Do not log last in-episode
+  reward as the job metric.
+- Live `PolicyProvider` / ONNX / Binance stay on discrete `{Hold,Buy,Sell}`
+
+```bash
+cargo test -p trolly-gym --features torch --lib gaussian
+```
+
+## Liquid-on-rungs (WP-034)
+
+The Liquid FA for the ladder MDP consumes rungs as `[batch, V, F]`:
+`x_k = [v_k, α_ask, α_bid, Δα, q]`. The cell is driven with **`x_k` each
+step** (`liquid_steps = V`); it does not repeat one flattened `x`, and `h`
+does not persist across env steps. The input gate is scaled by rung width
+`Δv` so the unroll tracks `∫ α(v) dv`. Readout is the same tanh-Gaussian
+`(μ, logσ, V)` as WP-033. Matrix-game Liquid stays categorical on a flat
+vector. Checkpoints: `microstructure/gaussian_liquid/`.
 
 ### Seed resampling
 

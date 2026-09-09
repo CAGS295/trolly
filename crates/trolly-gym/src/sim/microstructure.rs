@@ -4,8 +4,9 @@
 //! by the live [`Env`](crate::env::Env). Trading cost is a linear bid/ask
 //! **depth ladder** `α(v) = δ + λ v` (WP-032). Mid is used only to mark
 //! inventory: `r = q_new · Δs − Δcost`. Discrete `{Hold,Buy,Sell}` unit lots
-//! remain the live action set; `λ = 0` is the WP-022 flat-fee compatibility
-//! path.
+//! remain the live action set; [`MicrostructureSim::step_target`] walks
+//! continuous inventory `q → a ∈ (-1, 1)` for the WP-033 Gaussian policy.
+//! `λ = 0` is the WP-022 flat-fee compatibility path.
 
 use trolly_strategy::{DepthUpdate, PriceLevel, StreamEvent};
 
@@ -120,6 +121,10 @@ pub struct MicrostructureEvalStats {
     pub steps: usize,
     pub trades: usize,
     pub final_position: i8,
+    /// Mean `|q|` over the episode (WP-033 mean-reversion diagnostic).
+    pub mean_abs_inventory: f32,
+    /// Terminal inventory (continuous).
+    pub final_inventory: f32,
 }
 
 /// Fixed baseline policies for oracle / hold comparisons.
@@ -180,7 +185,7 @@ pub fn run_baseline_episode(
     run_episode_with_actions(config, seed, |step, _obs| baseline_action(config, policy, step))
 }
 
-/// Run a full episode; `choose` receives `(step_index, observation)`.
+/// Run a full episode; `choose` receives `(step_index, stream observation)`.
 pub fn run_episode_with_actions<F>(
     config: &MicrostructureConfig,
     seed: u64,
@@ -195,26 +200,96 @@ where
     let mut obs = sim.reset();
     let mut trades = 0usize;
     let mut step_idx = 0usize;
+    let mut abs_q_sum = 0.0_f32;
 
     loop {
         let action = choose(step_idx, &obs);
-        let old_position = sim.position();
+        let old_q = sim.inventory();
         let result = sim.step(action);
-        if sim.position() != old_position {
+        if (sim.inventory() - old_q).abs() > 1e-6 {
             trades += 1;
         }
+        abs_q_sum += sim.inventory().abs();
         step_idx += 1;
         obs = result.observation.clone();
         if result.done {
-            let stats = sim.finish_episode();
-            return MicrostructureEvalStats {
-                total_reward: stats.total_reward,
-                steps: stats.steps,
-                trades,
-                final_position: stats.final_position,
-            };
+            return finish_eval_stats(&sim, trades, abs_q_sum);
         }
     }
+}
+
+/// Run a full episode with continuous target inventory `a ∈ (-1, 1)`.
+///
+/// `choose` receives `(step_index, ladder_observation)`. Walking `q → a`
+/// pays the WP-032 level integral.
+pub fn run_episode_with_targets<F>(
+    config: &MicrostructureConfig,
+    seed: u64,
+    mut choose: F,
+) -> MicrostructureEvalStats
+where
+    F: FnMut(usize, &[f32]) -> f32,
+{
+    let mut cfg = config.clone();
+    cfg.seed = seed;
+    let mut sim = MicrostructureSim::new(cfg);
+    let _ = sim.reset();
+    let mut trades = 0usize;
+    let mut step_idx = 0usize;
+    let mut abs_q_sum = 0.0_f32;
+
+    loop {
+        let ladder = sim.ladder_observation();
+        let target = choose(step_idx, &ladder);
+        let old_q = sim.inventory();
+        let result = sim.step_target(target);
+        if (sim.inventory() - old_q).abs() > 1e-6 {
+            trades += 1;
+        }
+        abs_q_sum += sim.inventory().abs();
+        step_idx += 1;
+        let _ = result.observation;
+        if result.done {
+            return finish_eval_stats(&sim, trades, abs_q_sum);
+        }
+    }
+}
+
+fn finish_eval_stats(
+    sim: &MicrostructureSim,
+    trades: usize,
+    abs_q_sum: f32,
+) -> MicrostructureEvalStats {
+    let stats = sim.finish_episode();
+    MicrostructureEvalStats {
+        total_reward: stats.total_reward,
+        steps: stats.steps,
+        trades,
+        final_position: stats.final_position,
+        mean_abs_inventory: if stats.steps == 0 {
+            0.0
+        } else {
+            abs_q_sum / stats.steps as f32
+        },
+        final_inventory: sim.inventory(),
+    }
+}
+
+/// Absolute inventory snap for a live discrete action (Hold flattens to `0`).
+pub fn discrete_target(action: Action) -> f32 {
+    match action {
+        Action::Hold => 0.0,
+        Action::Buy => 1.0,
+        Action::Sell => -1.0,
+    }
+}
+
+/// Clamp a target inventory into `[-1, 1]`.
+///
+/// Tanh-Gaussian samples already live in `(-1, 1)`; discrete Buy/Sell snap
+/// to the closed endpoints.
+pub fn clamp_inventory_target(action: f32) -> f32 {
+    action.clamp(-1.0, 1.0)
 }
 
 fn baseline_action(config: &MicrostructureConfig, policy: BaselinePolicy, step: usize) -> Action {
@@ -249,13 +324,16 @@ fn baseline_action(config: &MicrostructureConfig, policy: BaselinePolicy, step: 
     }
 }
 
-/// Synthetic single-instrument order book with unit position {-1, 0, 1}.
+/// Synthetic single-instrument order book.
+///
+/// Discrete `{Hold,Buy,Sell}` snaps inventory to `{-1, 0, 1}`. The WP-033
+/// Gaussian path walks a continuous `q ∈ (-1, 1)` via [`Self::step_target`].
 #[derive(Debug, Clone)]
 pub struct MicrostructureSim {
     config: MicrostructureConfig,
     window: ObservationWindow,
     mid: f32,
-    position: i8,
+    inventory: f32,
     step: usize,
     rng_state: u64,
     episode_index: u64,
@@ -270,7 +348,7 @@ impl MicrostructureSim {
             config,
             window: ObservationWindow::new(1),
             mid: 0.0,
-            position: 0,
+            inventory: 0.0,
             step: 0,
             episode_index: 0,
             episode_reward: 0.0,
@@ -294,7 +372,12 @@ impl MicrostructureSim {
     }
 
     pub fn position(&self) -> i8 {
-        self.position
+        self.inventory.round().clamp(-1.0, 1.0) as i8
+    }
+
+    /// Continuous inventory `q` used by the ladder walk and Gaussian policy.
+    pub fn inventory(&self) -> f32 {
+        self.inventory
     }
 
     pub fn mid(&self) -> f32 {
@@ -307,7 +390,7 @@ impl MicrostructureSim {
 
     /// Parallel ladder frame (`V × [v, α_ask, α_bid, Δα, q]`). Stream 7-D obs stay separate.
     pub fn ladder_observation(&self) -> Vec<f32> {
-        ladder_features(&self.config.ladder_spec(), self.position as f32).0
+        ladder_features(&self.config.ladder_spec(), self.inventory).0
     }
 
     pub fn ladder_spec(&self) -> DepthLadderSpec {
@@ -321,7 +404,7 @@ impl MicrostructureSim {
     /// Start a new episode; returns the initial stream observation.
     pub fn reset(&mut self) -> Vec<f32> {
         self.mid = self.config.initial_mid;
-        self.position = 0;
+        self.inventory = 0.0;
         self.step = 0;
         self.episode_reward = 0.0;
         if self.config.resample_episode_seeds {
@@ -341,21 +424,33 @@ impl MicrostructureSim {
     }
 
     /// Apply a discrete action, advance the latent mid, and return step output.
+    ///
+    /// Hold keeps the current inventory; Buy/Sell snap to `±1` (WP-022).
     pub fn step(&mut self, action: Action) -> StepResult {
+        let target = match action {
+            Action::Hold => self.inventory,
+            Action::Buy => 1.0,
+            Action::Sell => -1.0,
+        };
+        self.step_target(target)
+    }
+
+    /// Walk inventory `q → a`, pay the WP-032 level integral, then mark mid.
+    ///
+    /// `a` is clamped into `(-1, 1)`. Reward is `q_new · Δs − Δcost`.
+    pub fn step_target(&mut self, target: f32) -> StepResult {
         let old_mid = self.mid;
-        let old_position = self.position;
-        self.apply_action(action);
-        let delta_cost = self
-            .config
-            .ladder_spec()
-            .walk_cost(old_position as f32, self.position as f32);
+        let old_q = self.inventory;
+        let new_q = clamp_inventory_target(target);
+        let delta_cost = self.config.ladder_spec().walk_cost(old_q, new_q);
+        self.inventory = new_q;
         if self.tape.is_some() {
             self.advance_from_tape();
         } else {
             self.advance_mid();
             self.push_depth_frame();
         }
-        let reward = self.position as f32 * (self.mid - old_mid) - delta_cost;
+        let reward = self.inventory * (self.mid - old_mid) - delta_cost;
         self.episode_reward += reward;
         self.step += 1;
         let tape_done = self
@@ -376,16 +471,8 @@ impl MicrostructureSim {
             total_reward: self.episode_reward,
             steps: self.step,
             final_mid: self.mid,
-            final_position: self.position,
+            final_position: self.position(),
         }
-    }
-
-    fn apply_action(&mut self, action: Action) {
-        self.position = match action {
-            Action::Hold => self.position,
-            Action::Buy => 1,
-            Action::Sell => -1,
-        };
     }
 
     fn advance_mid(&mut self) {
@@ -666,6 +753,44 @@ mod tests {
             unique.len() > 1,
             "resampled episodes must not share one mid path: {mids:?}"
         );
+    }
+
+    #[test]
+    fn step_target_pays_ladder_integral() {
+        let mut sim = MicrostructureSim::new(MicrostructureConfig {
+            mid_drift: 0.0,
+            mid_noise: 0.0,
+            trade_cost: 0.5,
+            lambda: 0.25,
+            episode_steps: 4,
+            resample_episode_seeds: false,
+            ..Default::default()
+        });
+        sim.reset();
+        let target = 0.4;
+        let expected = sim.ladder_spec().walk_cost(0.0, target);
+        let result = sim.step_target(target);
+        assert!((sim.inventory() - target).abs() < 1e-6);
+        assert!(
+            (result.reward + expected).abs() < 1e-5,
+            "reward {} should be -∫α = -{expected}",
+            result.reward
+        );
+    }
+
+    #[test]
+    fn hold_target_zero_keeps_flat_inventory() {
+        let config = MicrostructureConfig {
+            episode_steps: 8,
+            mid_noise: 0.0,
+            lambda: 0.25,
+            resample_episode_seeds: false,
+            ..Default::default()
+        };
+        let stats = run_episode_with_targets(&config, 3, |_, _| 0.0);
+        assert_eq!(stats.trades, 0);
+        assert!(stats.mean_abs_inventory.abs() < 1e-6);
+        assert!(stats.total_reward.abs() < 1e-6);
     }
 
     #[test]

@@ -50,7 +50,11 @@ use trolly_gym::ticks::{
     ClickHouseTicks,
 };
 use trolly_gym::train::checkpoint::LATEST_CHECKPOINT;
-use trolly_gym::train::{MicrostructureTrainConfig, MicrostructureTrainSession, TrainDriverConfig};
+use trolly_gym::train::{
+    GaussianArchitecture, GaussianMicrostructureTrainConfig, GaussianMicrostructureTrainSession,
+    GaussianTrainDriverConfig, GAUSSIAN_LIQUID_ARCH, GAUSSIAN_MLP_ARCH,
+    RETIRED_UNIT_LOT_MICROSTRUCTURE,
+};
 
 fn main() {
     let mode = parse_mode();
@@ -255,7 +259,7 @@ fn train_window(spec: DeviceSpec, remaining_secs: u64) -> Result<(), String> {
             }
             "microstructure" => {
                 let last = train_microstructure(device, Duration::from_secs(slice), &prep)?;
-                extras.push(("microstructure_last_reward", last));
+                extras.push(("microstructure_mean_action_vs_hold", last));
             }
             other => return Err(format!("unknown TROLLY_TRAIN_JOBS entry: {other}")),
         }
@@ -272,6 +276,8 @@ fn train_window(spec: DeviceSpec, remaining_secs: u64) -> Result<(), String> {
 fn collect_fingerprint_json(root: &PathBuf) -> String {
     let mut parts = Vec::new();
     let dirs = [
+        root.join("microstructure").join(GAUSSIAN_MLP_ARCH),
+        root.join("microstructure").join(GAUSSIAN_LIQUID_ARCH),
         root.join("microstructure/mlp"),
         root.join("microstructure/liquid"),
         root.join("matrix/mlp/matching_pennies_weighted"),
@@ -383,68 +389,73 @@ fn train_microstructure(
     duration: Duration,
     prep: &LocalTrainPrep,
 ) -> Result<String, String> {
-    let root = checkpoint_root().join("microstructure");
-    std::fs::create_dir_all(&root).map_err(|e| e.to_string())?;
+    let retired = checkpoint_root().join(RETIRED_UNIT_LOT_MICROSTRUCTURE);
+    if retired.exists() {
+        println!(
+            "skip resume of retired unit-lot fossils at {}",
+            retired.display()
+        );
+    }
     let sim = MicrostructureConfig::default();
     let per = duration / 2;
-    let mut last_reward = 0.0_f32;
+    let mut last_eval = String::from("n/a");
     for (architecture, arch_name) in [
-        (ActorCriticArchitecture::Mlp, "mlp"),
-        (ActorCriticArchitecture::Liquid, "liquid"),
+        (GaussianArchitecture::Mlp, GAUSSIAN_MLP_ARCH),
+        (GaussianArchitecture::LiquidRungs, GAUSSIAN_LIQUID_ARCH),
     ] {
-        let out_dir = root.join(arch_name);
+        let out_dir = checkpoint_root().join("microstructure").join(arch_name);
         std::fs::create_dir_all(&out_dir).map_err(|e| e.to_string())?;
-        let config = MicrostructureTrainConfig {
+        let config = GaussianMicrostructureTrainConfig {
             sim: sim.clone(),
-            driver: TrainDriverConfig {
-                obs_dim: sim.obs_dim(),
-                num_actions: 3,
+            driver: GaussianTrainDriverConfig {
+                obs_dim: sim.ladder_obs_dim(),
                 horizon: sim.episode_steps,
+                architecture,
+                rung_count: sim.rung_count as i64,
                 ..Default::default()
             },
-            wolf: WolfPpoConfig {
-                ppo: PpoConfig {
-                    architecture,
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
+            wolf: WolfPpoConfig::default(),
             checkpoint_dir: Some(out_dir.clone()),
             device,
-            tape: prep.tape.clone(),
             data_window: prep.data_window.clone(),
             ..Default::default()
         };
-        let mut session = MicrostructureTrainSession::resume_from(&out_dir, &config);
+        let mut session = GaussianMicrostructureTrainSession::resume_from(&out_dir, &config);
         println!(
-            "=== microstructure {arch_name} {}s completed={} ===",
+            "=== microstructure {arch_name} {}s (ladder tanh-Gaussian; do not resume {}) ===",
             per.as_secs(),
-            session.is_completed()
+            RETIRED_UNIT_LOT_MICROSTRUCTURE
         );
         let mut clock = CheckpointClock::from_env();
         let start = Instant::now();
-        while start.elapsed() < per && !session.is_completed() {
-            let (metrics, stats) = session.train_step();
-            last_reward = stats.total_reward;
-            if let Some(dir) = &config.checkpoint_dir {
-                if clock.due() {
-                    session.save_checkpoint(dir, false);
-                    clock.mark();
-                    println!(
-                        "  checkpoint loss={:.4} reward={:.3} elapsed={:.1}s",
-                        metrics.policy_loss,
-                        stats.total_reward,
-                        start.elapsed().as_secs_f64()
-                    );
-                }
+        while start.elapsed() < per {
+            let (metrics, _stats) = session.train_step();
+            if clock.due() {
+                session.save_checkpoint(&out_dir, false);
+                clock.mark();
+                let eval = session.evaluate_mean_action(&[1000, 1001, 1002]);
+                println!(
+                    "  checkpoint loss={:.4} mean_action={:.3} hold={:.3} mean_|q|={:.3} elapsed={:.1}s",
+                    metrics.policy_loss,
+                    eval.mean_action_reward,
+                    eval.hold_reward,
+                    eval.mean_abs_inventory,
+                    start.elapsed().as_secs_f64()
+                );
             }
         }
-        if let Some(dir) = &config.checkpoint_dir {
-            session.save_checkpoint(dir, false);
-        }
+        session.save_checkpoint(&out_dir, false);
+        let eval = session.evaluate_mean_action(&[1000, 1001, 1002]);
+        last_eval = format!(
+            "{:.3}/{:.3}",
+            eval.mean_action_reward, eval.hold_reward
+        );
         println!(
-            "  done updates={} reward={last_reward:.3} elapsed={:.1}s",
+            "  done {arch_name} updates={} mean_action={:.3} vs hold={:.3} mean_|q|={:.3} elapsed={:.1}s",
             session.update_count,
+            eval.mean_action_reward,
+            eval.hold_reward,
+            eval.mean_abs_inventory,
             start.elapsed().as_secs_f64()
         );
         if let Some(fp) = load_sidecar(&out_dir) {
@@ -455,5 +466,5 @@ fn train_microstructure(
             );
         }
     }
-    Ok(format!("{last_reward:.3}"))
+    Ok(last_eval)
 }

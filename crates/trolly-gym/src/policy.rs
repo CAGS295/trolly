@@ -10,6 +10,37 @@ pub trait PolicyProvider {
     fn act(&self, obs: &[f32]) -> Action;
 }
 
+/// Wrap a target-inventory source and quantize onto `{Hold,Buy,Sell}`.
+///
+/// Used to join WP-033/WP-034 Gaussian `a ∈ (-1, 1)` onto the live
+/// [`Action::dispatch`] path without a parallel order builder.
+#[derive(Debug, Clone)]
+pub struct QuantizeInventoryPolicy<F> {
+    choose_target: F,
+    hold_deadzone: f32,
+}
+
+impl<F> QuantizeInventoryPolicy<F>
+where
+    F: Fn(&[f32]) -> f32,
+{
+    pub fn new(choose_target: F, hold_deadzone: f32) -> Self {
+        Self {
+            choose_target,
+            hold_deadzone,
+        }
+    }
+}
+
+impl<F> PolicyProvider for QuantizeInventoryPolicy<F>
+where
+    F: Fn(&[f32]) -> f32,
+{
+    fn act(&self, obs: &[f32]) -> Action {
+        Action::quantize_inventory((self.choose_target)(obs), self.hold_deadzone)
+    }
+}
+
 /// Default policy that never changes inventory.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct HoldPolicy;
@@ -160,6 +191,14 @@ mod tests {
     fn checkpoint_or_hold_defaults_to_hold() {
         let policy = CheckpointOrHoldPolicy::default();
         assert_eq!(policy.act(&[1.0, 2.0]), Action::Hold);
+    }
+
+    #[test]
+    fn quantize_inventory_policy_maps_targets() {
+        let policy = QuantizeInventoryPolicy::new(|obs: &[f32]| obs[0], 0.25);
+        assert_eq!(policy.act(&[0.1]), Action::Hold);
+        assert_eq!(policy.act(&[0.4]), Action::Buy);
+        assert_eq!(policy.act(&[-0.4]), Action::Sell);
     }
 
     #[test]

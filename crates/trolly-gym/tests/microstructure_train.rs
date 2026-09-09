@@ -4,8 +4,10 @@ use std::path::PathBuf;
 
 use trolly_gym::sim::MicrostructureConfig;
 use trolly_gym::train::{
-    run_microstructure_train_with_checkpoints, MicrostructureCompletionRecord,
+    run_gaussian_ladder_train, run_microstructure_train_with_checkpoints,
+    GaussianMicrostructureTrainConfig, GaussianTrainDriverConfig, MicrostructureCompletionRecord,
     MicrostructureTrainConfig, MicrostructureTrainSession, COMPLETED_MARKER,
+    GAUSSIAN_MLP_ARCH, RETIRED_UNIT_LOT_MICROSTRUCTURE,
 };
 
 #[test]
@@ -184,6 +186,50 @@ fn refresh_completed_manifest_lists_markers() {
     assert!(text.contains("mlp"));
 
     let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn gaussian_ladder_train_eval_does_not_resume_retired() {
+    use trolly_gym::train::is_retired_unit_lot_dir;
+
+    assert!(is_retired_unit_lot_dir(format!(
+        "checkpoints/gpu_train_orchestrator/{RETIRED_UNIT_LOT_MICROSTRUCTURE}/mlp"
+    )));
+    assert!(!is_retired_unit_lot_dir(format!(
+        "checkpoints/gpu_train_orchestrator/microstructure/{GAUSSIAN_MLP_ARCH}"
+    )));
+
+    let sim = MicrostructureConfig {
+        episode_steps: 12,
+        window_frames: 1,
+        rung_count: 4,
+        lambda: 0.25,
+        resample_episode_seeds: true,
+        mid_noise: 0.05,
+        ..Default::default()
+    };
+    let dir = temp_dir("gaussian_ladder_train");
+    let (metrics, eval, _) = run_gaussian_ladder_train(GaussianMicrostructureTrainConfig {
+        driver: GaussianTrainDriverConfig {
+            obs_dim: sim.ladder_obs_dim(),
+            horizon: 12,
+            ..Default::default()
+        },
+        sim,
+        num_updates: 2,
+        checkpoint_dir: Some(dir.clone()),
+        data_window: "test:gaussian-ladder".into(),
+        ..Default::default()
+    });
+    assert_eq!(metrics.len(), 2);
+    assert!(metrics.last().unwrap().policy_loss.is_finite());
+    assert!(eval.mean_action_reward.is_finite());
+    assert!(eval.hold_reward.is_finite());
+    assert!(eval.hold_mean_abs_inventory.abs() < 1e-5);
+    assert!(eval.mean_abs_inventory >= 0.0 && eval.mean_abs_inventory <= 1.0);
+    assert!(dir.join("latest.safetensors").exists());
+    assert!(dir.join("latest.fingerprint.json").exists());
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 fn temp_dir(label: &str) -> PathBuf {

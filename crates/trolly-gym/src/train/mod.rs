@@ -35,6 +35,7 @@
 
 pub mod checkpoint;
 pub mod driver;
+pub mod gaussian;
 pub mod microstructure;
 pub mod microstructure_completion;
 pub mod rollout;
@@ -57,3 +58,11 @@ pub use microstructure_completion::{
     COMPLETED_MARKER, COMPLETED_MODELS_MANIFEST,
 };
 pub use smoke::{smoke_train_loop, SmokeTrainConfig};
+pub use gaussian::{
+    evaluate_gaussian_mean_action, is_retired_unit_lot_dir, run_gaussian_ladder_train,
+    ContinuousOnPolicyTransition, GaussianArchitecture, GaussianMeanActionEval,
+    GaussianMicrostructureTrainConfig, GaussianMicrostructureTrainSession, GaussianPolicy,
+    GaussianPpoTrainer, GaussianRolloutCollector, GaussianTrainDriverConfig,
+    GaussianWolfPpoTrainDriver, GaussianWolfPpoTrainer, GAUSSIAN_LIQUID_ARCH, GAUSSIAN_MLP_ARCH,
+    RETIRED_UNIT_LOT_MICROSTRUCTURE,
+};
