@@ -4,7 +4,10 @@ use trolly_strategy::{OutboundMessage, StreamEgress, StreamEvent};
 use trolly_stream::Message;
 
 use crate::action::Action;
-use crate::observation::{features_from_event, ObservationWindow};
+use crate::observation::{
+    features_from_event, ladder_features, ladder_features_from_depth, DepthLadderSpec,
+    ObservationWindow,
+};
 use crate::policy::PolicyProvider;
 use crate::replay::ReplayBuffer;
 
@@ -43,6 +46,10 @@ pub struct EnvConfig {
     pub default_qty: String,
     pub episode_steps: u64,
     pub reward: RewardConfig,
+    /// Feature layout passed to [`PolicyProvider::act`].
+    pub observation_layout: ObservationLayout,
+    /// Ladder spec used when [`ObservationLayout::Ladder`] is selected.
+    pub ladder: DepthLadderSpec,
 }
 
 impl EnvConfig {
@@ -54,8 +61,30 @@ impl EnvConfig {
             default_qty: "0.01".into(),
             episode_steps: 128,
             reward: RewardConfig::default(),
+            observation_layout: ObservationLayout::Stream,
+            ladder: DepthLadderSpec::default(),
         }
     }
+
+    /// Feed `PolicyProvider::act` the WP-032 `V×5` ladder instead of 7-D frames.
+    pub fn use_ladder_observation(&mut self) {
+        self.observation_layout = ObservationLayout::Ladder;
+    }
+
+    pub fn uses_ladder_observation(&self) -> bool {
+        matches!(self.observation_layout, ObservationLayout::Ladder)
+    }
+}
+
+/// Observation vector handed to a [`PolicyProvider`].
+///
+/// [`ObservationLayout::Stream`] is the live 7-D depth window (Hold / ONNX /
+/// 3-logit). [`ObservationLayout::Ladder`] is the Gaussian FA layout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ObservationLayout {
+    #[default]
+    Stream,
+    Ladder,
 }
 
 /// Market reward configuration.
@@ -113,10 +142,11 @@ where
     reward_state: RewardState,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 struct RewardState {
     position: i8,
     last_mid: Option<f32>,
+    last_depth: Option<trolly_strategy::DepthUpdate>,
 }
 
 impl<E> Env<E>
@@ -175,8 +205,11 @@ where
             return false;
         }
         if let Some(frame) = features_from_event(event) {
+            if let StreamEvent::Depth(depth) = event {
+                self.reward_state.last_depth = Some(depth.clone());
+            }
             self.window.push(frame);
-            self.last_observation = self.window.flattened();
+            self.last_observation = self.policy_observation();
             self.replay.push_observation_window(&self.last_observation);
             crate::ticks::try_ingest_event(event, "stream", "stream");
             true
@@ -200,13 +233,14 @@ where
     where
         S: StepActionSource,
     {
+        let stream_observation = self.window.flattened();
         let observation = if self.last_observation.is_empty() {
-            self.window.flattened()
+            self.policy_observation()
         } else {
             self.last_observation.clone()
         };
         let action = source.select_action(&observation);
-        let reward = self.market_reward(&observation, action);
+        let reward = self.market_reward(&stream_observation, action);
         let done = self.steps + 1 >= self.config.episode_steps.max(1);
 
         action.dispatch(
@@ -255,6 +289,19 @@ where
         };
         self.reward_state.position = next_position;
         next_position as f32 * delta_mid - spread_cost
+    }
+
+    fn policy_observation(&self) -> Vec<f32> {
+        match self.config.observation_layout {
+            ObservationLayout::Stream => self.window.flattened(),
+            ObservationLayout::Ladder => {
+                let q = self.reward_state.position as f32;
+                match &self.reward_state.last_depth {
+                    Some(depth) => ladder_features_from_depth(depth, &self.config.ladder, q).0,
+                    None => ladder_features(&self.config.ladder, q).0,
+                }
+            }
+        }
     }
 }
 
@@ -377,6 +424,32 @@ mod tests {
                 Action::Hold.to_outbound("BTCUSDT", "0.01", None),
             ]
         );
+    }
+
+    #[test]
+    fn ladder_layout_feeds_vx5_from_depth_and_inventory() {
+        let mut config = EnvConfig::new("BTCUSDT");
+        config.window_frames = 1;
+        config.use_ladder_observation();
+        config.ladder.rung_count = 4;
+        let mut env = Env::new(config, RecordingEgress::default());
+        env.ingest_event(&depth_event("BTCUSDT", "100", "104"));
+
+        let seen = std::cell::Cell::new(0usize);
+        let delta = std::cell::Cell::new(0.0f32);
+        let inventory = std::cell::Cell::new(99.0f32);
+        let policy = |obs: &[f32]| {
+            seen.set(obs.len());
+            delta.set(obs[1]);
+            inventory.set(obs[4]);
+            Action::Hold
+        };
+        let result = env.step(&policy).unwrap();
+        assert_eq!(seen.get(), 20);
+        assert!((delta.get() - 2.0).abs() < 1e-6);
+        assert_eq!(inventory.get(), 0.0);
+        assert_eq!(result.observation.len(), 20);
+        assert_eq!(env.observation_window().flattened().len(), 7);
     }
 
     #[test]

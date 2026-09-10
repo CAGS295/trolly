@@ -319,6 +319,11 @@ Hold and ONNX selection are unchanged: `ONNX_MODEL_PATH` still wins when set,
 and omitting Gaussian env vars keeps the hold fallback. Demo REST placement
 still requires `RUN_BINANCE_DEMO_ORDERS=1` plus demo credentials.
 
+When a Gaussian source is selected, `Env` feeds `PolicyProvider::act` the
+WP-032 `V×5` ladder (`[v, α_ask, α_bid, Δα, q]`) built from the ingested
+depth half-spread (as δ) plus current inventory. Hold / ONNX / 3-logit
+checkpoint paths stay on the 7-D stream window.
+
 Actual demo REST placement is off unless both the CLI flag and guard variable
 are set; the runner uses Binance demo REST bases only. Before placement it
 assigns deterministic `newClientOrderId` values (`trolly-demo-spot-0000`,

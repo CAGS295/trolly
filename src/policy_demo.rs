@@ -696,6 +696,9 @@ where
     env_config.default_qty = config.qty.clone();
     env_config.window_frames = config.window_frames;
     env_config.episode_steps = config.max_steps.max(1) as u64;
+    if uses_gaussian_source(config) {
+        env_config.use_ladder_observation();
+    }
 
     let mut env = Env::new(env_config, egress);
     let messages = synthetic_depth_stream(&config.symbol, config.max_steps);
@@ -1150,6 +1153,10 @@ fn inventory_hold_deadzone(config: &PolicyDemoConfig) -> f32 {
         .ok()
         .and_then(|raw| raw.parse().ok())
         .unwrap_or(config.inventory_hold_deadzone)
+}
+
+fn uses_gaussian_source(config: &PolicyDemoConfig) -> bool {
+    gaussian_mean_actions_spec(config).is_some() || gaussian_checkpoint_dir(config).is_some()
 }
 
 fn gaussian_mean_actions_spec(config: &PolicyDemoConfig) -> Option<String> {

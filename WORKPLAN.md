@@ -632,7 +632,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-037 — Stream depth → ladder observation for Gaussian policy-demo
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-032, WP-036]
 - scope: crates/trolly-gym/src/observation.rs, crates/trolly-gym/src/env.rs, src/policy_demo.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
@@ -642,6 +642,19 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - Hold / ONNX / 3-logit `CheckpointPolicy` stay on 7-D stream windows
   - `cargo test --test policy_demo_runner` and `cargo test -p trolly-gym` stay offline
 - notes: Closes the obs-layout gap left by WP-036 (Gaussian FA trained on `V×5`, demo Env still passed padded 7-D). Do not train. Do not resume `_retired_unit_lot_microstructure`.
+- worker/orchestrator (2026-09-10): trainer guidance missing (silent). `EnvConfig::use_ladder_observation` feeds `V×5` from ingested depth half-spread (δ) + inventory; Gaussian policy-demo sources select it. Hold stays 7-D. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 16 pass; `cargo +stable test -p trolly-gym --lib --locked` 61 pass.
+
+### WP-038 — ONNX Gaussian mean-action provider
+
+- status: todo
+- repos: trolly
+- depends_on: [WP-027, WP-035, WP-037]
+- scope: crates/trolly-gym/src/onnx.rs, crates/trolly-gym/src/policy.rs, src/policy_demo.rs, crates/trolly-gym/README.md, tests/policy_demo_runner.rs
+- acceptance:
+  - optional `ort` path loads a static Gaussian μ head (`[1, V×5] → [1]` or `[1,1]`), quantizes via WP-035, and dispatches through `Action::dispatch`
+  - default Hold / 3-logit ONNX / recorded mean-action paths stay unchanged; no libtorch in default tests
+  - `cargo test -p trolly-gym` and `cargo test --test policy_demo_runner` stay offline
+- notes: Lets `execute policy-demo` consume an exported `gaussian_mlp` actor without `--features gym-torch`. Do not train. Do not resume `_retired_unit_lot_microstructure`.
 
 ## Integration test reference
 

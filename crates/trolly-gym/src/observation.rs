@@ -87,10 +87,7 @@ pub fn features_from_event(event: &StreamEvent) -> Option<FeatureVector> {
 }
 
 fn parse_level(price: &str, qty: &str) -> (f32, f32) {
-    (
-        price.parse().unwrap_or(0.0),
-        qty.parse().unwrap_or(0.0),
-    )
+    (price.parse().unwrap_or(0.0), qty.parse().unwrap_or(0.0))
 }
 
 fn depth_features(depth: &DepthUpdate) -> FeatureVector {
@@ -276,10 +273,41 @@ pub fn ladder_features(spec: &DepthLadderSpec, inventory: f32) -> FeatureVector 
     FeatureVector(values)
 }
 
+/// Half-spread from a depth update, when both sides have a positive price.
+pub fn depth_half_spread(depth: &DepthUpdate) -> Option<f32> {
+    let (best_bid, _) = depth
+        .bids
+        .first()
+        .map(|level| parse_level(&level.price, &level.qty))?;
+    let (best_ask, _) = depth
+        .asks
+        .first()
+        .map(|level| parse_level(&level.price, &level.qty))?;
+    if best_bid > 0.0 && best_ask > best_bid {
+        Some((best_ask - best_bid) / 2.0)
+    } else {
+        None
+    }
+}
+
+/// Ladder frame from an ingested depth tick: book half-spread becomes δ,
+/// inventory is the current `q`, and λ / `V` stay on the trained spec.
+pub fn ladder_features_from_depth(
+    depth: &DepthUpdate,
+    spec: &DepthLadderSpec,
+    inventory: f32,
+) -> FeatureVector {
+    let mut spec = spec.clone();
+    if let Some(half) = depth_half_spread(depth) {
+        spec.delta = half;
+    }
+    ladder_features(&spec, inventory)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use trolly_strategy::{PriceLevel, StreamEvent};
+    use trolly_strategy::{DepthUpdate, PriceLevel, StreamEvent};
 
     #[test]
     fn depth_features_include_spread_and_mid() {
@@ -362,5 +390,33 @@ mod tests {
         };
         assert!((spec.walk_cost(0.0, 1.0) - 0.5).abs() < f32::EPSILON);
         assert!((spec.walk_cost(1.0, 0.0) - 0.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn ladder_features_from_depth_use_book_half_spread_as_delta() {
+        let depth = DepthUpdate {
+            symbol: "BTCUSDT".into(),
+            bids: vec![PriceLevel {
+                price: "100".into(),
+                qty: "2".into(),
+            }],
+            asks: vec![PriceLevel {
+                price: "104".into(),
+                qty: "1".into(),
+            }],
+            update_id: Some(1),
+        };
+        let spec = DepthLadderSpec {
+            delta: 0.5,
+            lambda: 0.25,
+            rung_count: 2,
+            rung_width: 0.25,
+        };
+        let frame = ladder_features_from_depth(&depth, &spec, -0.5);
+        let s = frame.as_slice();
+        assert_eq!(s.len(), 10);
+        assert!((s[1] - 2.0).abs() < 1e-6); // δ = half-spread = 2
+        assert!((s[4] + 0.5).abs() < f32::EPSILON); // q
+        assert!((s[6] - (2.0 + 0.25 * 0.25)).abs() < 1e-6);
     }
 }

@@ -32,6 +32,18 @@ impl SequencePolicy {
     }
 }
 
+#[derive(Default)]
+struct CaptureObsLenPolicy {
+    len: Cell<usize>,
+}
+
+impl PolicyProvider for CaptureObsLenPolicy {
+    fn act(&self, obs: &[f32]) -> Action {
+        self.len.set(obs.len());
+        Action::Hold
+    }
+}
+
 impl PolicyProvider for SequencePolicy {
     fn act(&self, _obs: &[f32]) -> Action {
         let idx = self.next.get();
@@ -94,6 +106,37 @@ async fn policy_demo_recorded_mean_actions_quantize_to_usdm_orders() {
     assert_eq!(orders[0].order_type, UsdmOrderType::Market);
     assert_eq!(orders[0].quantity, "0.003");
     assert_eq!(orders[1].side, UsdmOrderSide::Sell);
+}
+
+#[tokio::test]
+async fn policy_demo_gaussian_source_feeds_ladder_observation() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT");
+    config.max_steps = 1;
+    config.window_frames = 1;
+    config.gaussian_mean_actions = Some("0.0".into());
+    let policy = CaptureObsLenPolicy::default();
+
+    let report = run_policy_demo_with_policy(config, &policy, "ladder-len")
+        .await
+        .unwrap();
+
+    assert_eq!(report.steps, 1);
+    assert_eq!(policy.len.get(), 40);
+}
+
+#[tokio::test]
+async fn policy_demo_hold_path_keeps_stream_observation() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT");
+    config.max_steps = 1;
+    config.window_frames = 1;
+    let policy = CaptureObsLenPolicy::default();
+
+    let report = run_policy_demo_with_policy(config, &policy, "stream-len")
+        .await
+        .unwrap();
+
+    assert_eq!(report.steps, 1);
+    assert_eq!(policy.len.get(), 7);
 }
 
 #[tokio::test]
