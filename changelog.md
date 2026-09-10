@@ -4,11 +4,12 @@ Project journal for shipped work. Active backlog lives in [`WORKPLAN.md`](WORKPL
 
 ## WIP
 
-- Wire Gaussian/Liquid ladder checkpoints into `execute policy-demo` (load `gaussian_mlp` / `gaussian_liquid`, quantize, demo place). Live 3-way ONNX/Hold path already works.
+- Project injected/stream depth into the WP-032 ladder frame so a loaded `gaussian_mlp` checkpoint acts on book-shaped obs (not zero-padded 7-D). Live Hold/ONNX 3-way path already works.
 - Keep local GPU training checkpoint metrics improving via ClickHouse `trolly.ticks`, trajectory FIFO replay, daily `--continue` slices, and checkpoint fingerprints.
 - Add more exchange providers beyond Binance spot + USDM (stub scaffold landed; full venues remain).
 
 ## change log
++ `execute policy-demo`: load recorded Gaussian mean-action vectors or `microstructure/gaussian_mlp` (torch), quantize via WP-035 onto `Action::dispatch` (WP-036). Trainer guidance missing (silent).
 + `trolly-gym`: tanh-Gaussian inventory policy on the WP-032 ladder (`action: f32`, `step_target`, `microstructure/gaussian_mlp` mean-action vs Hold); Liquid-on-rungs FA (`gaussian_liquid`); quantize `a` onto `Action::dispatch` (WP-033–WP-035). Trainer guidance missing (silent).
 + `trolly-gym`: microstructure depth ladder `α(v)=δ+λv`, integral walk cost, parallel rung observations, resampled episode seeds (WP-032). Trainer guidance missing (silent); scheduled only ready item WP-032.
 + Policy demo runner: explicit guarded `--wait-for-user-data` mode waits on spot/USDM demo user-data streams after placement and fills typed reconciliation rows through existing exec ingest paths (WP-031).

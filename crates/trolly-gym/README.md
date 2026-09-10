@@ -150,7 +150,7 @@ sudo amdgpu-install -y --usecase=rocm --no-dkms
 ## Architecture
 
 - **Observations** — normalized [`StreamEvent`](https://github.com/CAGS295/trolly/tree/main/crates/trolly-strategy) values from `trolly-stream` ingress are converted to feature vectors and kept in a rolling [`ObservationWindow`](src/observation.rs).
-- **Policies** — [`PolicyProvider`](src/policy.rs) turns flattened observations into [`Action`](src/action.rs) values. `HoldPolicy` is the default safe baseline; torch builds can load a checkpoint with `CheckpointPolicy`; ONNX Runtime builds can load exported actor graphs with `OnnxPolicy`.
+- **Policies** — [`PolicyProvider`](src/policy.rs) turns flattened observations into [`Action`](src/action.rs) values. `HoldPolicy` is the default safe baseline; `RecordedMeanActionPolicy` replays a Gaussian mean-action tape and quantizes via WP-035; torch builds can load a 3-logit `CheckpointPolicy` or a Gaussian ladder checkpoint; ONNX Runtime builds can load exported actor graphs with `OnnxPolicy`.
 - **Actions** — discrete [`Action`](src/action.rs) values map to [`OutboundMessage`](https://github.com/CAGS295/trolly/tree/main/crates/trolly-strategy) commands and dispatch through [`StreamEgress`](https://github.com/CAGS295/trolly/tree/main/crates/trolly-strategy). Env stepping always calls `Action::dispatch`; it does not build parallel order messages.
 - **Replay** — [`ReplayBuffer`](src/replay.rs) FIFO ring plus recency-bounded [`TrajectoryReplay`](src/replay.rs) (on-policy trajectories, age-decayed sample; not classic PER).
 - **Env** — [`Env`](src/env.rs) ties ingest -> window -> policy/action step -> egress; see `tests/smoke.rs` for an offline mock flow.
@@ -296,6 +296,29 @@ export CHECKPOINT_DIR=checkpoints/microstructure_train/mlp
 cargo run --features gym-torch --bin depth_monitor -- execute policy-demo
 ```
 
+Gaussian ladder checkpoints (`microstructure/gaussian_mlp` or
+`gaussian_liquid`) are a separate load path. Default builds can replay a
+**recorded mean-action vector** and quantize it through
+[`Action::quantize_inventory`](src/action.rs) onto the same
+`OutboundMessage::OrderRequest` values `Action::dispatch` already emits.
+Torch builds can load `latest.safetensors` from the Gaussian job dir.
+Do **not** point `CHECKPOINT_DIR` at `_retired_unit_lot_microstructure`.
+
+```bash
+# Offline recorded mean-action tape (no libtorch)
+export GAUSSIAN_MEAN_ACTIONS=0.8,-0.8,0.05
+export GAUSSIAN_HOLD_DEADZONE=0.25
+cargo run --bin depth_monitor -- execute policy-demo --venue spot --qty 0.01
+
+# Load the weekday Gaussian MLP checkpoint (requires gym-torch)
+export GAUSSIAN_CHECKPOINT_DIR=checkpoints/gpu_train_orchestrator/microstructure/gaussian_mlp
+cargo run --features gym-torch --bin depth_monitor -- execute policy-demo
+```
+
+Hold and ONNX selection are unchanged: `ONNX_MODEL_PATH` still wins when set,
+and omitting Gaussian env vars keeps the hold fallback. Demo REST placement
+still requires `RUN_BINANCE_DEMO_ORDERS=1` plus demo credentials.
+
 Actual demo REST placement is off unless both the CLI flag and guard variable
 are set; the runner uses Binance demo REST bases only. Before placement it
 assigns deterministic `newClientOrderId` values (`trolly-demo-spot-0000`,
@@ -352,7 +375,8 @@ cargo run --bin depth_monitor -- execute policy-demo \
 ```
 
 The offline regression for this bridge is `cargo test --test policy_demo_runner
---locked`; it validates spot/USDM request generation, the guard refusal, live
+--locked`; it validates spot/USDM request generation, the hold fallback,
+recorded Gaussian mean-action quantization (WP-036), the guard refusal, live
 wait option guards, mock placement receipts, mocked frame-source reconciliation,
 and captured receipt-to-user-stream reconciliation without live network or keys.
 

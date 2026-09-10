@@ -29,6 +29,7 @@ use serde_json::Value;
 use tokio::sync::mpsc;
 use tokio::time::{timeout, Instant};
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
+use trolly_gym::policy::DEFAULT_INVENTORY_DEADZONE;
 use trolly_gym::{
     run_offline_policy_harness, CheckpointOrHoldPolicy, Env, EnvConfig, PolicyProvider,
 };
@@ -67,6 +68,12 @@ pub struct PolicyDemoConfig {
     pub client_order_id_prefix: String,
     pub wait_for_user_data: bool,
     pub user_data_timeout: Duration,
+    /// Recorded tanh-Gaussian mean actions (`0.8,-0.8,0.1`). Quantized via WP-035.
+    pub gaussian_mean_actions: Option<String>,
+    /// Torch Gaussian ladder checkpoint dir (`microstructure/gaussian_mlp`).
+    pub gaussian_checkpoint_dir: Option<String>,
+    /// Deadzone for [`trolly_gym::Action::quantize_inventory`].
+    pub inventory_hold_deadzone: f32,
 }
 
 impl PolicyDemoConfig {
@@ -82,6 +89,9 @@ impl PolicyDemoConfig {
             client_order_id_prefix: "trolly-demo".into(),
             wait_for_user_data: false,
             user_data_timeout: DEFAULT_DEMO_USER_DATA_TIMEOUT,
+            gaussian_mean_actions: None,
+            gaussian_checkpoint_dir: None,
+            inventory_hold_deadzone: DEFAULT_INVENTORY_DEADZONE,
         }
     }
 }
@@ -203,7 +213,7 @@ impl DemoCredentials {
 pub async fn run_policy_demo(
     config: PolicyDemoConfig,
 ) -> Result<PolicyDemoReport, PolicyDemoError> {
-    let (policy, policy_source) = load_policy(config.window_frames);
+    let (policy, policy_source) = load_policy(&config);
     run_policy_demo_with_policy(config, &policy, policy_source).await
 }
 
@@ -1044,11 +1054,14 @@ fn usdm_receipt_from_response(response: UsdmPlaceOrderResponse) -> PolicyDemoRec
     }
 }
 
-fn load_policy(window_frames: usize) -> (CheckpointOrHoldPolicy, String) {
+fn load_policy(config: &PolicyDemoConfig) -> (CheckpointOrHoldPolicy, String) {
+    let window_frames = config.window_frames;
     #[cfg(any(feature = "gym-ort", feature = "gym-torch"))]
     let obs_dim = trolly_gym::sim::microstructure_obs_dim(window_frames);
     #[cfg(not(any(feature = "gym-ort", feature = "gym-torch")))]
     let _ = window_frames;
+
+    let hold_deadzone = inventory_hold_deadzone(config);
 
     #[cfg(feature = "gym-ort")]
     if let Some(path) = env::var_os("ONNX_MODEL_PATH") {
@@ -1069,9 +1082,35 @@ fn load_policy(window_frames: usize) -> (CheckpointOrHoldPolicy, String) {
         );
     }
 
+    if let Some(spec) = gaussian_mean_actions_spec(config) {
+        return match CheckpointOrHoldPolicy::from_mean_actions_csv(&spec, hold_deadzone) {
+            Ok(policy) => (policy, format!("gaussian-mean-actions:{spec}")),
+            Err(err) => (
+                CheckpointOrHoldPolicy::hold(),
+                format!("hold (gaussian mean-actions parse failed: {err})"),
+            ),
+        };
+    }
+
+    if let Some(dir) = gaussian_checkpoint_dir(config) {
+        return load_gaussian_checkpoint_policy(&dir, hold_deadzone);
+    }
+
     #[cfg(feature = "gym-torch")]
     {
         if let Some(dir) = env::var_os("CHECKPOINT_DIR") {
+            if checkpoint_dir_is_retired(&dir) {
+                return (
+                    CheckpointOrHoldPolicy::hold(),
+                    format!(
+                        "hold (refusing retired unit-lot checkpoint {})",
+                        dir.to_string_lossy()
+                    ),
+                );
+            }
+            if checkpoint_dir_looks_gaussian(&dir) {
+                return load_gaussian_checkpoint_policy(&dir, hold_deadzone);
+            }
             return match CheckpointOrHoldPolicy::from_latest_checkpoint_dir(
                 &dir,
                 obs_dim,
@@ -1087,7 +1126,16 @@ fn load_policy(window_frames: usize) -> (CheckpointOrHoldPolicy, String) {
     }
 
     #[cfg(not(feature = "gym-torch"))]
-    if env::var_os("CHECKPOINT_DIR").is_some() {
+    if let Some(dir) = env::var_os("CHECKPOINT_DIR") {
+        if checkpoint_dir_looks_gaussian(&dir) {
+            return (
+                CheckpointOrHoldPolicy::hold(),
+                format!(
+                    "hold (gaussian checkpoint {} ignored; build with --features gym-torch)",
+                    dir.to_string_lossy()
+                ),
+            );
+        }
         return (
             CheckpointOrHoldPolicy::hold(),
             "hold (CHECKPOINT_DIR ignored; build with --features gym-torch)".into(),
@@ -1095,4 +1143,77 @@ fn load_policy(window_frames: usize) -> (CheckpointOrHoldPolicy, String) {
     }
 
     (CheckpointOrHoldPolicy::hold(), "hold".into())
+}
+
+fn inventory_hold_deadzone(config: &PolicyDemoConfig) -> f32 {
+    env::var("GAUSSIAN_HOLD_DEADZONE")
+        .ok()
+        .and_then(|raw| raw.parse().ok())
+        .unwrap_or(config.inventory_hold_deadzone)
+}
+
+fn gaussian_mean_actions_spec(config: &PolicyDemoConfig) -> Option<String> {
+    config
+        .gaussian_mean_actions
+        .clone()
+        .or_else(|| env::var("GAUSSIAN_MEAN_ACTIONS").ok())
+        .filter(|spec| !spec.trim().is_empty())
+}
+
+fn gaussian_checkpoint_dir(config: &PolicyDemoConfig) -> Option<std::ffi::OsString> {
+    if let Some(dir) = &config.gaussian_checkpoint_dir {
+        if !dir.trim().is_empty() {
+            return Some(std::ffi::OsString::from(dir));
+        }
+    }
+    env::var_os("GAUSSIAN_CHECKPOINT_DIR")
+}
+
+fn checkpoint_dir_looks_gaussian(dir: &std::ffi::OsStr) -> bool {
+    let text = dir.to_string_lossy();
+    text.contains("gaussian_mlp") || text.contains("gaussian_liquid")
+}
+
+fn checkpoint_dir_is_retired(dir: &std::ffi::OsStr) -> bool {
+    dir.to_string_lossy()
+        .contains("_retired_unit_lot_microstructure")
+}
+
+fn load_gaussian_checkpoint_policy(
+    dir: &std::ffi::OsStr,
+    hold_deadzone: f32,
+) -> (CheckpointOrHoldPolicy, String) {
+    if checkpoint_dir_is_retired(dir) {
+        return (
+            CheckpointOrHoldPolicy::hold(),
+            format!(
+                "hold (refusing retired unit-lot checkpoint {})",
+                dir.to_string_lossy()
+            ),
+        );
+    }
+
+    #[cfg(feature = "gym-torch")]
+    {
+        return match CheckpointOrHoldPolicy::from_latest_gaussian_checkpoint_dir(dir, hold_deadzone)
+        {
+            Ok(policy) => (policy, format!("gaussian-torch:{}", dir.to_string_lossy())),
+            Err(err) => (
+                CheckpointOrHoldPolicy::hold(),
+                format!("hold (gaussian checkpoint load failed: {err})"),
+            ),
+        };
+    }
+
+    #[cfg(not(feature = "gym-torch"))]
+    {
+        let _ = hold_deadzone;
+        (
+            CheckpointOrHoldPolicy::hold(),
+            format!(
+                "hold (gaussian checkpoint {} ignored; build with --features gym-torch)",
+                dir.to_string_lossy()
+            ),
+        )
+    }
 }

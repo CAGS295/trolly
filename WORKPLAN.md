@@ -21,7 +21,7 @@ Shipped so far (not the destination): global book CLI; stream-native spot/USDM b
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: 2026-09-09
+- last_run: 2026-09-10
 - max_parallel: 3
 - ship_branch: integrate/orchestrator-branches
 
@@ -619,7 +619,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-036 — Load Gaussian ladder checkpoint in policy-demo
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-028, WP-033, WP-035]
 - scope: src/policy_demo.rs, tests/policy_demo_runner.rs, crates/trolly-gym/src/policy.rs, crates/trolly-gym/README.md
@@ -628,6 +628,20 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - default dry-run and Hold/ONNX paths stay unchanged; no production hosts
   - `cargo test --test policy_demo_runner` stays offline
 - notes: Next join after WP-035. Do not resume `_retired_unit_lot_microstructure`. Do not train here.
+- worker/orchestrator (2026-09-10): trainer guidance missing (silent). Added `RecordedMeanActionPolicy` and `execute policy-demo` load of `GAUSSIAN_MEAN_ACTIONS` / `GAUSSIAN_CHECKPOINT_DIR`; torch `GaussianCheckpointPolicy` loads `gaussian_mlp`/`gaussian_liquid` and quantizes via WP-035. Hold/ONNX unchanged. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 14 pass; `cargo +stable test -p trolly-gym --lib --locked` 59 pass.
+
+### WP-037 — Stream depth → ladder observation for Gaussian policy-demo
+
+- status: todo
+- repos: trolly
+- depends_on: [WP-032, WP-036]
+- scope: crates/trolly-gym/src/observation.rs, crates/trolly-gym/src/env.rs, src/policy_demo.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - `Env` can expose a parallel WP-032 ladder frame from ingested `DepthUpdate` plus current inventory; the 7-D stream extractor stays unchanged
+  - `execute policy-demo` Gaussian sources (`GAUSSIAN_MEAN_ACTIONS` / `GAUSSIAN_CHECKPOINT_DIR`) feed that `V×5` layout to `PolicyProvider::act`
+  - Hold / ONNX / 3-logit `CheckpointPolicy` stay on 7-D stream windows
+  - `cargo test --test policy_demo_runner` and `cargo test -p trolly-gym` stay offline
+- notes: Closes the obs-layout gap left by WP-036 (Gaussian FA trained on `V×5`, demo Env still passed padded 7-D). Do not train. Do not resume `_retired_unit_lot_microstructure`.
 
 ## Integration test reference
 

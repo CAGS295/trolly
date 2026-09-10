@@ -10,7 +10,7 @@ use binance_usdm_exec::{
     PlaceOrderResponse as UsdmPlaceOrderResponse,
 };
 use trolly::policy_demo::{
-    policy_demo_user_data_messages_from_json, reconcile_policy_demo_report,
+    policy_demo_user_data_messages_from_json, reconcile_policy_demo_report, run_policy_demo,
     run_policy_demo_with_policy, run_spot_policy_demo_with_placer,
     run_spot_policy_demo_with_placer_and_user_data, run_usdm_policy_demo_with_placer,
     run_usdm_policy_demo_with_placer_and_user_data, DemoVenue, PolicyDemoConfig, PolicyDemoError,
@@ -38,6 +38,62 @@ impl PolicyProvider for SequencePolicy {
         self.next.set(idx + 1);
         self.actions.get(idx).copied().unwrap_or(Action::Hold)
     }
+}
+
+#[tokio::test]
+async fn policy_demo_default_hold_emits_no_orders() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT");
+    config.max_steps = 3;
+
+    let report = run_policy_demo(config).await.unwrap();
+
+    assert_eq!(report.policy_source, "hold");
+    assert_eq!(report.placed_orders, 0);
+    assert!(report.orders.is_empty());
+}
+
+#[tokio::test]
+async fn policy_demo_recorded_mean_actions_quantize_to_spot_orders() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT");
+    config.max_steps = 3;
+    config.qty = "0.002".into();
+    config.gaussian_mean_actions = Some("0.8,-0.8,0.05".into());
+
+    let report = run_policy_demo(config).await.unwrap();
+
+    assert!(report.policy_source.starts_with("gaussian-mean-actions:"));
+    assert_eq!(report.steps, 3);
+    assert_eq!(report.placed_orders, 0);
+
+    let PolicyDemoOrders::Spot(orders) = report.orders else {
+        panic!("expected spot orders");
+    };
+    assert_eq!(orders.len(), 2);
+    assert_eq!(orders[0].symbol, "BTCUSDT");
+    assert_eq!(orders[0].side, SpotOrderSide::Buy);
+    assert_eq!(orders[0].order_type, SpotOrderType::Market);
+    assert_eq!(orders[0].quantity, "0.002");
+    assert_eq!(orders[1].side, SpotOrderSide::Sell);
+}
+
+#[tokio::test]
+async fn policy_demo_recorded_mean_actions_quantize_to_usdm_orders() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Usdm, "ETHUSDT");
+    config.max_steps = 3;
+    config.qty = "0.003".into();
+    config.gaussian_mean_actions = Some("0.8,-0.8,0.05".into());
+
+    let report = run_policy_demo(config).await.unwrap();
+
+    assert!(report.policy_source.starts_with("gaussian-mean-actions:"));
+    let PolicyDemoOrders::Usdm(orders) = report.orders else {
+        panic!("expected USDM orders");
+    };
+    assert_eq!(orders.len(), 2);
+    assert_eq!(orders[0].side, UsdmOrderSide::Buy);
+    assert_eq!(orders[0].order_type, UsdmOrderType::Market);
+    assert_eq!(orders[0].quantity, "0.003");
+    assert_eq!(orders[1].side, UsdmOrderSide::Sell);
 }
 
 #[tokio::test]
