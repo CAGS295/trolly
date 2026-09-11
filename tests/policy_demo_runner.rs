@@ -125,6 +125,39 @@ async fn policy_demo_gaussian_source_feeds_ladder_observation() {
 }
 
 #[tokio::test]
+async fn policy_demo_onnx_gaussian_path_feeds_ladder_observation() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT");
+    config.max_steps = 1;
+    config.window_frames = 1;
+    config.onnx_gaussian_model_path = Some("/tmp/missing-gaussian-mu.onnx".into());
+    let policy = CaptureObsLenPolicy::default();
+
+    let report = run_policy_demo_with_policy(config, &policy, "onnx-gaussian-len")
+        .await
+        .unwrap();
+
+    assert_eq!(report.steps, 1);
+    assert_eq!(policy.len.get(), 40);
+}
+
+#[tokio::test]
+async fn policy_demo_onnx_gaussian_without_ort_stays_hold() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT");
+    config.max_steps = 1;
+    config.onnx_gaussian_model_path = Some("/tmp/missing-gaussian-mu.onnx".into());
+
+    let report = run_policy_demo(config).await.unwrap();
+
+    assert!(
+        report.policy_source.contains("ONNX_GAUSSIAN_MODEL_PATH")
+            || report.policy_source.starts_with("onnx-gaussian:")
+            || report.policy_source.contains("ONNX Gaussian load failed")
+    );
+    assert_eq!(report.placed_orders, 0);
+    assert!(report.orders.is_empty());
+}
+
+#[tokio::test]
 async fn policy_demo_hold_path_keeps_stream_observation() {
     let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT");
     config.max_steps = 1;

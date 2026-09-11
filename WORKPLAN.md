@@ -21,7 +21,7 @@ Shipped so far (not the destination): global book CLI; stream-native spot/USDM b
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: 2026-09-10
+- last_run: 2026-09-11
 - max_parallel: 3
 - ship_branch: integrate/orchestrator-branches
 
@@ -646,7 +646,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-038 — ONNX Gaussian mean-action provider
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-027, WP-035, WP-037]
 - scope: crates/trolly-gym/src/onnx.rs, crates/trolly-gym/src/policy.rs, src/policy_demo.rs, crates/trolly-gym/README.md, tests/policy_demo_runner.rs
@@ -655,6 +655,20 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - default Hold / 3-logit ONNX / recorded mean-action paths stay unchanged; no libtorch in default tests
   - `cargo test -p trolly-gym` and `cargo test --test policy_demo_runner` stay offline
 - notes: Lets `execute policy-demo` consume an exported `gaussian_mlp` actor without `--features gym-torch`. Do not train. Do not resume `_retired_unit_lot_microstructure`.
+- worker/orchestrator (2026-09-11): trainer guidance missing (silent). Added `OnnxGaussianMeanPolicy` + `decode_gaussian_mean_output` (`[1]` / `[1,1]`), WP-035 quantize, `CheckpointOrHoldPolicy::from_onnx_gaussian_model`, and `ONNX_GAUSSIAN_MODEL_PATH` / `PolicyDemoConfig.onnx_gaussian_model_path` (3-logit `ONNX_MODEL_PATH` still wins). Gaussian ONNX selects the WP-032 ladder frame. Acceptance: `cargo +stable test -p trolly-gym --lib --locked` 64 pass; `cargo +stable test --test policy_demo_runner --locked` 18 pass.
+
+### WP-039 — Export weekday Gaussian μ head to ONNX
+
+- status: todo
+- repos: trolly
+- depends_on: [WP-033, WP-038]
+- scope: crates/trolly-gym/scripts/, crates/trolly-gym/README.md, crates/trolly-gym/src/onnx.rs, tests/policy_demo_runner.rs
+- acceptance:
+  - documented offline path writes a static `[1, V×5] → [1]` ONNX μ graph from `microstructure/gaussian_mlp` (or a recorded mean stand-in) that `OnnxGaussianMeanPolicy` / `ONNX_GAUSSIAN_MODEL_PATH` can load
+  - default Hold / 3-logit ONNX / recorded mean-action paths stay unchanged; no libtorch in default tests
+  - do not train; do not resume `_retired_unit_lot_microstructure`
+  - `cargo test -p trolly-gym` and `cargo test --test policy_demo_runner` stay offline
+- notes: Closes the remaining gym→demo gap after WP-038: weekday GPU checkpoints are safetensors, and policy-demo still needs an exported μ graph to run without `--features gym-torch`.
 
 ## Integration test reference
 

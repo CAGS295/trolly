@@ -42,10 +42,13 @@ pub use fingerprint::{
 };
 pub use observation::{features_from_event, FeatureVector, ObservationWindow};
 #[cfg(feature = "ort")]
-pub use onnx::{OnnxPolicy, OnnxPolicyError};
+pub use onnx::{OnnxGaussianMeanPolicy, OnnxPolicy, OnnxPolicyError};
 #[cfg(feature = "torch")]
 pub use policy::CheckpointPolicy;
-pub use policy::{CheckpointOrHoldPolicy, HoldPolicy, PolicyProvider, QuantizeInventoryPolicy};
+pub use policy::{
+    decode_gaussian_mean_output, CheckpointOrHoldPolicy, GaussianMeanDecodeError, HoldPolicy,
+    PolicyProvider, QuantizeInventoryPolicy,
+};
 pub use replay::{
     FeatureRingBuffer, OnPolicyRolloutBuffer, OnPolicyStep, ReplayBuffer, Trajectory,
     TrajectoryReplay, Transition,

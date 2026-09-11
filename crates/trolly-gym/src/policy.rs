@@ -10,6 +10,47 @@ use std::path::{Path, PathBuf};
 /// Deadzone used by [`Action::quantize_inventory`] when none is supplied.
 pub const DEFAULT_INVENTORY_DEADZONE: f32 = 0.25;
 
+/// Errors from [`decode_gaussian_mean_output`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GaussianMeanDecodeError {
+    Empty,
+    UnexpectedLen(usize),
+    NonFinite,
+}
+
+impl std::fmt::Display for GaussianMeanDecodeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Empty => write!(f, "ONNX Gaussian μ head returned no outputs"),
+            Self::UnexpectedLen(len) => write!(
+                f,
+                "ONNX Gaussian μ head returned {len} values; expected [1] or [1,1]"
+            ),
+            Self::NonFinite => write!(f, "ONNX Gaussian μ is not finite"),
+        }
+    }
+}
+
+impl std::error::Error for GaussianMeanDecodeError {}
+
+/// Decode a static Gaussian μ head (`[1]` or flattened `[1,1]`).
+///
+/// The first value is clamped to `(-1, 1)` so WP-035 quantization sees the
+/// same inventory target as the torch mean-action path.
+pub fn decode_gaussian_mean_output(output: &[f32]) -> Result<f32, GaussianMeanDecodeError> {
+    if output.is_empty() {
+        return Err(GaussianMeanDecodeError::Empty);
+    }
+    if output.len() > 2 {
+        return Err(GaussianMeanDecodeError::UnexpectedLen(output.len()));
+    }
+    let mean = output[0];
+    if !mean.is_finite() {
+        return Err(GaussianMeanDecodeError::NonFinite);
+    }
+    Ok(crate::sim::clamp_inventory_target(mean))
+}
+
 /// Injectable action provider for [`crate::Env`] stepping.
 pub trait PolicyProvider {
     fn act(&self, obs: &[f32]) -> Action;
@@ -141,6 +182,8 @@ pub enum CheckpointOrHoldPolicy {
     GaussianCheckpoint(GaussianCheckpointPolicy),
     #[cfg(feature = "ort")]
     Onnx(crate::onnx::OnnxPolicy),
+    #[cfg(feature = "ort")]
+    OnnxGaussian(crate::onnx::OnnxGaussianMeanPolicy),
 }
 
 impl CheckpointOrHoldPolicy {
@@ -200,6 +243,21 @@ impl CheckpointOrHoldPolicy {
     ) -> Result<Self, crate::onnx::OnnxPolicyError> {
         crate::onnx::OnnxPolicy::from_model(path, obs_dim).map(Self::Onnx)
     }
+
+    #[cfg(feature = "ort")]
+    pub fn onnx_gaussian(policy: crate::onnx::OnnxGaussianMeanPolicy) -> Self {
+        Self::OnnxGaussian(policy)
+    }
+
+    #[cfg(feature = "ort")]
+    pub fn from_onnx_gaussian_model(
+        path: impl AsRef<std::path::Path>,
+        obs_dim: i64,
+        hold_deadzone: f32,
+    ) -> Result<Self, crate::onnx::OnnxPolicyError> {
+        crate::onnx::OnnxGaussianMeanPolicy::from_model(path, obs_dim, hold_deadzone)
+            .map(Self::OnnxGaussian)
+    }
 }
 
 impl Default for CheckpointOrHoldPolicy {
@@ -219,6 +277,8 @@ impl PolicyProvider for CheckpointOrHoldPolicy {
             Self::GaussianCheckpoint(policy) => policy.act(obs),
             #[cfg(feature = "ort")]
             Self::Onnx(policy) => policy.act(obs),
+            #[cfg(feature = "ort")]
+            Self::OnnxGaussian(policy) => policy.act(obs),
         }
     }
 }
@@ -418,6 +478,49 @@ mod tests {
             CheckpointOrHoldPolicy::from_mean_actions_csv("0.9", DEFAULT_INVENTORY_DEADZONE)
                 .unwrap();
         assert_eq!(policy.act(&[]), Action::Buy);
+    }
+
+    #[test]
+    fn decode_gaussian_mean_accepts_scalar_and_row() {
+        assert_eq!(decode_gaussian_mean_output(&[0.8]).unwrap(), 0.8);
+        assert_eq!(decode_gaussian_mean_output(&[0.8, 0.0]).unwrap(), 0.8);
+        assert_eq!(decode_gaussian_mean_output(&[1.5]).unwrap(), 1.0);
+        assert_eq!(decode_gaussian_mean_output(&[-2.0]).unwrap(), -1.0);
+    }
+
+    #[test]
+    fn decode_gaussian_mean_rejects_empty_logits_and_nan() {
+        assert_eq!(
+            decode_gaussian_mean_output(&[]).unwrap_err(),
+            GaussianMeanDecodeError::Empty
+        );
+        assert_eq!(
+            decode_gaussian_mean_output(&[0.1, 0.2, 0.3]).unwrap_err(),
+            GaussianMeanDecodeError::UnexpectedLen(3)
+        );
+        assert_eq!(
+            decode_gaussian_mean_output(&[f32::NAN]).unwrap_err(),
+            GaussianMeanDecodeError::NonFinite
+        );
+    }
+
+    #[test]
+    fn decode_gaussian_mean_quantizes_through_wp035() {
+        let buy = Action::quantize_inventory(
+            decode_gaussian_mean_output(&[0.8]).unwrap(),
+            DEFAULT_INVENTORY_DEADZONE,
+        );
+        let hold = Action::quantize_inventory(
+            decode_gaussian_mean_output(&[0.05]).unwrap(),
+            DEFAULT_INVENTORY_DEADZONE,
+        );
+        let sell = Action::quantize_inventory(
+            decode_gaussian_mean_output(&[-0.8]).unwrap(),
+            DEFAULT_INVENTORY_DEADZONE,
+        );
+        assert_eq!(buy, Action::Buy);
+        assert_eq!(hold, Action::Hold);
+        assert_eq!(sell, Action::Sell);
     }
 
     #[test]

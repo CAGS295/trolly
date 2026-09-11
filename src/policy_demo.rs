@@ -72,6 +72,8 @@ pub struct PolicyDemoConfig {
     pub gaussian_mean_actions: Option<String>,
     /// Torch Gaussian ladder checkpoint dir (`microstructure/gaussian_mlp`).
     pub gaussian_checkpoint_dir: Option<String>,
+    /// Optional ONNX Gaussian μ head (`[1, V×5] → [1]`). Requires `gym-ort`.
+    pub onnx_gaussian_model_path: Option<String>,
     /// Deadzone for [`trolly_gym::Action::quantize_inventory`].
     pub inventory_hold_deadzone: f32,
 }
@@ -91,6 +93,7 @@ impl PolicyDemoConfig {
             user_data_timeout: DEFAULT_DEMO_USER_DATA_TIMEOUT,
             gaussian_mean_actions: None,
             gaussian_checkpoint_dir: None,
+            onnx_gaussian_model_path: None,
             inventory_hold_deadzone: DEFAULT_INVENTORY_DEADZONE,
         }
     }
@@ -1085,6 +1088,10 @@ fn load_policy(config: &PolicyDemoConfig) -> (CheckpointOrHoldPolicy, String) {
         );
     }
 
+    if let Some(path) = onnx_gaussian_model_path(config) {
+        return load_onnx_gaussian_policy(&path, hold_deadzone);
+    }
+
     if let Some(spec) = gaussian_mean_actions_spec(config) {
         return match CheckpointOrHoldPolicy::from_mean_actions_csv(&spec, hold_deadzone) {
             Ok(policy) => (policy, format!("gaussian-mean-actions:{spec}")),
@@ -1156,7 +1163,48 @@ fn inventory_hold_deadzone(config: &PolicyDemoConfig) -> f32 {
 }
 
 fn uses_gaussian_source(config: &PolicyDemoConfig) -> bool {
-    gaussian_mean_actions_spec(config).is_some() || gaussian_checkpoint_dir(config).is_some()
+    gaussian_mean_actions_spec(config).is_some()
+        || gaussian_checkpoint_dir(config).is_some()
+        || onnx_gaussian_model_path(config).is_some()
+}
+
+fn onnx_gaussian_model_path(config: &PolicyDemoConfig) -> Option<std::ffi::OsString> {
+    if let Some(path) = &config.onnx_gaussian_model_path {
+        if !path.trim().is_empty() {
+            return Some(std::ffi::OsString::from(path));
+        }
+    }
+    env::var_os("ONNX_GAUSSIAN_MODEL_PATH")
+}
+
+fn load_onnx_gaussian_policy(
+    path: &std::ffi::OsStr,
+    hold_deadzone: f32,
+) -> (CheckpointOrHoldPolicy, String) {
+    #[cfg(feature = "gym-ort")]
+    {
+        let obs_dim = trolly_gym::sim::ladder_obs_dim(8);
+        return match CheckpointOrHoldPolicy::from_onnx_gaussian_model(path, obs_dim, hold_deadzone)
+        {
+            Ok(policy) => (policy, format!("onnx-gaussian:{}", path.to_string_lossy())),
+            Err(err) => (
+                CheckpointOrHoldPolicy::hold(),
+                format!("hold (ONNX Gaussian load failed: {err})"),
+            ),
+        };
+    }
+
+    #[cfg(not(feature = "gym-ort"))]
+    {
+        let _ = hold_deadzone;
+        (
+            CheckpointOrHoldPolicy::hold(),
+            format!(
+                "hold (ONNX_GAUSSIAN_MODEL_PATH {} ignored; build with --features gym-ort)",
+                path.to_string_lossy()
+            ),
+        )
+    }
 }
 
 fn gaussian_mean_actions_spec(config: &PolicyDemoConfig) -> Option<String> {

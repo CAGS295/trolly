@@ -3,7 +3,8 @@
 use std::cell::Cell;
 
 use trolly_gym::{
-    run_offline_policy_harness, Action, Env, EnvConfig, OnnxPolicy, OnnxPolicyError, PolicyProvider,
+    run_offline_policy_harness, Action, Env, EnvConfig, OnnxGaussianMeanPolicy, OnnxPolicy,
+    OnnxPolicyError, PolicyProvider,
 };
 use trolly_strategy::{envelope_message, DepthUpdate, PriceLevel, RecordingEgress, StreamEvent};
 
@@ -36,6 +37,13 @@ fn depth_message(symbol: &str) -> trolly_stream::Message {
 fn missing_onnx_model_reports_error_without_loading_runtime() {
     let path = temp_file("missing.onnx");
     let err = OnnxPolicy::from_model(&path, 7).unwrap_err();
+    assert!(matches!(err, OnnxPolicyError::MissingModel(_)));
+}
+
+#[test]
+fn missing_gaussian_onnx_model_reports_error_without_loading_runtime() {
+    let path = temp_file("missing_gaussian.onnx");
+    let err = OnnxGaussianMeanPolicy::from_model(&path, 40, 0.25).unwrap_err();
     assert!(matches!(err, OnnxPolicyError::MissingModel(_)));
 }
 

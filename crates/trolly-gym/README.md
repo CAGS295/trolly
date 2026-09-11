@@ -44,7 +44,14 @@ microstructure stream features. The first output must contain at least three
 logits ordered as `Hold`, `Buy`, `Sell`; the provider returns the argmax action
 and falls back to `Hold` if inference fails through the `PolicyProvider` trait.
 
-A minimal PyTorch export flow for a trained actor is:
+`OnnxGaussianMeanPolicy` is the optional Gaussian μ path (WP-038). It loads a
+static `[1, V×5] → [1]` or `[1,1]` head, clamps μ onto `(-1, 1)`, and quantizes
+through [`Action::quantize_inventory`](src/action.rs). The 3-logit `OnnxPolicy`
+path is unchanged. `execute policy-demo` selects this provider via
+`ONNX_GAUSSIAN_MODEL_PATH` (after `ONNX_MODEL_PATH`) and feeds the WP-032
+ladder frame.
+
+A minimal PyTorch export flow for a trained 3-logit actor is:
 
 ```python
 import torch
@@ -60,6 +67,24 @@ torch.onnx.export(
     input_names=["observation"],
     output_names=["logits"],
     dynamic_axes=None,  # keep the live actor shape static
+    opset_version=17,
+)
+```
+
+A Gaussian μ head export stays a single static scalar (or `[1,1]`) so
+`OnnxGaussianMeanPolicy` can quantize without libtorch:
+
+```python
+mu_head = ...  # tanh-Gaussian mean only; no σ / value head
+mu_head.eval()
+dummy_obs = torch.zeros(1, 40, dtype=torch.float32)  # V×5, default V=8
+torch.onnx.export(
+    mu_head,
+    dummy_obs,
+    "checkpoints/microstructure/gaussian_mlp/mu.onnx",
+    input_names=["observation"],
+    output_names=["mean"],
+    dynamic_axes=None,
     opset_version=17,
 )
 ```
@@ -150,7 +175,7 @@ sudo amdgpu-install -y --usecase=rocm --no-dkms
 ## Architecture
 
 - **Observations** — normalized [`StreamEvent`](https://github.com/CAGS295/trolly/tree/main/crates/trolly-strategy) values from `trolly-stream` ingress are converted to feature vectors and kept in a rolling [`ObservationWindow`](src/observation.rs).
-- **Policies** — [`PolicyProvider`](src/policy.rs) turns flattened observations into [`Action`](src/action.rs) values. `HoldPolicy` is the default safe baseline; `RecordedMeanActionPolicy` replays a Gaussian mean-action tape and quantizes via WP-035; torch builds can load a 3-logit `CheckpointPolicy` or a Gaussian ladder checkpoint; ONNX Runtime builds can load exported actor graphs with `OnnxPolicy`.
+- **Policies** — [`PolicyProvider`](src/policy.rs) turns flattened observations into [`Action`](src/action.rs) values. `HoldPolicy` is the default safe baseline; `RecordedMeanActionPolicy` replays a Gaussian mean-action tape and quantizes via WP-035; torch builds can load a 3-logit `CheckpointPolicy` or a Gaussian ladder checkpoint; ONNX Runtime builds can load exported 3-logit actors with `OnnxPolicy` or a Gaussian μ head with `OnnxGaussianMeanPolicy`.
 - **Actions** — discrete [`Action`](src/action.rs) values map to [`OutboundMessage`](https://github.com/CAGS295/trolly/tree/main/crates/trolly-strategy) commands and dispatch through [`StreamEgress`](https://github.com/CAGS295/trolly/tree/main/crates/trolly-strategy). Env stepping always calls `Action::dispatch`; it does not build parallel order messages.
 - **Replay** — [`ReplayBuffer`](src/replay.rs) FIFO ring plus recency-bounded [`TrajectoryReplay`](src/replay.rs) (on-policy trajectories, age-decayed sample; not classic PER).
 - **Env** — [`Env`](src/env.rs) ties ingest -> window -> policy/action step -> egress; see `tests/smoke.rs` for an offline mock flow.
@@ -202,8 +227,11 @@ CPU inference hook for local smoke tests.
 
 With `--features ort`, `OnnxPolicy::from_model(path, obs_dim)` loads an ONNX
 actor model and chooses the argmax action from the first three output logits.
-The `PolicyProvider` implementation returns `Hold` if runtime inference fails;
-load errors stay explicit so harnesses can log and fall back before trading.
+`OnnxGaussianMeanPolicy::from_model(path, obs_dim, hold_deadzone)` loads a
+static Gaussian μ head (`[1, V×5] → [1]` or `[1,1]`), then quantizes via
+WP-035 onto `Action::dispatch`. Both `PolicyProvider` implementations return
+`Hold` if runtime inference fails; load errors stay explicit so harnesses can
+log and fall back before trading.
 
 ## Offline checkpoint policy harness (WP-025)
 
@@ -315,14 +343,24 @@ export GAUSSIAN_CHECKPOINT_DIR=checkpoints/gpu_train_orchestrator/microstructure
 cargo run --features gym-torch --bin depth_monitor -- execute policy-demo
 ```
 
-Hold and ONNX selection are unchanged: `ONNX_MODEL_PATH` still wins when set,
-and omitting Gaussian env vars keeps the hold fallback. Demo REST placement
+Hold and 3-logit ONNX selection are unchanged: `ONNX_MODEL_PATH` still wins
+when set. An exported Gaussian μ head is a separate opt-in:
+
+```bash
+export ONNX_GAUSSIAN_MODEL_PATH=checkpoints/microstructure/gaussian_mlp/mu.onnx
+export ORT_DYLIB_PATH=/path/to/libonnxruntime.so
+export GAUSSIAN_HOLD_DEADZONE=0.25
+cargo run --features gym-ort --bin depth_monitor -- execute policy-demo
+```
+
+Omitting Gaussian env vars keeps the hold fallback. Demo REST placement
 still requires `RUN_BINANCE_DEMO_ORDERS=1` plus demo credentials.
 
-When a Gaussian source is selected, `Env` feeds `PolicyProvider::act` the
-WP-032 `V×5` ladder (`[v, α_ask, α_bid, Δα, q]`) built from the ingested
-depth half-spread (as δ) plus current inventory. Hold / ONNX / 3-logit
-checkpoint paths stay on the 7-D stream window.
+When a Gaussian source is selected (recorded mean-actions, torch Gaussian
+checkpoint, or `ONNX_GAUSSIAN_MODEL_PATH`), `Env` feeds `PolicyProvider::act`
+the WP-032 `V×5` ladder (`[v, α_ask, α_bid, Δα, q]`) built from the ingested
+depth half-spread (as δ) plus current inventory. Hold / 3-logit ONNX /
+3-logit checkpoint paths stay on the 7-D stream window.
 
 Actual demo REST placement is off unless both the CLI flag and guard variable
 are set; the runner uses Binance demo REST bases only. Before placement it

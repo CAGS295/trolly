@@ -8,7 +8,10 @@ use std::{
     sync::Mutex,
 };
 
-use crate::{action::Action, policy::PolicyProvider};
+use crate::{
+    action::Action,
+    policy::{decode_gaussian_mean_output, GaussianMeanDecodeError, PolicyProvider},
+};
 
 /// Errors returned by [`OnnxPolicy`] loading or fallible inference.
 #[derive(Debug, Clone)]
@@ -19,6 +22,8 @@ pub enum OnnxPolicyError {
     Inference(String),
     EmptyOutput,
     ShortOutput { len: usize },
+    UnexpectedMeanOutput { len: usize },
+    NonFiniteMean,
     SessionPoisoned,
 }
 
@@ -56,6 +61,11 @@ impl std::fmt::Display for OnnxPolicyError {
                 "ONNX model returned {len} logits; expected at least {}",
                 Action::COUNT
             ),
+            Self::UnexpectedMeanOutput { len } => write!(
+                f,
+                "ONNX Gaussian μ head returned {len} values; expected [1] or [1,1]"
+            ),
+            Self::NonFiniteMean => write!(f, "ONNX Gaussian μ is not finite"),
             Self::SessionPoisoned => write!(f, "ONNX session lock was poisoned"),
         }
     }
@@ -77,34 +87,7 @@ impl OnnxPolicy {
     /// `[1, obs_dim]` and return logits whose first three entries correspond to
     /// `Hold`, `Buy`, and `Sell`.
     pub fn from_model(path: impl AsRef<Path>, obs_dim: i64) -> Result<Self, OnnxPolicyError> {
-        let path = path.as_ref();
-        let obs_dim = usize::try_from(obs_dim)
-            .ok()
-            .filter(|dim| *dim > 0)
-            .ok_or(OnnxPolicyError::InvalidObservationDim(obs_dim))?;
-
-        if !path.exists() {
-            return Err(OnnxPolicyError::MissingModel(path.to_path_buf()));
-        }
-
-        let session = match std::panic::catch_unwind(|| {
-            ort::session::Session::builder().and_then(|builder| builder.commit_from_file(path))
-        }) {
-            Ok(Ok(session)) => session,
-            Ok(Err(err)) => {
-                return Err(OnnxPolicyError::Load {
-                    path: path.to_path_buf(),
-                    source: err.to_string(),
-                });
-            }
-            Err(payload) => {
-                return Err(OnnxPolicyError::Load {
-                    path: path.to_path_buf(),
-                    source: panic_payload_to_string(payload),
-                });
-            }
-        };
-
+        let (session, obs_dim) = load_session(path, obs_dim)?;
         Ok(Self {
             session: Mutex::new(session),
             obs_dim,
@@ -140,6 +123,119 @@ impl OnnxPolicy {
 
         decode_action_from_logits(logits)
     }
+}
+
+/// Policy backed by a static Gaussian μ head (`[1, V×5] → [1]` or `[1,1]`).
+///
+/// Mean action is quantized through [`Action::quantize_inventory`] (WP-035).
+/// The 3-logit [`OnnxPolicy`] path is unchanged.
+#[derive(Debug)]
+pub struct OnnxGaussianMeanPolicy {
+    session: Mutex<ort::session::Session>,
+    obs_dim: usize,
+    hold_deadzone: f32,
+}
+
+impl OnnxGaussianMeanPolicy {
+    /// Load a static Gaussian μ ONNX graph from disk.
+    pub fn from_model(
+        path: impl AsRef<Path>,
+        obs_dim: i64,
+        hold_deadzone: f32,
+    ) -> Result<Self, OnnxPolicyError> {
+        let (session, obs_dim) = load_session(path, obs_dim)?;
+        Ok(Self {
+            session: Mutex::new(session),
+            obs_dim,
+            hold_deadzone,
+        })
+    }
+
+    pub fn hold_deadzone(&self) -> f32 {
+        self.hold_deadzone
+    }
+
+    /// Run fallible inference, decode μ, and quantize onto `{Hold,Buy,Sell}`.
+    pub fn try_act(&self, obs: &[f32]) -> Result<Action, OnnxPolicyError> {
+        let padded = prepare_observation(obs, self.obs_dim);
+        let input = ort::value::TensorRef::from_array_view(([1_usize, self.obs_dim], &padded[..]))
+            .map_err(|err| OnnxPolicyError::Inference(err.to_string()))?;
+
+        let mut session = self
+            .session
+            .lock()
+            .map_err(|_| OnnxPolicyError::SessionPoisoned)?;
+        let outputs = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            session.run(ort::inputs![input])
+        })) {
+            Ok(Ok(outputs)) => outputs,
+            Ok(Err(err)) => return Err(OnnxPolicyError::Inference(err.to_string())),
+            Err(payload) => {
+                return Err(OnnxPolicyError::Inference(panic_payload_to_string(payload)))
+            }
+        };
+        let output = outputs
+            .values()
+            .next()
+            .ok_or(OnnxPolicyError::EmptyOutput)?;
+        let (_, mean) = output
+            .try_extract_tensor::<f32>()
+            .map_err(|err| OnnxPolicyError::Inference(err.to_string()))?;
+
+        let target = decode_mean_output(mean)?;
+        Ok(Action::quantize_inventory(target, self.hold_deadzone))
+    }
+}
+
+impl PolicyProvider for OnnxGaussianMeanPolicy {
+    fn act(&self, obs: &[f32]) -> Action {
+        self.try_act(obs).unwrap_or(Action::Hold)
+    }
+}
+
+fn load_session(
+    path: impl AsRef<Path>,
+    obs_dim: i64,
+) -> Result<(ort::session::Session, usize), OnnxPolicyError> {
+    let path = path.as_ref();
+    let obs_dim = usize::try_from(obs_dim)
+        .ok()
+        .filter(|dim| *dim > 0)
+        .ok_or(OnnxPolicyError::InvalidObservationDim(obs_dim))?;
+
+    if !path.exists() {
+        return Err(OnnxPolicyError::MissingModel(path.to_path_buf()));
+    }
+
+    let session = match std::panic::catch_unwind(|| {
+        ort::session::Session::builder().and_then(|builder| builder.commit_from_file(path))
+    }) {
+        Ok(Ok(session)) => session,
+        Ok(Err(err)) => {
+            return Err(OnnxPolicyError::Load {
+                path: path.to_path_buf(),
+                source: err.to_string(),
+            });
+        }
+        Err(payload) => {
+            return Err(OnnxPolicyError::Load {
+                path: path.to_path_buf(),
+                source: panic_payload_to_string(payload),
+            });
+        }
+    };
+
+    Ok((session, obs_dim))
+}
+
+fn decode_mean_output(output: &[f32]) -> Result<f32, OnnxPolicyError> {
+    decode_gaussian_mean_output(output).map_err(|err| match err {
+        GaussianMeanDecodeError::Empty => OnnxPolicyError::EmptyOutput,
+        GaussianMeanDecodeError::UnexpectedLen(len) => {
+            OnnxPolicyError::UnexpectedMeanOutput { len }
+        }
+        GaussianMeanDecodeError::NonFinite => OnnxPolicyError::NonFiniteMean,
+    })
 }
 
 fn panic_payload_to_string(payload: Box<dyn std::any::Any + Send>) -> String {
@@ -242,6 +338,43 @@ mod tests {
         let path = temp_file("missing_model.onnx");
         let err = OnnxPolicy::from_model(&path, 7).unwrap_err();
         assert!(matches!(err, OnnxPolicyError::MissingModel(_)));
+    }
+
+    #[test]
+    fn missing_gaussian_model_reports_without_loading_runtime() {
+        let path = temp_file("missing_gaussian.onnx");
+        let err = OnnxGaussianMeanPolicy::from_model(&path, 40, 0.25).unwrap_err();
+        assert!(matches!(err, OnnxPolicyError::MissingModel(_)));
+    }
+
+    #[test]
+    fn decode_mean_output_accepts_scalar_and_row() {
+        assert_eq!(decode_mean_output(&[0.8]).unwrap(), 0.8);
+        assert_eq!(decode_mean_output(&[-0.4, 0.1]).unwrap(), -0.4);
+        assert!(matches!(
+            decode_mean_output(&[0.1, 0.2, 0.3]),
+            Err(OnnxPolicyError::UnexpectedMeanOutput { len: 3 })
+        ));
+        assert!(matches!(
+            decode_mean_output(&[]),
+            Err(OnnxPolicyError::EmptyOutput)
+        ));
+    }
+
+    #[test]
+    fn decoded_mean_quantizes_to_dispatch_actions() {
+        assert_eq!(
+            Action::quantize_inventory(decode_mean_output(&[0.8]).unwrap(), 0.25),
+            Action::Buy
+        );
+        assert_eq!(
+            Action::quantize_inventory(decode_mean_output(&[0.05]).unwrap(), 0.25),
+            Action::Hold
+        );
+        assert_eq!(
+            Action::quantize_inventory(decode_mean_output(&[-0.8]).unwrap(), 0.25),
+            Action::Sell
+        );
     }
 
     #[test]
