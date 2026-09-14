@@ -72,22 +72,26 @@ torch.onnx.export(
 ```
 
 A Gaussian μ head export stays a single static scalar (or `[1,1]`) so
-`OnnxGaussianMeanPolicy` can quantize without libtorch:
+`OnnxGaussianMeanPolicy` can quantize without libtorch. WP-039 writes that
+graph offline via [`scripts/export_gaussian_mu_onnx.py`](scripts/export_gaussian_mu_onnx.py)
+(recorded-mean stand-in, no torch) or from a weekday
+`microstructure/gaussian_mlp` checkpoint (torch, does not train):
 
-```python
-mu_head = ...  # tanh-Gaussian mean only; no σ / value head
-mu_head.eval()
-dummy_obs = torch.zeros(1, 40, dtype=torch.float32)  # V×5, default V=8
-torch.onnx.export(
-    mu_head,
-    dummy_obs,
-    "checkpoints/microstructure/gaussian_mlp/mu.onnx",
-    input_names=["observation"],
-    output_names=["mean"],
-    dynamic_axes=None,
-    opset_version=17,
-)
+```bash
+# Recorded-mean stand-in [1, V×5] → [1,1] (Gemm zeros + μ). No libtorch.
+python3 crates/trolly-gym/scripts/export_gaussian_mu_onnx.py \
+    --output checkpoints/microstructure/gaussian_mlp/mu.onnx \
+    --mean 0.8
+
+# Weekday gaussian_mlp latest.safetensors → static μ graph (needs torch).
+python3 crates/trolly-gym/scripts/export_gaussian_mu_onnx.py \
+    --checkpoint-dir checkpoints/gpu_train_orchestrator/microstructure/gaussian_mlp \
+    --output checkpoints/microstructure/gaussian_mlp/mu.onnx
 ```
+
+Rust default builds can write the same stand-in with
+`write_recorded_mean_mu_onnx` (used by offline tests). Do **not** point either
+path at `_retired_unit_lot_microstructure`.
 
 The optional `ort` crate is pulled in only when `--features ort` is set and is
 configured for dynamic loading. Set `ORT_DYLIB_PATH` when `libonnxruntime.so`
@@ -344,12 +348,23 @@ cargo run --features gym-torch --bin depth_monitor -- execute policy-demo
 ```
 
 Hold and 3-logit ONNX selection are unchanged: `ONNX_MODEL_PATH` still wins
-when set. An exported Gaussian μ head is a separate opt-in:
+when set. An exported Gaussian μ head is a separate opt-in. After WP-039,
+`execute policy-demo` also auto-loads `mu.onnx` from
+`GAUSSIAN_CHECKPOINT_DIR` (or the weekday `microstructure/gaussian_mlp` dir)
+when `ONNX_GAUSSIAN_MODEL_PATH` and `GAUSSIAN_MEAN_ACTIONS` are unset:
 
 ```bash
-export ONNX_GAUSSIAN_MODEL_PATH=checkpoints/microstructure/gaussian_mlp/mu.onnx
+# After WP-039 export (stand-in or weekday μ graph):
+python3 crates/trolly-gym/scripts/export_gaussian_mu_onnx.py \
+    --checkpoint-dir checkpoints/gpu_train_orchestrator/microstructure/gaussian_mlp \
+    --output checkpoints/gpu_train_orchestrator/microstructure/gaussian_mlp/mu.onnx
+export GAUSSIAN_CHECKPOINT_DIR=checkpoints/gpu_train_orchestrator/microstructure/gaussian_mlp
 export ORT_DYLIB_PATH=/path/to/libonnxruntime.so
 export GAUSSIAN_HOLD_DEADZONE=0.25
+cargo run --features gym-ort --bin depth_monitor -- execute policy-demo
+
+# Explicit path still wins over the directory auto-load:
+export ONNX_GAUSSIAN_MODEL_PATH=checkpoints/microstructure/gaussian_mlp/mu.onnx
 cargo run --features gym-ort --bin depth_monitor -- execute policy-demo
 ```
 

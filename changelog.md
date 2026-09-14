@@ -4,12 +4,14 @@ Project journal for shipped work. Active backlog lives in [`WORKPLAN.md`](WORKPL
 
 ## WIP
 
-- Live demo place + user-stream reconcile of a Gaussian-quantized policy on Binance demo (keys / `RUN_BINANCE_DEMO_ORDERS=1`). Offline load-and-dispatch, ladder obs, and ONNX Gaussian μ join are in.
-- Export weekday `gaussian_mlp` μ to a static ONNX graph so `ONNX_GAUSSIAN_MODEL_PATH` can run without gym-torch (WP-039).
+- Live demo place + user-stream reconcile of a Gaussian-quantized policy on Binance demo (keys / `RUN_BINANCE_DEMO_ORDERS=1`). Offline load-and-dispatch, ladder obs, ONNX Gaussian μ export/auto-load are in.
+- Feed captured demo/live depth JSON into `execute policy-demo` so an exported μ graph acts on real book snapshots (WP-041).
 - Keep local GPU training checkpoint metrics improving via ClickHouse `trolly.ticks`, trajectory FIFO replay, daily `--continue` slices, and checkpoint fingerprints.
 - Add more exchange providers beyond Binance spot + USDM (stub scaffold landed; full venues remain).
 
 ## change log
++ `execute policy-demo`: auto-load `mu.onnx` from `GAUSSIAN_CHECKPOINT_DIR` or weekday `microstructure/gaussian_mlp` when `ONNX_GAUSSIAN_MODEL_PATH` is unset; recorded mean-actions still win (WP-040). Trainer guidance missing (silent).
++ `trolly-gym` / policy-demo: offline export of a static `[1, V×5] → [1,1]` Gaussian μ ONNX graph (recorded-mean stand-in or weekday `gaussian_mlp`) for `ONNX_GAUSSIAN_MODEL_PATH` (WP-039). Trainer guidance missing (silent).
 + `trolly-gym` / policy-demo: optional ONNX Gaussian μ head (`[1, V×5] → [1]` / `[1,1]`) quantizes via WP-035 onto `Action::dispatch`; `ONNX_GAUSSIAN_MODEL_PATH` selects it and the ladder frame; 3-logit `ONNX_MODEL_PATH` unchanged (WP-038). Trainer guidance missing (silent).
 + `trolly-gym` / policy-demo: Gaussian sources consume WP-032 `V×5` ladder frames from ingested depth (half-spread → δ) plus inventory; Hold/ONNX stay 7-D (WP-037). Trainer guidance missing (silent).
 + `execute policy-demo`: load recorded Gaussian mean-action vectors or `microstructure/gaussian_mlp` (torch), quantize via WP-035 onto `Action::dispatch` (WP-036). Trainer guidance missing (silent).

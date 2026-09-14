@@ -9,7 +9,6 @@ mod action;
 mod env;
 pub mod fingerprint;
 mod observation;
-#[cfg(feature = "ort")]
 pub mod onnx;
 pub mod orchestrator;
 pub mod policy;
@@ -41,6 +40,11 @@ pub use fingerprint::{
     load_sidecar, write_sidecar_for_checkpoint, ModelFingerprint, FINGERPRINT_SIDECAR,
 };
 pub use observation::{features_from_event, FeatureVector, ObservationWindow};
+pub use onnx::{
+    inspect_gaussian_mu_onnx, path_is_retired_unit_lot, write_recorded_mean_mu_onnx,
+    GaussianMuOnnxInfo, OnnxExportError, DEFAULT_GAUSSIAN_MU_ONNX_OBS_DIM, GAUSSIAN_MU_ONNX_INPUT,
+    GAUSSIAN_MU_ONNX_OUTPUT,
+};
 #[cfg(feature = "ort")]
 pub use onnx::{OnnxGaussianMeanPolicy, OnnxPolicy, OnnxPolicyError};
 #[cfg(feature = "torch")]

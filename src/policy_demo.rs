@@ -4,6 +4,7 @@ use std::{
     collections::HashSet,
     env, fmt,
     future::Future,
+    path::Path,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -1103,7 +1104,23 @@ fn load_policy(config: &PolicyDemoConfig) -> (CheckpointOrHoldPolicy, String) {
     }
 
     if let Some(dir) = gaussian_checkpoint_dir(config) {
+        if checkpoint_dir_is_retired(&dir) {
+            return (
+                CheckpointOrHoldPolicy::hold(),
+                format!(
+                    "hold (refusing retired unit-lot checkpoint {})",
+                    dir.to_string_lossy()
+                ),
+            );
+        }
+        if let Some(mu) = exported_mu_onnx_path(&dir) {
+            return load_onnx_gaussian_policy(&mu, hold_deadzone);
+        }
         return load_gaussian_checkpoint_policy(&dir, hold_deadzone);
+    }
+
+    if let Some(mu) = weekday_exported_mu_onnx() {
+        return load_onnx_gaussian_policy(&mu, hold_deadzone);
     }
 
     #[cfg(feature = "gym-torch")]
@@ -1119,6 +1136,9 @@ fn load_policy(config: &PolicyDemoConfig) -> (CheckpointOrHoldPolicy, String) {
                 );
             }
             if checkpoint_dir_looks_gaussian(&dir) {
+                if let Some(mu) = exported_mu_onnx_path(&dir) {
+                    return load_onnx_gaussian_policy(&mu, hold_deadzone);
+                }
                 return load_gaussian_checkpoint_policy(&dir, hold_deadzone);
             }
             return match CheckpointOrHoldPolicy::from_latest_checkpoint_dir(
@@ -1138,6 +1158,9 @@ fn load_policy(config: &PolicyDemoConfig) -> (CheckpointOrHoldPolicy, String) {
     #[cfg(not(feature = "gym-torch"))]
     if let Some(dir) = env::var_os("CHECKPOINT_DIR") {
         if checkpoint_dir_looks_gaussian(&dir) {
+            if let Some(mu) = exported_mu_onnx_path(&dir) {
+                return load_onnx_gaussian_policy(&mu, hold_deadzone);
+            }
             return (
                 CheckpointOrHoldPolicy::hold(),
                 format!(
@@ -1166,6 +1189,21 @@ fn uses_gaussian_source(config: &PolicyDemoConfig) -> bool {
     gaussian_mean_actions_spec(config).is_some()
         || gaussian_checkpoint_dir(config).is_some()
         || onnx_gaussian_model_path(config).is_some()
+        || weekday_exported_mu_onnx().is_some()
+}
+
+/// Weekday GPU job dir. Used only when `mu.onnx` is already on disk and no
+/// other Gaussian source is selected.
+pub const WEEKDAY_GAUSSIAN_MLP_DIR: &str =
+    "checkpoints/gpu_train_orchestrator/microstructure/gaussian_mlp";
+
+fn weekday_exported_mu_onnx() -> Option<std::ffi::OsString> {
+    exported_mu_onnx_path(std::ffi::OsStr::new(WEEKDAY_GAUSSIAN_MLP_DIR))
+}
+
+fn exported_mu_onnx_path(dir: &std::ffi::OsStr) -> Option<std::ffi::OsString> {
+    let path = Path::new(dir).join("mu.onnx");
+    path.is_file().then(|| path.into_os_string())
 }
 
 fn onnx_gaussian_model_path(config: &PolicyDemoConfig) -> Option<std::ffi::OsString> {

@@ -21,7 +21,7 @@ Shipped so far (not the destination): global book CLI; stream-native spot/USDM b
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: 2026-09-11
+- last_run: 2026-09-14
 - max_parallel: 3
 - ship_branch: integrate/orchestrator-branches
 
@@ -659,7 +659,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-039 — Export weekday Gaussian μ head to ONNX
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-033, WP-038]
 - scope: crates/trolly-gym/scripts/, crates/trolly-gym/README.md, crates/trolly-gym/src/onnx.rs, tests/policy_demo_runner.rs
@@ -669,6 +669,34 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - do not train; do not resume `_retired_unit_lot_microstructure`
   - `cargo test -p trolly-gym` and `cargo test --test policy_demo_runner` stay offline
 - notes: Closes the remaining gym→demo gap after WP-038: weekday GPU checkpoints are safetensors, and policy-demo still needs an exported μ graph to run without `--features gym-torch`.
+- worker/orchestrator (2026-09-14): trainer guidance missing (silent). Added `write_recorded_mean_mu_onnx` / `inspect_gaussian_mu_onnx` (always compiled), `scripts/export_gaussian_mu_onnx.py` (stand-in Gemm or torch export from `gaussian_mlp` `latest.safetensors`), and an offline policy-demo path that points at the written graph. Refuses `_retired_unit_lot_microstructure`. Acceptance: `cargo +stable test -p trolly-gym --lib --locked` 68 pass; `cargo +stable test --test policy_demo_runner --locked` 19 pass.
+
+### WP-040 — Auto-load exported μ ONNX from gaussian checkpoint dir
+
+- status: done
+- repos: trolly
+- depends_on: [WP-039]
+- scope: src/policy_demo.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - when `ONNX_GAUSSIAN_MODEL_PATH` is unset, `execute policy-demo` loads `mu.onnx` from `GAUSSIAN_CHECKPOINT_DIR` (or the weekday `microstructure/gaussian_mlp` dir) if that file exists
+  - explicit `ONNX_GAUSSIAN_MODEL_PATH` still wins; Hold / 3-logit `ONNX_MODEL_PATH` / recorded mean-action paths stay unchanged
+  - refuse `_retired_unit_lot_microstructure`; no production hosts; default tests stay offline and do not need libtorch
+  - `cargo test --test policy_demo_runner` and `cargo test -p trolly-gym` stay offline
+- notes: Join after WP-039. The export script writes `mu.onnx`; policy-demo should pick it up beside `latest.safetensors` so weekday artifacts do not require a second env var. Do not train.
+- worker/orchestrator (2026-09-14): trainer guidance missing (silent). `GAUSSIAN_CHECKPOINT_DIR/mu.onnx` and weekday `microstructure/gaussian_mlp/mu.onnx` auto-load after recorded mean-actions; explicit `ONNX_GAUSSIAN_MODEL_PATH` still wins; retired unit-lot still refused. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 22 pass.
+
+### WP-041 — Policy-demo captured depth tape
+
+- status: todo
+- repos: trolly
+- depends_on: [WP-040]
+- scope: src/policy_demo.rs, src/cli/mod.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - `execute policy-demo` can ingest captured depth JSON/NDJSON (same envelope style as `--reconcile-user-data-json`) into `Env` instead of only the synthetic fixture tape
+  - Gaussian / Hold / 3-logit ONNX / recorded mean-action selection is unchanged; default fixture remains when the flag is unset
+  - offline tests cover a captured depth frame through `Action::dispatch`; no live network or keys
+  - `cargo test --test policy_demo_runner` stays offline
+- notes: Next join after WP-040. Weekday μ graphs should act on injected demo/live book snapshots, not only the built-in synthetic depth. Do not train. Do not place live orders here.
 
 ## Integration test reference
 

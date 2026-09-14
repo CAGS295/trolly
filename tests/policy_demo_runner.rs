@@ -16,7 +16,10 @@ use trolly::policy_demo::{
     run_usdm_policy_demo_with_placer_and_user_data, DemoVenue, PolicyDemoConfig, PolicyDemoError,
     PolicyDemoOrders,
 };
-use trolly_gym::{Action, PolicyProvider};
+use trolly_gym::{
+    write_recorded_mean_mu_onnx, Action, PolicyProvider, DEFAULT_GAUSSIAN_MU_ONNX_OBS_DIM,
+    GAUSSIAN_MU_ONNX_INPUT, GAUSSIAN_MU_ONNX_OUTPUT,
+};
 
 struct SequencePolicy {
     actions: Vec<Action>,
@@ -155,6 +158,119 @@ async fn policy_demo_onnx_gaussian_without_ort_stays_hold() {
     );
     assert_eq!(report.placed_orders, 0);
     assert!(report.orders.is_empty());
+}
+
+#[tokio::test]
+async fn policy_demo_exported_gaussian_mu_onnx_stays_offline() {
+    let path = std::env::temp_dir().join(format!(
+        "trolly_policy_demo_mu_{}.onnx",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let info = write_recorded_mean_mu_onnx(&path, DEFAULT_GAUSSIAN_MU_ONNX_OBS_DIM, 0.8).unwrap();
+    assert_eq!(info.obs_dim, 40);
+    assert_eq!(info.input_name, GAUSSIAN_MU_ONNX_INPUT);
+    assert_eq!(info.output_name, GAUSSIAN_MU_ONNX_OUTPUT);
+    assert!((info.mean_bias - 0.8).abs() < f32::EPSILON);
+
+    let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT");
+    config.max_steps = 1;
+    config.window_frames = 1;
+    config.onnx_gaussian_model_path = Some(path.to_string_lossy().into_owned());
+
+    let report = run_policy_demo(config).await.unwrap();
+    let _ = std::fs::remove_file(&path);
+
+    assert!(
+        report.policy_source.contains("ONNX_GAUSSIAN_MODEL_PATH")
+            || report.policy_source.starts_with("onnx-gaussian:")
+            || report.policy_source.contains("ONNX Gaussian load failed")
+    );
+    assert_eq!(report.placed_orders, 0);
+    assert!(report.orders.is_empty());
+}
+
+#[tokio::test]
+async fn policy_demo_autoloads_mu_onnx_from_gaussian_checkpoint_dir() {
+    let dir = std::env::temp_dir().join(format!(
+        "trolly_policy_demo_gaussian_mlp_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("mu.onnx");
+    write_recorded_mean_mu_onnx(&path, DEFAULT_GAUSSIAN_MU_ONNX_OBS_DIM, 0.8).unwrap();
+
+    let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT");
+    config.max_steps = 1;
+    config.window_frames = 1;
+    config.gaussian_checkpoint_dir = Some(dir.to_string_lossy().into_owned());
+
+    let report = run_policy_demo(config).await.unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert!(
+        report.policy_source.contains("mu.onnx")
+            || report.policy_source.starts_with("onnx-gaussian:")
+            || report.policy_source.contains("ONNX_GAUSSIAN_MODEL_PATH")
+            || report.policy_source.contains("ONNX Gaussian load failed")
+    );
+    assert_eq!(report.placed_orders, 0);
+    assert!(report.orders.is_empty());
+}
+
+#[tokio::test]
+async fn policy_demo_recorded_mean_actions_win_over_dir_mu_onnx() {
+    let dir = std::env::temp_dir().join(format!(
+        "trolly_policy_demo_mean_wins_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    write_recorded_mean_mu_onnx(dir.join("mu.onnx"), DEFAULT_GAUSSIAN_MU_ONNX_OBS_DIM, 0.8)
+        .unwrap();
+
+    let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT");
+    config.max_steps = 1;
+    config.gaussian_checkpoint_dir = Some(dir.to_string_lossy().into_owned());
+    config.gaussian_mean_actions = Some("0.0".into());
+
+    let report = run_policy_demo(config).await.unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert!(report.policy_source.starts_with("gaussian-mean-actions:"));
+    assert_eq!(report.placed_orders, 0);
+}
+
+#[tokio::test]
+async fn policy_demo_refuses_retired_dir_even_with_mu_onnx() {
+    let dir = std::env::temp_dir().join(format!(
+        "trolly_policy_demo__retired_unit_lot_microstructure_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("mu.onnx"), b"not-an-onnx-stand-in").unwrap();
+
+    let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT");
+    config.max_steps = 1;
+    config.gaussian_checkpoint_dir = Some(dir.to_string_lossy().into_owned());
+
+    let report = run_policy_demo(config).await.unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert!(report
+        .policy_source
+        .contains("refusing retired unit-lot checkpoint"));
+    assert_eq!(report.placed_orders, 0);
 }
 
 #[tokio::test]
