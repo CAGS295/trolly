@@ -21,7 +21,7 @@ Shipped so far (not the destination): global book CLI; stream-native spot/USDM b
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: 2026-09-14
+- last_run: 2026-09-15
 - max_parallel: 3
 - ship_branch: integrate/orchestrator-branches
 
@@ -687,7 +687,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-041 — Policy-demo captured depth tape
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-040]
 - scope: src/policy_demo.rs, src/cli/mod.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
@@ -697,6 +697,34 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - offline tests cover a captured depth frame through `Action::dispatch`; no live network or keys
   - `cargo test --test policy_demo_runner` stays offline
 - notes: Next join after WP-040. Weekday μ graphs should act on injected demo/live book snapshots, not only the built-in synthetic depth. Do not train. Do not place live orders here.
+- worker/orchestrator (2026-09-15): trainer guidance missing (silent). `--depth-json` feeds captured StreamEvent / Binance combined-stream / raw `depthUpdate` / REST snapshot frames into `Env`; `--max-steps` still caps; unset keeps the synthetic 100/101 tape. Recorded mean-actions still quantize onto `Action::dispatch`. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 28 pass.
+
+### WP-042 — Policy-demo public depth source hook
+
+- status: done
+- repos: trolly
+- depends_on: [WP-041]
+- scope: src/policy_demo.rs, src/cli/mod.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - `execute policy-demo` can ingest public depth frames from an injectable in-process source (same parser as `--depth-json`) so a later live/demo WebSocket can reuse the hook
+  - `--depth-json` and the synthetic fixture stay the default paths; policy selection (Hold / 3-logit ONNX / recorded mean-actions / Gaussian μ) is unchanged
+  - offline tests push Binance-style frames through the hook into `Env` and through `Action::dispatch`; no live network or keys
+  - `cargo test --test policy_demo_runner` stays offline
+- notes: Next join after WP-041. Captured files prove injected books; the loop still needs a reusable public-depth source so demo streams are not a second parser. Do not train. Do not place live orders here.
+- worker/orchestrator (2026-09-15): trainer guidance missing (silent). Added `run_policy_demo_with_public_depth` plus `public_depth_messages`; report prints `depth=synthetic|captured-json|injected`; `--depth-json` still wins. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 31 pass.
+
+### WP-043 — Policy-demo live public depth subscribe
+
+- status: todo
+- repos: trolly
+- depends_on: [WP-042]
+- scope: src/policy_demo.rs, src/cli/mod.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - `execute policy-demo --subscribe-public-depth` connects to Binance public depth (spot or USDM matching `--venue`) and feeds frames through the WP-042 hook into `Env`
+  - `--depth-json` still wins; synthetic fixture remains the default; a bounded `--public-depth-timeout-secs` is required
+  - offline tests mock the connector; default `cargo test --test policy_demo_runner` stays offline and needs no keys
+  - policy selection unchanged; do not place live orders here; do not train
+- notes: Next join after WP-042. Captured files and the injectable hook are in; demo/live books still need a public depth WebSocket (not ClickHouse ingest). Do not block on sudo ROCm.
 
 ## Integration test reference
 

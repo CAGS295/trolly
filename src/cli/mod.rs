@@ -92,9 +92,13 @@ struct PolicyDemoArgs {
     /// Observation window frame count.
     #[clap(long, default_value_t = 1)]
     window_frames: usize,
-    /// Number of synthetic normalized depth observations to feed.
+    /// Number of depth observations to feed (synthetic fixture unless `--depth-json` is set).
     #[clap(long, default_value_t = 3)]
     max_steps: usize,
+    /// Captured depth JSON/NDJSON to ingest into Env instead of the synthetic tape.
+    /// Accepts a normalized StreamEvent, a JSON array, NDJSON, or Binance book frames.
+    #[clap(long)]
+    depth_json: Option<std::path::PathBuf>,
     /// Place generated requests on Binance demo REST. Requires RUN_BINANCE_DEMO_ORDERS=1.
     #[clap(long)]
     execute_demo_orders: bool,
@@ -238,6 +242,15 @@ impl PolicyDemoArgs {
         config.client_order_id_prefix = self.client_order_id_prefix.clone();
         config.wait_for_user_data = self.wait_for_user_data;
         config.user_data_timeout = std::time::Duration::from_secs(self.user_data_timeout_secs);
+        if let Some(path) = &self.depth_json {
+            match std::fs::read_to_string(path) {
+                Ok(input) => config.captured_depth_json = Some(input),
+                Err(err) => {
+                    eprintln!("policy demo failed to read {}: {err}", path.display());
+                    std::process::exit(1);
+                }
+            }
+        }
 
         match run_policy_demo(config).await {
             Ok(mut report) => {
@@ -270,10 +283,11 @@ impl PolicyDemoArgs {
 
 fn print_policy_demo_report(report: &PolicyDemoReport) {
     println!(
-        "policy demo: venue={} symbol={} policy={} steps={} order_requests={} placed_orders={} reconciled_orders={} mode={}",
+        "policy demo: venue={} symbol={} policy={} depth={} steps={} order_requests={} placed_orders={} reconciled_orders={} mode={}",
         report.venue,
         report.symbol,
         report.policy_source,
+        report.depth_source,
         report.steps,
         report.order_count(),
         report.placed_orders,

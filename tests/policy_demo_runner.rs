@@ -10,8 +10,9 @@ use binance_usdm_exec::{
     PlaceOrderResponse as UsdmPlaceOrderResponse,
 };
 use trolly::policy_demo::{
-    policy_demo_user_data_messages_from_json, reconcile_policy_demo_report, run_policy_demo,
-    run_policy_demo_with_policy, run_spot_policy_demo_with_placer,
+    policy_demo_depth_messages_from_json, policy_demo_user_data_messages_from_json,
+    reconcile_policy_demo_report, run_policy_demo, run_policy_demo_with_policy,
+    run_policy_demo_with_public_depth, run_spot_policy_demo_with_placer,
     run_spot_policy_demo_with_placer_and_user_data, run_usdm_policy_demo_with_placer,
     run_usdm_policy_demo_with_placer_and_user_data, DemoVenue, PolicyDemoConfig, PolicyDemoError,
     PolicyDemoOrders,
@@ -47,6 +48,18 @@ impl PolicyProvider for CaptureObsLenPolicy {
     }
 }
 
+#[derive(Default)]
+struct CaptureObsPolicy {
+    last: std::cell::RefCell<Vec<f32>>,
+}
+
+impl PolicyProvider for CaptureObsPolicy {
+    fn act(&self, obs: &[f32]) -> Action {
+        self.last.replace(obs.to_vec());
+        Action::Hold
+    }
+}
+
 impl PolicyProvider for SequencePolicy {
     fn act(&self, _obs: &[f32]) -> Action {
         let idx = self.next.get();
@@ -63,8 +76,198 @@ async fn policy_demo_default_hold_emits_no_orders() {
     let report = run_policy_demo(config).await.unwrap();
 
     assert_eq!(report.policy_source, "hold");
+    assert_eq!(report.depth_source, "synthetic");
     assert_eq!(report.placed_orders, 0);
     assert!(report.orders.is_empty());
+}
+
+#[tokio::test]
+async fn policy_demo_unset_depth_json_keeps_synthetic_fixture() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT");
+    config.max_steps = 1;
+    config.window_frames = 1;
+    let policy = CaptureObsPolicy::default();
+
+    let report = run_policy_demo_with_policy(config, &policy, "synthetic-obs")
+        .await
+        .unwrap();
+
+    assert_eq!(report.steps, 1);
+    assert_eq!(report.depth_source, "synthetic");
+    let obs = policy.last.borrow();
+    assert_eq!(obs.len(), 7);
+    assert!((obs[0] - 100.0).abs() < 1e-4, "synthetic bid {}", obs[0]);
+    assert!((obs[2] - 101.0).abs() < 1e-4, "synthetic ask {}", obs[2]);
+}
+
+#[tokio::test]
+async fn policy_demo_captured_stream_event_dispatches_orders() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT");
+    config.max_steps = 3;
+    config.qty = "0.002".into();
+    config.gaussian_mean_actions = Some("0.8,-0.8,0.05".into());
+    config.captured_depth_json = Some(
+        r#"[
+          {"kind":"depth","symbol":"BTCUSDT","bids":[{"price":"64321.50","qty":"1.0"}],"asks":[{"price":"64322.00","qty":"1.0"}],"update_id":1},
+          {"kind":"depth","symbol":"BTCUSDT","bids":[{"price":"64321.25","qty":"1.0"}],"asks":[{"price":"64321.75","qty":"1.0"}],"update_id":2},
+          {"kind":"depth","symbol":"BTCUSDT","bids":[{"price":"64320.00","qty":"1.0"}],"asks":[{"price":"64320.50","qty":"1.0"}],"update_id":3}
+        ]"#
+        .into(),
+    );
+
+    let report = run_policy_demo(config).await.unwrap();
+
+    assert!(report.policy_source.starts_with("gaussian-mean-actions:"));
+    assert_eq!(report.depth_source, "captured-json");
+    assert_eq!(report.steps, 3);
+    assert_eq!(report.placed_orders, 0);
+
+    let PolicyDemoOrders::Spot(orders) = report.orders else {
+        panic!("expected spot orders");
+    };
+    assert_eq!(orders.len(), 2);
+    assert_eq!(orders[0].side, SpotOrderSide::Buy);
+    assert_eq!(orders[0].order_type, SpotOrderType::Market);
+    assert_eq!(orders[0].quantity, "0.002");
+    assert_eq!(orders[1].side, SpotOrderSide::Sell);
+}
+
+#[tokio::test]
+async fn policy_demo_captured_binance_depth_feeds_observation() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT");
+    config.max_steps = 1;
+    config.window_frames = 1;
+    config.captured_depth_json =
+        Some(include_str!("fixtures/binance_usd_m_depth_envelope.json").into());
+    let policy = CaptureObsPolicy::default();
+
+    let report = run_policy_demo_with_policy(config, &policy, "captured-binance")
+        .await
+        .unwrap();
+
+    assert_eq!(report.steps, 1);
+    assert_eq!(report.depth_source, "captured-json");
+    let obs = policy.last.borrow();
+    assert_eq!(obs.len(), 7);
+    assert!((obs[0] - 64321.50).abs() < 1e-3, "captured bid {}", obs[0]);
+    assert!((obs[2] - 64322.00).abs() < 1e-3, "captured ask {}", obs[2]);
+    assert!((obs[4] - 0.50).abs() < 1e-3, "captured spread {}", obs[4]);
+}
+
+#[tokio::test]
+async fn policy_demo_captured_depth_ndjson_runs_steps() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Usdm, "ETHUSDT");
+    config.max_steps = 2;
+    config.window_frames = 1;
+    config.captured_depth_json = Some(
+        r#"{"e":"depthUpdate","s":"ETHUSDT","b":[["3500.10","2.0"]],"a":[["3500.40","1.5"]],"u":11}
+{"lastUpdateId":12,"bids":[["3500.00","1.0"]],"asks":[["3500.25","3.0"]]}
+"#
+        .into(),
+    );
+    let policy = CaptureObsPolicy::default();
+
+    let report = run_policy_demo_with_policy(config, &policy, "captured-ndjson")
+        .await
+        .unwrap();
+
+    assert_eq!(report.steps, 2);
+    let obs = policy.last.borrow();
+    assert_eq!(obs.len(), 7);
+    assert!((obs[0] - 3500.00).abs() < 1e-3, "rest bid {}", obs[0]);
+    assert!((obs[2] - 3500.25).abs() < 1e-3, "rest ask {}", obs[2]);
+}
+
+#[tokio::test]
+async fn policy_demo_injected_public_depth_dispatches_orders() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT");
+    config.max_steps = 2;
+    config.qty = "0.004".into();
+    config.gaussian_mean_actions = Some("0.8,-0.8".into());
+    let policy =
+        trolly_gym::CheckpointOrHoldPolicy::from_mean_actions_csv("0.8,-0.8", 0.25).unwrap();
+    let json = include_str!("fixtures/binance_usd_m_depth_envelope.json");
+
+    let report = run_policy_demo_with_public_depth(config, &policy, "injected-binance", || async {
+        let mut frames = policy_demo_depth_messages_from_json(json, "BTCUSDT")?;
+        frames.extend(policy_demo_depth_messages_from_json(
+            r#"{"e":"depthUpdate","s":"BTCUSDT","b":[["64320.00","1.0"]],"a":[["64320.50","1.0"]],"u":99}"#,
+            "BTCUSDT",
+        )?);
+        Ok(frames)
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(report.depth_source, "injected");
+    assert_eq!(report.steps, 2);
+    let PolicyDemoOrders::Spot(orders) = report.orders else {
+        panic!("expected spot orders");
+    };
+    assert_eq!(orders.len(), 2);
+    assert_eq!(orders[0].side, SpotOrderSide::Buy);
+    assert_eq!(orders[1].side, SpotOrderSide::Sell);
+    assert_eq!(orders[0].quantity, "0.004");
+}
+
+#[tokio::test]
+async fn policy_demo_depth_json_wins_over_injected_source() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT");
+    config.max_steps = 1;
+    config.window_frames = 1;
+    config.captured_depth_json =
+        Some(include_str!("fixtures/binance_usd_m_depth_envelope.json").into());
+    let policy = CaptureObsPolicy::default();
+
+    let report = run_policy_demo_with_public_depth(config, &policy, "json-wins", || async {
+        policy_demo_depth_messages_from_json(
+            r#"{"kind":"depth","symbol":"BTCUSDT","bids":[{"price":"10.00","qty":"1"}],"asks":[{"price":"11.00","qty":"1"}]}"#,
+            "BTCUSDT",
+        )
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(report.depth_source, "captured-json");
+    let obs = policy.last.borrow();
+    assert!((obs[0] - 64321.50).abs() < 1e-3, "json bid {}", obs[0]);
+}
+
+#[tokio::test]
+async fn policy_demo_injected_public_depth_empty_errors() {
+    let config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT");
+    let policy = CaptureObsPolicy::default();
+    let err = run_policy_demo_with_public_depth(config, &policy, "empty-source", || async {
+        Ok(Vec::new())
+    })
+    .await
+    .unwrap_err();
+    assert!(
+        matches!(err, PolicyDemoError::DepthInput(_)),
+        "unexpected error: {err}"
+    );
+}
+
+#[tokio::test]
+async fn policy_demo_captured_depth_empty_errors() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT");
+    config.captured_depth_json = Some("   \n".into());
+
+    let err = run_policy_demo(config).await.unwrap_err();
+    assert!(
+        matches!(err, PolicyDemoError::DepthInput(_)),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn policy_demo_depth_json_parses_array_and_binance_envelope() {
+    let messages = policy_demo_depth_messages_from_json(
+        include_str!("fixtures/binance_usd_m_depth_envelope.json"),
+        "BTCUSDT",
+    )
+    .unwrap();
+    assert_eq!(messages.len(), 1);
 }
 
 #[tokio::test]

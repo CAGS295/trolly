@@ -77,6 +77,12 @@ pub struct PolicyDemoConfig {
     pub onnx_gaussian_model_path: Option<String>,
     /// Deadzone for [`trolly_gym::Action::quantize_inventory`].
     pub inventory_hold_deadzone: f32,
+    /// Captured depth JSON/NDJSON (normalized `StreamEvent` or Binance book).
+    /// When unset, the runner feeds the synthetic fixture tape.
+    pub captured_depth_json: Option<String>,
+    /// Pre-parsed public depth frames from an injectable source (WP-042).
+    /// Used when `captured_depth_json` is unset so a later live WS can reuse the hook.
+    pub public_depth_messages: Option<Vec<Message>>,
 }
 
 impl PolicyDemoConfig {
@@ -96,6 +102,8 @@ impl PolicyDemoConfig {
             gaussian_checkpoint_dir: None,
             onnx_gaussian_model_path: None,
             inventory_hold_deadzone: DEFAULT_INVENTORY_DEADZONE,
+            captured_depth_json: None,
+            public_depth_messages: None,
         }
     }
 }
@@ -105,6 +113,7 @@ pub struct PolicyDemoReport {
     pub venue: DemoVenue,
     pub symbol: String,
     pub policy_source: String,
+    pub depth_source: String,
     pub steps: usize,
     pub execute_demo_orders: bool,
     pub placed_orders: usize,
@@ -164,6 +173,7 @@ pub enum PolicyDemoError {
     MissingDemoOrderGuard { var: String },
     MissingDemoCredentials,
     Harness(String),
+    DepthInput(String),
     ReconciliationInput(String),
     LiveReconciliation(String),
     SpotPlaceOrder(SpotPlaceOrderError),
@@ -181,6 +191,7 @@ impl fmt::Display for PolicyDemoError {
                 "missing demo credentials: set DEMO_BINANCE_KEY and DEMO_BINANCE_SECRET"
             ),
             Self::Harness(err) => write!(f, "policy demo harness failed: {err}"),
+            Self::DepthInput(err) => write!(f, "policy demo depth input failed: {err}"),
             Self::ReconciliationInput(err) => {
                 write!(f, "policy demo reconciliation input failed: {err}")
             }
@@ -219,6 +230,31 @@ pub async fn run_policy_demo(
 ) -> Result<PolicyDemoReport, PolicyDemoError> {
     let (policy, policy_source) = load_policy(&config);
     run_policy_demo_with_policy(config, &policy, policy_source).await
+}
+
+/// Run the demo harness with frames from an injectable public-depth source.
+///
+/// `--depth-json` still wins when `captured_depth_json` is set. The source is
+/// the hook a later live/demo WebSocket should call.
+pub async fn run_policy_demo_with_public_depth<P, S, Fut>(
+    mut config: PolicyDemoConfig,
+    policy: &P,
+    policy_source: impl Into<String>,
+    source: S,
+) -> Result<PolicyDemoReport, PolicyDemoError>
+where
+    P: PolicyProvider + ?Sized,
+    S: FnOnce() -> Fut,
+    Fut: Future<Output = Result<Vec<Message>, PolicyDemoError>>,
+{
+    let messages = source().await?;
+    if messages.is_empty() {
+        return Err(PolicyDemoError::DepthInput(
+            "public depth source returned no frames".into(),
+        ));
+    }
+    config.public_depth_messages = Some(messages);
+    run_policy_demo_with_policy(config, policy, policy_source).await
 }
 
 pub async fn run_policy_demo_with_policy<P>(
@@ -276,10 +312,12 @@ where
         (Vec::new(), None)
     };
 
+    let depth_source = policy_demo_depth_source_label(&config).to_string();
     let mut report = PolicyDemoReport {
         venue: DemoVenue::Spot,
         symbol: config.symbol,
         policy_source,
+        depth_source,
         steps,
         execute_demo_orders: config.execute_demo_orders,
         placed_orders: receipts.len(),
@@ -330,10 +368,12 @@ where
         (Vec::new(), None)
     };
 
+    let depth_source = policy_demo_depth_source_label(&config).to_string();
     let mut report = PolicyDemoReport {
         venue: DemoVenue::Usdm,
         symbol: config.symbol,
         policy_source,
+        depth_source,
         steps,
         execute_demo_orders: config.execute_demo_orders,
         placed_orders: receipts.len(),
@@ -378,10 +418,12 @@ where
         }
     }
 
+    let depth_source = policy_demo_depth_source_label(&config).to_string();
     Ok(PolicyDemoReport {
         venue: DemoVenue::Spot,
         symbol: config.symbol,
         policy_source: policy_source.into(),
+        depth_source,
         steps,
         execute_demo_orders: config.execute_demo_orders,
         placed_orders: receipts.len(),
@@ -416,10 +458,12 @@ where
         }
     }
 
+    let depth_source = policy_demo_depth_source_label(&config).to_string();
     Ok(PolicyDemoReport {
         venue: DemoVenue::Usdm,
         symbol: config.symbol,
         policy_source: policy_source.into(),
+        depth_source,
         steps,
         execute_demo_orders: config.execute_demo_orders,
         placed_orders: receipts.len(),
@@ -705,10 +749,48 @@ where
     }
 
     let mut env = Env::new(env_config, egress);
-    let messages = synthetic_depth_stream(&config.symbol, config.max_steps);
+    let messages = depth_messages_for_config(config)?;
     let steps = run_offline_policy_harness(&mut env, policy, messages)
         .map_err(|err| PolicyDemoError::Harness(err.to_string()))?;
     Ok(steps.len())
+}
+
+fn depth_messages_for_config(config: &PolicyDemoConfig) -> Result<Vec<Message>, PolicyDemoError> {
+    if let Some(input) = &config.captured_depth_json {
+        let messages = policy_demo_depth_messages_from_json(input, &config.symbol)?;
+        if messages.is_empty() {
+            return Err(PolicyDemoError::DepthInput(
+                "captured depth JSON contained no usable frames".into(),
+            ));
+        }
+        return Ok(truncate_depth_messages(messages, config.max_steps));
+    }
+    if let Some(messages) = &config.public_depth_messages {
+        if messages.is_empty() {
+            return Err(PolicyDemoError::DepthInput(
+                "public depth source returned no frames".into(),
+            ));
+        }
+        return Ok(truncate_depth_messages(messages.clone(), config.max_steps));
+    }
+    Ok(synthetic_depth_stream(&config.symbol, config.max_steps))
+}
+
+fn truncate_depth_messages(mut messages: Vec<Message>, max_steps: usize) -> Vec<Message> {
+    if max_steps > 0 && messages.len() > max_steps {
+        messages.truncate(max_steps);
+    }
+    messages
+}
+
+pub fn policy_demo_depth_source_label(config: &PolicyDemoConfig) -> &'static str {
+    if config.captured_depth_json.is_some() {
+        "captured-json"
+    } else if config.public_depth_messages.is_some() {
+        "injected"
+    } else {
+        "synthetic"
+    }
 }
 
 pub fn synthetic_depth_stream(symbol: &str, max_steps: usize) -> Vec<Message> {
@@ -730,6 +812,154 @@ pub fn synthetic_depth_stream(symbol: &str, max_steps: usize) -> Vec<Message> {
             }))
         })
         .collect()
+}
+
+/// Parse captured depth JSON/NDJSON the same way `--reconcile-user-data-json` does:
+/// one object, a JSON array, or newline-delimited frames.
+///
+/// Each frame may already be a normalized [`StreamEvent`] envelope, or a captured
+/// Binance combined-stream / raw `depthUpdate` / REST snapshot book. Missing
+/// symbols fall back to `default_symbol` so REST snapshots can feed `Env`.
+pub fn policy_demo_depth_messages_from_json(
+    input: &str,
+    default_symbol: &str,
+) -> Result<Vec<Message>, PolicyDemoError> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Err(PolicyDemoError::DepthInput(
+            "captured depth JSON is empty".into(),
+        ));
+    }
+
+    if let Ok(value) = serde_json::from_str::<Value>(trimmed) {
+        return match value {
+            Value::Array(values) => values
+                .into_iter()
+                .map(|value| json_value_to_depth_message(value, default_symbol))
+                .collect::<Result<Vec<_>, _>>(),
+            other => Ok(vec![json_value_to_depth_message(other, default_symbol)?]),
+        };
+    }
+
+    input
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(|line| {
+            let value = serde_json::from_str(line).map_err(|err| {
+                PolicyDemoError::DepthInput(format!("invalid captured depth NDJSON: {err}"))
+            })?;
+            json_value_to_depth_message(value, default_symbol)
+        })
+        .collect()
+}
+
+fn json_value_to_depth_message(
+    value: Value,
+    default_symbol: &str,
+) -> Result<Message, PolicyDemoError> {
+    match value {
+        Value::String(text) => {
+            let inner = serde_json::from_str::<Value>(&text).unwrap_or(Value::String(text));
+            if let Value::String(_) = &inner {
+                return Err(PolicyDemoError::DepthInput(
+                    "captured depth string frame is not JSON".into(),
+                ));
+            }
+            json_value_to_depth_message(inner, default_symbol)
+        }
+        other => {
+            let event = stream_event_from_captured_depth(&other, default_symbol)?;
+            Ok(envelope_message(&event))
+        }
+    }
+}
+
+fn stream_event_from_captured_depth(
+    value: &Value,
+    default_symbol: &str,
+) -> Result<StreamEvent, PolicyDemoError> {
+    if value.get("kind").is_some() {
+        return serde_json::from_value(value.clone()).map_err(|err| {
+            PolicyDemoError::DepthInput(format!("invalid normalized depth envelope: {err}"))
+        });
+    }
+
+    let data = value.get("data").unwrap_or(value);
+    let symbol = data
+        .get("s")
+        .or_else(|| data.get("symbol"))
+        .and_then(json_as_string)
+        .filter(|symbol| !symbol.is_empty())
+        .unwrap_or_else(|| default_symbol.to_owned());
+    let bids = parse_captured_levels(
+        data.get("b")
+            .or_else(|| data.get("bids"))
+            .or_else(|| value.get("bids")),
+    );
+    let asks = parse_captured_levels(
+        data.get("a")
+            .or_else(|| data.get("asks"))
+            .or_else(|| value.get("asks")),
+    );
+    if bids.is_empty() && asks.is_empty() {
+        return Err(PolicyDemoError::DepthInput(
+            "captured depth frame has no bids or asks".into(),
+        ));
+    }
+    let update_id = json_as_u64(
+        data.get("u")
+            .or_else(|| data.get("lastUpdateId"))
+            .or_else(|| data.get("update_id"))
+            .or_else(|| value.get("lastUpdateId")),
+    );
+
+    Ok(StreamEvent::Depth(DepthUpdate {
+        symbol,
+        bids,
+        asks,
+        update_id,
+    }))
+}
+
+fn parse_captured_levels(value: Option<&Value>) -> Vec<PriceLevel> {
+    let Some(Value::Array(levels)) = value else {
+        return Vec::new();
+    };
+    levels
+        .iter()
+        .filter_map(|level| match level {
+            Value::Array(pair) if pair.len() >= 2 => Some(PriceLevel {
+                price: json_as_string(&pair[0]).unwrap_or_default(),
+                qty: json_as_string(&pair[1]).unwrap_or_default(),
+            }),
+            Value::Object(map) => Some(PriceLevel {
+                price: map
+                    .get("price")
+                    .and_then(json_as_string)
+                    .unwrap_or_default(),
+                qty: map.get("qty").and_then(json_as_string).unwrap_or_default(),
+            }),
+            _ => None,
+        })
+        .filter(|level| !level.price.is_empty())
+        .collect()
+}
+
+fn json_as_string(value: &Value) -> Option<String> {
+    match value {
+        Value::String(text) => Some(text.clone()),
+        Value::Number(number) => Some(number.to_string()),
+        _ => None,
+    }
+}
+
+fn json_as_u64(value: Option<&Value>) -> Option<u64> {
+    value.and_then(|value| match value {
+        Value::Number(number) => number.as_u64(),
+        Value::String(text) => text.parse().ok(),
+        _ => None,
+    })
 }
 
 fn ensure_demo_order_guard(var: &str) -> Result<(), PolicyDemoError> {

@@ -4,12 +4,14 @@ Project journal for shipped work. Active backlog lives in [`WORKPLAN.md`](WORKPL
 
 ## WIP
 
-- Live demo place + user-stream reconcile of a Gaussian-quantized policy on Binance demo (keys / `RUN_BINANCE_DEMO_ORDERS=1`). Offline load-and-dispatch, ladder obs, ONNX Gaussian μ export/auto-load are in.
-- Feed captured demo/live depth JSON into `execute policy-demo` so an exported μ graph acts on real book snapshots (WP-041).
+- Live demo place + user-stream reconcile of a Gaussian-quantized policy on Binance demo (keys / `RUN_BINANCE_DEMO_ORDERS=1`). Offline load-and-dispatch, captured/injected books, ONNX Gaussian μ export/auto-load are in.
+- Subscribe public demo/live depth into `execute policy-demo` through the WP-042 hook (WP-043).
 - Keep local GPU training checkpoint metrics improving via ClickHouse `trolly.ticks`, trajectory FIFO replay, daily `--continue` slices, and checkpoint fingerprints.
 - Add more exchange providers beyond Binance spot + USDM (stub scaffold landed; full venues remain).
 
 ## change log
++ `execute policy-demo`: injectable public-depth source (`run_policy_demo_with_public_depth`); report prints `depth=synthetic|captured-json|injected`; `--depth-json` still wins (WP-042). Trainer guidance missing (silent).
++ `execute policy-demo`: `--depth-json` feeds captured StreamEvent / Binance depth / REST snapshot frames into Env; unset keeps the synthetic tape (WP-041). Trainer guidance missing (silent).
 + `execute policy-demo`: auto-load `mu.onnx` from `GAUSSIAN_CHECKPOINT_DIR` or weekday `microstructure/gaussian_mlp` when `ONNX_GAUSSIAN_MODEL_PATH` is unset; recorded mean-actions still win (WP-040). Trainer guidance missing (silent).
 + `trolly-gym` / policy-demo: offline export of a static `[1, V×5] → [1,1]` Gaussian μ ONNX graph (recorded-mean stand-in or weekday `gaussian_mlp`) for `ONNX_GAUSSIAN_MODEL_PATH` (WP-039). Trainer guidance missing (silent).
 + `trolly-gym` / policy-demo: optional ONNX Gaussian μ head (`[1, V×5] → [1]` / `[1,1]`) quantizes via WP-035 onto `Action::dispatch`; `ONNX_GAUSSIAN_MODEL_PATH` selects it and the ladder frame; 3-logit `ONNX_MODEL_PATH` unchanged (WP-038). Trainer guidance missing (silent).

@@ -432,9 +432,33 @@ cargo run --bin depth_monitor -- execute policy-demo \
     --reconcile-user-data-json captured-demo-user-data.json
 ```
 
+To feed a captured demo/live book instead of the built-in synthetic depth tape,
+pass `--depth-json`. The file uses the same JSON / JSON-array / NDJSON envelope
+style as `--reconcile-user-data-json`. Each frame may be a normalized
+`StreamEvent` (`{"kind":"depth",...}`), a Binance combined-stream or raw
+`depthUpdate` (`b`/`a` or `bids`/`asks`), or a REST snapshot
+(`lastUpdateId` + `bids`/`asks`). Missing symbols fall back to `--symbol`.
+`--max-steps` still caps how many frames are ingested. Policy selection
+(Hold / 3-logit ONNX / recorded mean-actions / Gaussian μ) is unchanged:
+
+```bash
+export GAUSSIAN_MEAN_ACTIONS=0.8,-0.8,0.05
+cargo run --bin depth_monitor -- execute policy-demo \
+    --venue spot \
+    --depth-json captured-demo-depth.json
+```
+
+`--depth-json` still wins over an in-process public-depth source. Tests and a
+later live/demo WebSocket should call
+`run_policy_demo_with_public_depth` with the same parser
+(`policy_demo_depth_messages_from_json`). The report prints `depth=synthetic`,
+`depth=captured-json`, or `depth=injected`. No extra CLI flag is required for
+the hook; do not place live orders here.
+
 The offline regression for this bridge is `cargo test --test policy_demo_runner
 --locked`; it validates spot/USDM request generation, the hold fallback,
-recorded Gaussian mean-action quantization (WP-036), the guard refusal, live
+recorded Gaussian mean-action quantization (WP-036), captured depth ingest
+(WP-041), the injectable public-depth hook (WP-042), the guard refusal, live
 wait option guards, mock placement receipts, mocked frame-source reconciliation,
 and captured receipt-to-user-stream reconciliation without live network or keys.
 
