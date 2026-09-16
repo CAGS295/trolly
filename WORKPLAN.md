@@ -21,7 +21,7 @@ Shipped so far (not the destination): global book CLI; stream-native spot/USDM b
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: 2026-09-15
+- last_run: 2026-09-16
 - max_parallel: 3
 - ship_branch: integrate/orchestrator-branches
 
@@ -715,7 +715,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-043 — Policy-demo live public depth subscribe
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-042]
 - scope: src/policy_demo.rs, src/cli/mod.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
@@ -725,6 +725,37 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - offline tests mock the connector; default `cargo test --test policy_demo_runner` stays offline and needs no keys
   - policy selection unchanged; do not place live orders here; do not train
 - notes: Next join after WP-042. Captured files and the injectable hook are in; demo/live books still need a public depth WebSocket (not ClickHouse ingest). Do not block on sudo ROCm.
+- worker/orchestrator (2026-09-16): trainer guidance missing (silent). `--subscribe-public-depth` plus required `--public-depth-timeout-secs` collects demo public depth (spot `wss://demo-stream.binance.com/ws`, USDM `wss://fstream.binancefuture.com/stream`) through the WP-042 hook; report prints `depth=subscribed`; `--depth-json` still wins; offline tests mock WS texts and skip SUBSCRIBE acks. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 37 pass.
+
+### WP-044 — Policy-demo public depth snapshot + diffs
+
+- status: done
+- repos: trolly
+- depends_on: [WP-043]
+- scope: src/policy_demo.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - subscribed public depth can seed a local book from a demo REST-style snapshot, apply WS `depthUpdate` diffs (qty `0` removes a level; stale `u` skipped), and feed reconstructed top-of-book frames into `Env`
+  - `--depth-json` still wins; synthetic fixture remains the default; live REST/WS stay behind `--subscribe-public-depth` and a bounded timeout
+  - offline tests mock the snapshot and diffs; default `cargo test --test policy_demo_runner` stays offline and needs no keys
+  - policy selection unchanged; do not place live orders here; do not train
+- notes: Next join after WP-043. Raw `@depth` diffs are not snapshots; `Env` `features_from_event` reads `.first()` bid/ask. Rebuild the book so a saved policy sees a coherent demo/live top of book. Do not block on sudo ROCm.
+- worker/orchestrator (2026-09-16): trainer guidance missing (silent). Local book from REST-style snapshot + WS diffs; qty `0` removes; stale `u` skipped; live subscribe fetches demo REST snapshot then rebuilds. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 40 pass.
+
+### WP-045 — Policy-demo multi-symbol stream observations
+
+- status: todo
+- repos: trolly
+- depends_on: [WP-037, WP-044]
+- scope: crates/trolly-gym/src/env.rs, crates/trolly-gym/src/observation.rs, src/policy_demo.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - `Env` can ingest public depth for more than one symbol and expose a joined observation (per-symbol 7-D or ladder frames) that a `PolicyProvider` can act on
+  - `execute policy-demo` accepts multiple symbols (CLI or config) and subscribes/injects public depth for each; `--depth-json` still wins; synthetic default remains single-symbol
+  - Buy/Sell still dispatch through `Action::dispatch` (document per-symbol qty/side if needed); no live orders in this item
+  - offline tests inject two symbols; default `cargo test --test policy_demo_runner` and `cargo test -p trolly-gym` stay offline
+  - do not train; do not resume `_retired_unit_lot_microstructure`
+- notes: Broad goal calls for multi-symbol `trolly-stream` observations. WP-043/044 are single-symbol demo books. This is the next gym→strategy join, not a third venue or docs-only chore.
+
+## Integration test reference
 
 ## Integration test reference
 

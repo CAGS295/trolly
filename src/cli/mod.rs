@@ -92,7 +92,7 @@ struct PolicyDemoArgs {
     /// Observation window frame count.
     #[clap(long, default_value_t = 1)]
     window_frames: usize,
-    /// Number of depth observations to feed (synthetic fixture unless `--depth-json` is set).
+    /// Number of depth observations to feed (synthetic fixture unless `--depth-json` or `--subscribe-public-depth`).
     #[clap(long, default_value_t = 3)]
     max_steps: usize,
     /// Captured depth JSON/NDJSON to ingest into Env instead of the synthetic tape.
@@ -118,6 +118,13 @@ struct PolicyDemoArgs {
     /// Maximum seconds to wait for live demo user-data reconciliation.
     #[clap(long, default_value_t = 45)]
     user_data_timeout_secs: u64,
+    /// Subscribe to Binance public depth (demo market stream matching `--venue`).
+    /// Feeds frames through the WP-042 hook. `--depth-json` still wins.
+    #[clap(long, requires = "public_depth_timeout_secs")]
+    subscribe_public_depth: bool,
+    /// Maximum seconds to collect public depth frames. Required with `--subscribe-public-depth`.
+    #[clap(long)]
+    public_depth_timeout_secs: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -242,6 +249,10 @@ impl PolicyDemoArgs {
         config.client_order_id_prefix = self.client_order_id_prefix.clone();
         config.wait_for_user_data = self.wait_for_user_data;
         config.user_data_timeout = std::time::Duration::from_secs(self.user_data_timeout_secs);
+        config.subscribe_public_depth = self.subscribe_public_depth;
+        if let Some(secs) = self.public_depth_timeout_secs {
+            config.public_depth_timeout = std::time::Duration::from_secs(secs);
+        }
         if let Some(path) = &self.depth_json {
             match std::fs::read_to_string(path) {
                 Ok(input) => config.captured_depth_json = Some(input),

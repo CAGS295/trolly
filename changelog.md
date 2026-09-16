@@ -4,12 +4,14 @@ Project journal for shipped work. Active backlog lives in [`WORKPLAN.md`](WORKPL
 
 ## WIP
 
-- Live demo place + user-stream reconcile of a Gaussian-quantized policy on Binance demo (keys / `RUN_BINANCE_DEMO_ORDERS=1`). Offline load-and-dispatch, captured/injected books, ONNX Gaussian μ export/auto-load are in.
-- Subscribe public demo/live depth into `execute policy-demo` through the WP-042 hook (WP-043).
+- Live demo place + user-stream reconcile of a Gaussian-quantized policy on Binance demo (keys / `RUN_BINANCE_DEMO_ORDERS=1`). Offline load-and-dispatch, captured/injected/subscribed books, ONNX Gaussian μ, and snapshot+diff rebuild are in.
+- Multi-symbol policy-demo observations (WP-045) so a checkpoint consumes more than one `trolly-stream` book.
 - Keep local GPU training checkpoint metrics improving via ClickHouse `trolly.ticks`, trajectory FIFO replay, daily `--continue` slices, and checkpoint fingerprints.
 - Add more exchange providers beyond Binance spot + USDM (stub scaffold landed; full venues remain).
 
 ## change log
++ `execute policy-demo`: subscribed public depth seeds a local book from a demo REST-style snapshot and applies WS diffs (qty `0` removes; stale `u` skipped) so Env sees reconstructed top-of-book (WP-044). Trainer guidance missing (silent).
++ `execute policy-demo`: `--subscribe-public-depth` plus required `--public-depth-timeout-secs` collects demo public depth through the WP-042 hook; report prints `depth=subscribed`; `--depth-json` still wins (WP-043). Trainer guidance missing (silent).
 + `execute policy-demo`: injectable public-depth source (`run_policy_demo_with_public_depth`); report prints `depth=synthetic|captured-json|injected`; `--depth-json` still wins (WP-042). Trainer guidance missing (silent).
 + `execute policy-demo`: `--depth-json` feeds captured StreamEvent / Binance depth / REST snapshot frames into Env; unset keeps the synthetic tape (WP-041). Trainer guidance missing (silent).
 + `execute policy-demo`: auto-load `mu.onnx` from `GAUSSIAN_CHECKPOINT_DIR` or weekday `microstructure/gaussian_mlp` when `ONNX_GAUSSIAN_MODEL_PATH` is unset; recorded mean-actions still win (WP-040). Trainer guidance missing (silent).

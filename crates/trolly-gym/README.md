@@ -448,19 +448,42 @@ cargo run --bin depth_monitor -- execute policy-demo \
     --depth-json captured-demo-depth.json
 ```
 
-`--depth-json` still wins over an in-process public-depth source. Tests and a
-later live/demo WebSocket should call
-`run_policy_demo_with_public_depth` with the same parser
+`--depth-json` still wins over an in-process public-depth source and over
+`--subscribe-public-depth`. Tests mock the connector via
+`run_policy_demo_with_subscribed_public_depth_texts` / the WP-042 hook
+(`run_policy_demo_with_public_depth`) using the same parser
 (`policy_demo_depth_messages_from_json`). The report prints `depth=synthetic`,
-`depth=captured-json`, or `depth=injected`. No extra CLI flag is required for
-the hook; do not place live orders here.
+`depth=captured-json`, `depth=injected`, or `depth=subscribed`.
+
+To subscribe to Binance **demo** public depth (spot `wss://demo-stream.binance.com/ws`
+or USDM `wss://fstream.binancefuture.com/stream`, matching `--venue`) and feed
+frames through that hook, pass `--subscribe-public-depth` plus a bounded
+`--public-depth-timeout-secs`. The live path seeds a local book from the demo
+REST snapshot (`/api/v3/depth` or `/fapi/v1/depth`) then applies `@depth`
+diffs (qty `0` removes a level; stale `u` is skipped) so `Env` sees a
+reconstructed top of book rather than raw partial frames. Tests inject a
+snapshot via `PolicyDemoConfig.public_depth_snapshot_json`. No keys are
+required for public depth. Synthetic fixture remains the default when the
+flag is unset. Do not place live orders here; demo REST placement still needs
+`--execute-demo-orders` and `RUN_BINANCE_DEMO_ORDERS=1`.
+
+```bash
+export GAUSSIAN_MEAN_ACTIONS=0.8,-0.8,0.05
+cargo run --bin depth_monitor -- execute policy-demo \
+    --venue spot \
+    --subscribe-public-depth \
+    --public-depth-timeout-secs 8 \
+    --max-steps 3
+```
 
 The offline regression for this bridge is `cargo test --test policy_demo_runner
 --locked`; it validates spot/USDM request generation, the hold fallback,
 recorded Gaussian mean-action quantization (WP-036), captured depth ingest
-(WP-041), the injectable public-depth hook (WP-042), the guard refusal, live
-wait option guards, mock placement receipts, mocked frame-source reconciliation,
-and captured receipt-to-user-stream reconciliation without live network or keys.
+(WP-041), the injectable public-depth hook (WP-042), mocked public-depth
+subscribe (WP-043), snapshot+diff book rebuild (WP-044), the guard refusal,
+live wait option guards, mock placement receipts, mocked frame-source
+reconciliation, and captured receipt-to-user-stream reconciliation without
+live network or keys.
 
 See the **WP-020 training loop** section below for rollout collection, the
 `WolfPpoTrainDriver`, and checkpoint save/load.
