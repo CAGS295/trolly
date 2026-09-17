@@ -4,12 +4,15 @@ Project journal for shipped work. Active backlog lives in [`WORKPLAN.md`](WORKPL
 
 ## WIP
 
-- Live demo place + user-stream reconcile of a Gaussian-quantized policy on Binance demo (keys / `RUN_BINANCE_DEMO_ORDERS=1`). Offline load-and-dispatch, captured/injected/subscribed books, ONNX Gaussian μ, and snapshot+diff rebuild are in.
-- Multi-symbol policy-demo observations (WP-045) so a checkpoint consumes more than one `trolly-stream` book.
+- Live demo place + user-stream reconcile of a Gaussian-quantized policy on Binance demo (keys / `RUN_BINANCE_DEMO_ORDERS=1`). Offline load-and-dispatch, captured/injected/subscribed books, ONNX Gaussian μ, snapshot+diff rebuild, and multi-symbol joined observations are in.
+- Per-symbol `Action::dispatch` from joined observations (WP-048); extras are observation-only today.
 - Keep local GPU training checkpoint metrics improving via ClickHouse `trolly.ticks`, trajectory FIFO replay, daily `--continue` slices, and checkpoint fingerprints.
 - Add more exchange providers beyond Binance spot + USDM (stub scaffold landed; full venues remain).
 
 ## change log
++ `execute policy-demo`: `public_depth_snapshot_json` accepts a JSON array of REST-style snapshots (one local book per symbol) so two-symbol subscribe rebuilds stay offline-testable (WP-047). Trainer guidance missing (silent).
++ `trolly-gym` / policy-demo: Gaussian sources keep the primary-symbol `V×5` ladder when extra books are listed so weekday `mu.onnx` / `gaussian_mlp` dim still matches (WP-046). Trainer guidance missing (silent).
++ `trolly-gym` / policy-demo: Env joins per-symbol 7-D or `V×5` frames (`--symbol BTCUSDT,ETHUSDT`); Buy/Sell still dispatch the primary pair; synthetic tape stays single-symbol (WP-045). Trainer guidance missing (silent).
 + `execute policy-demo`: subscribed public depth seeds a local book from a demo REST-style snapshot and applies WS diffs (qty `0` removes; stale `u` skipped) so Env sees reconstructed top-of-book (WP-044). Trainer guidance missing (silent).
 + `execute policy-demo`: `--subscribe-public-depth` plus required `--public-depth-timeout-secs` collects demo public depth through the WP-042 hook; report prints `depth=subscribed`; `--depth-json` still wins (WP-043). Trainer guidance missing (silent).
 + `execute policy-demo`: injectable public-depth source (`run_policy_demo_with_public_depth`); report prints `depth=synthetic|captured-json|injected`; `--depth-json` still wins (WP-042). Trainer guidance missing (silent).

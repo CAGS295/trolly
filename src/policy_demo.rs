@@ -11,20 +11,20 @@ use std::{
 
 use binance_spot_exec::{
     build_multiplexor as build_spot_multiplexor, ingest_user_data as ingest_spot_user_data,
-    AccountBook, ApiCredentials as SpotCredentials, BinanceSpotUserStream,
+    spot_depth_rest_url, AccountBook, ApiCredentials as SpotCredentials, BinanceSpotUserStream,
     NativeTlsTransport as SpotNativeTlsTransport, PlaceOrderError as SpotPlaceOrderError,
     PlaceOrderRequest as SpotPlaceOrderRequest, PlaceOrderResponse as SpotPlaceOrderResponse,
     SpotExecContext, SpotOrderClient, SpotOrderEgress, SpotUserEvent, SPOT_DEMO_MARKET_STREAM_URL,
-    SPOT_DEMO_ORDER_BASE_URL, SPOT_DEMO_REST_BASE_URL, spot_depth_rest_url,
+    SPOT_DEMO_ORDER_BASE_URL, SPOT_DEMO_REST_BASE_URL,
 };
 use binance_usdm_exec::{
     build_multiplexor_with_context as build_usdm_multiplexor_with_context,
-    ingest_user_data as ingest_usdm_user_data, ApiCredentials as UsdmCredentials, ListenKeyClient,
-    ListenKeyError, NativeTlsTransport as UsdmNativeTlsTransport,
-    PlaceOrderError as UsdmPlaceOrderError, PlaceOrderRequest as UsdmPlaceOrderRequest,
-    PlaceOrderResponse as UsdmPlaceOrderResponse, UsdmExecContext, UsdmExecUpdate, UsdmOrderClient,
-    UsdmOrderEgress, UsdmUserDataStream, USDM_DEMO_MARKET_STREAM_URL, USDM_DEMO_REST_BASE_URL,
-    usdm_depth_rest_url,
+    ingest_user_data as ingest_usdm_user_data, usdm_depth_rest_url,
+    ApiCredentials as UsdmCredentials, ListenKeyClient, ListenKeyError,
+    NativeTlsTransport as UsdmNativeTlsTransport, PlaceOrderError as UsdmPlaceOrderError,
+    PlaceOrderRequest as UsdmPlaceOrderRequest, PlaceOrderResponse as UsdmPlaceOrderResponse,
+    UsdmExecContext, UsdmExecUpdate, UsdmOrderClient, UsdmOrderEgress, UsdmUserDataStream,
+    USDM_DEMO_MARKET_STREAM_URL, USDM_DEMO_REST_BASE_URL,
 };
 use futures_util::{SinkExt, StreamExt};
 use http::Uri;
@@ -65,6 +65,8 @@ impl fmt::Display for DemoVenue {
 pub struct PolicyDemoConfig {
     pub venue: DemoVenue,
     pub symbol: String,
+    /// All observation symbols (primary first). Empty means `symbol` only.
+    pub observation_symbols: Vec<String>,
     pub qty: String,
     pub window_frames: usize,
     pub max_steps: usize,
@@ -99,9 +101,15 @@ pub struct PolicyDemoConfig {
 
 impl PolicyDemoConfig {
     pub fn new(venue: DemoVenue, symbol: impl Into<String>) -> Self {
+        let observation_symbols = parse_policy_demo_symbols(&symbol.into());
+        let symbol = observation_symbols
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "BTCUSDT".into());
         Self {
             venue,
-            symbol: symbol.into(),
+            symbol,
+            observation_symbols,
             qty: "0.01".into(),
             window_frames: 1,
             max_steps: 3,
@@ -121,12 +129,49 @@ impl PolicyDemoConfig {
             public_depth_snapshot_json: None,
         }
     }
+
+    /// Primary dispatch symbol first, then extra observation symbols.
+    pub fn all_symbols(&self) -> Vec<String> {
+        if self.observation_symbols.len() > 1 {
+            self.observation_symbols.clone()
+        } else if self.observation_symbols.len() == 1 {
+            self.observation_symbols.clone()
+        } else {
+            vec![self.symbol.clone()]
+        }
+    }
+
+    pub fn display_symbols(&self) -> String {
+        self.all_symbols().join(",")
+    }
+}
+
+/// Split `--symbol BTCUSDT,ETHUSDT` into unique pairs (primary first).
+pub fn parse_policy_demo_symbols(input: &str) -> Vec<String> {
+    let mut symbols = Vec::new();
+    for part in input.split([',', ';']) {
+        let trimmed = part.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if symbols
+            .iter()
+            .any(|existing: &String| existing.eq_ignore_ascii_case(trimmed))
+        {
+            continue;
+        }
+        symbols.push(trimmed.to_string());
+    }
+    symbols
 }
 
 #[derive(Debug, Clone)]
 pub struct PolicyDemoReport {
     pub venue: DemoVenue,
+    /// Dispatch / inventory pair used by `Action::dispatch` and user-stream reconcile.
     pub symbol: String,
+    /// All observation symbols (primary first). Used for display only.
+    pub observation_symbols: Vec<String>,
     pub policy_source: String,
     pub depth_source: String,
     pub steps: usize,
@@ -140,6 +185,14 @@ pub struct PolicyDemoReport {
 impl PolicyDemoReport {
     pub fn order_count(&self) -> usize {
         self.orders.len()
+    }
+
+    pub fn display_symbols(&self) -> String {
+        if self.observation_symbols.len() > 1 {
+            self.observation_symbols.join(",")
+        } else {
+            self.symbol.clone()
+        }
     }
 }
 
@@ -247,11 +300,14 @@ pub async fn run_policy_demo(
     if should_subscribe_public_depth(&config) {
         ensure_public_depth_subscribe_config(&config)?;
         let venue = config.venue;
-        let symbol = config.symbol.clone();
+        let symbols = config.all_symbols();
         let max_steps = config.max_steps;
         let timeout = config.public_depth_timeout;
         return run_policy_demo_with_public_depth(config, &policy, policy_source, move || {
-            subscribe_binance_public_depth(venue, symbol, max_steps, timeout)
+            let symbols = symbols;
+            async move {
+                subscribe_binance_public_depth_symbols(venue, &symbols, max_steps, timeout).await
+            }
         })
         .await;
     }
@@ -343,7 +399,8 @@ where
     let depth_source = policy_demo_depth_source_label(&config).to_string();
     let mut report = PolicyDemoReport {
         venue: DemoVenue::Spot,
-        symbol: config.symbol,
+        symbol: config.symbol.clone(),
+        observation_symbols: config.all_symbols(),
         policy_source,
         depth_source,
         steps,
@@ -399,7 +456,8 @@ where
     let depth_source = policy_demo_depth_source_label(&config).to_string();
     let mut report = PolicyDemoReport {
         venue: DemoVenue::Usdm,
-        symbol: config.symbol,
+        symbol: config.symbol.clone(),
+        observation_symbols: config.all_symbols(),
         policy_source,
         depth_source,
         steps,
@@ -449,7 +507,8 @@ where
     let depth_source = policy_demo_depth_source_label(&config).to_string();
     Ok(PolicyDemoReport {
         venue: DemoVenue::Spot,
-        symbol: config.symbol,
+        symbol: config.symbol.clone(),
+        observation_symbols: config.all_symbols(),
         policy_source: policy_source.into(),
         depth_source,
         steps,
@@ -489,7 +548,8 @@ where
     let depth_source = policy_demo_depth_source_label(&config).to_string();
     Ok(PolicyDemoReport {
         venue: DemoVenue::Usdm,
-        symbol: config.symbol,
+        symbol: config.symbol.clone(),
+        observation_symbols: config.all_symbols(),
         policy_source: policy_source.into(),
         depth_source,
         steps,
@@ -769,11 +829,14 @@ where
     P: PolicyProvider + ?Sized,
 {
     let mut env_config = EnvConfig::new(config.symbol.clone());
+    env_config.observe_symbols(config.all_symbols());
     env_config.default_qty = config.qty.clone();
     env_config.window_frames = config.window_frames;
     env_config.episode_steps = config.max_steps.max(1) as u64;
     if uses_gaussian_source(config) {
         env_config.use_ladder_observation();
+        // Weekday μ / gaussian_mlp stay `[1, V×5]` on the dispatch symbol.
+        env_config.join_ladder_symbols = false;
     }
 
     let mut env = Env::new(env_config, egress);
@@ -845,9 +908,22 @@ pub fn public_depth_stream_name(symbol: &str) -> String {
 
 /// Binance public depth `SUBSCRIBE` JSON matching the existing depth providers.
 pub fn public_depth_subscribe_request_json(symbol: &str) -> String {
+    public_depth_subscribe_request_json_for_symbols(std::iter::once(symbol))
+}
+
+/// Subscribe one or more `{symbol}@depth` streams on the same demo connection.
+pub fn public_depth_subscribe_request_json_for_symbols<I, S>(symbols: I) -> String
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let params: Vec<String> = symbols
+        .into_iter()
+        .map(|symbol| format!("\"{}\"", public_depth_stream_name(symbol.as_ref())))
+        .collect();
     format!(
-        r#"{{"method":"SUBSCRIBE","params":["{}"],"id":1}}"#,
-        public_depth_stream_name(symbol)
+        r#"{{"method":"SUBSCRIBE","params":[{}],"id":1}}"#,
+        params.join(",")
     )
 }
 
@@ -869,23 +945,46 @@ pub fn policy_demo_messages_from_public_depth_book(
     diff_texts: impl IntoIterator<Item = impl AsRef<str>>,
     default_symbol: &str,
 ) -> Result<Vec<Message>, PolicyDemoError> {
-    let snapshot_messages = policy_demo_depth_messages_from_json(snapshot_json, default_symbol)?;
-    let Some(first) = snapshot_messages.into_iter().next() else {
+    policy_demo_messages_from_public_depth_books([snapshot_json], diff_texts, default_symbol)
+}
+
+/// Rebuild one local book per snapshot, then apply WS diffs to the matching symbol.
+pub fn policy_demo_messages_from_public_depth_books<I, T>(
+    snapshot_jsons: I,
+    diff_texts: impl IntoIterator<Item = impl AsRef<str>>,
+    default_symbol: &str,
+) -> Result<Vec<Message>, PolicyDemoError>
+where
+    I: IntoIterator<Item = T>,
+    T: AsRef<str>,
+{
+    let mut books = BTreeMap::new();
+    let mut messages = Vec::new();
+    for snapshot_json in snapshot_jsons {
+        let snapshot_messages =
+            policy_demo_depth_messages_from_json(snapshot_json.as_ref(), default_symbol)?;
+        let Some(first) = snapshot_messages.into_iter().next() else {
+            continue;
+        };
+        let snapshot_event = parse_envelope(first).map_err(|err| {
+            PolicyDemoError::DepthInput(format!("public depth snapshot envelope: {err}"))
+        })?;
+        let StreamEvent::Depth(snapshot) = snapshot_event else {
+            return Err(PolicyDemoError::DepthInput(
+                "public depth snapshot is not a depth frame".into(),
+            ));
+        };
+        let book = PublicDepthBook::from_snapshot(snapshot);
+        messages.push(envelope_message(&StreamEvent::Depth(
+            book.to_depth_update(),
+        )));
+        books.insert(book.symbol.clone(), book);
+    }
+    if books.is_empty() {
         return Err(PolicyDemoError::DepthInput(
             "public depth snapshot contained no usable frames".into(),
         ));
-    };
-    let snapshot_event = parse_envelope(first).map_err(|err| {
-        PolicyDemoError::DepthInput(format!("public depth snapshot envelope: {err}"))
-    })?;
-    let StreamEvent::Depth(snapshot) = snapshot_event else {
-        return Err(PolicyDemoError::DepthInput(
-            "public depth snapshot is not a depth frame".into(),
-        ));
-    };
-
-    let mut book = PublicDepthBook::from_snapshot(snapshot);
-    let mut messages = vec![envelope_message(&StreamEvent::Depth(book.to_depth_update()))];
+    }
     let diffs = policy_demo_public_depth_messages_from_texts(diff_texts, default_symbol)?;
     for message in diffs {
         let event = parse_envelope(message).map_err(|err| {
@@ -894,8 +993,21 @@ pub fn policy_demo_messages_from_public_depth_book(
         let StreamEvent::Depth(diff) = event else {
             continue;
         };
-        if book.apply_diff(diff) {
-            messages.push(envelope_message(&StreamEvent::Depth(book.to_depth_update())));
+        let symbol = if diff.symbol.is_empty() {
+            default_symbol.to_string()
+        } else {
+            diff.symbol.clone()
+        };
+        let applied = if let Some(book) = books.get_mut(&symbol) {
+            book.apply_diff(diff).then(|| book.to_depth_update())
+        } else {
+            let book = PublicDepthBook::from_snapshot(diff);
+            let update = book.to_depth_update();
+            books.insert(symbol, book);
+            Some(update)
+        };
+        if let Some(update) = applied {
+            messages.push(envelope_message(&StreamEvent::Depth(update)));
         }
     }
     Ok(messages)
@@ -940,11 +1052,7 @@ impl PublicDepthBook {
     }
 
     fn replace_side(&mut self, bids: bool, levels: Vec<PriceLevel>) {
-        let side = if bids {
-            &mut self.bids
-        } else {
-            &mut self.asks
-        };
+        let side = if bids { &mut self.bids } else { &mut self.asks };
         side.clear();
         for level in levels {
             upsert_level(side, level);
@@ -952,11 +1060,7 @@ impl PublicDepthBook {
     }
 
     fn apply_side(&mut self, bids: bool, levels: Vec<PriceLevel>) {
-        let side = if bids {
-            &mut self.bids
-        } else {
-            &mut self.asks
-        };
+        let side = if bids { &mut self.bids } else { &mut self.asks };
         for level in levels {
             upsert_level(side, level);
         }
@@ -1006,7 +1110,11 @@ fn price_sort_key(price: &str) -> (i64, String) {
 }
 
 fn is_removed_qty(qty: &str) -> bool {
-    qty.trim().is_empty() || qty.parse::<f64>().map(|value| value == 0.0).unwrap_or(false)
+    qty.trim().is_empty()
+        || qty
+            .parse::<f64>()
+            .map(|value| value == 0.0)
+            .unwrap_or(false)
 }
 
 /// Parse raw public-depth WebSocket texts. Subscribe acks and empty frames are skipped.
@@ -1071,6 +1179,45 @@ where
     Ok(truncate_depth_messages(messages, max_frames))
 }
 
+/// Split a REST-style snapshot object or a JSON array of snapshots.
+pub fn policy_demo_public_depth_snapshot_jsons(
+    input: &str,
+) -> Result<Vec<String>, PolicyDemoError> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Err(PolicyDemoError::DepthInput(
+            "public depth snapshot JSON is empty".into(),
+        ));
+    }
+    let value = serde_json::from_str::<Value>(trimmed).map_err(|err| {
+        PolicyDemoError::DepthInput(format!("invalid public depth snapshot JSON: {err}"))
+    })?;
+    match value {
+        Value::Array(values) => {
+            if values.is_empty() {
+                return Err(PolicyDemoError::DepthInput(
+                    "public depth snapshot array is empty".into(),
+                ));
+            }
+            values
+                .into_iter()
+                .map(|value| {
+                    serde_json::to_string(&value).map_err(|err| {
+                        PolicyDemoError::DepthInput(format!(
+                            "public depth snapshot encode failed: {err}"
+                        ))
+                    })
+                })
+                .collect()
+        }
+        other => serde_json::to_string(&other)
+            .map(|text| vec![text])
+            .map_err(|err| {
+                PolicyDemoError::DepthInput(format!("public depth snapshot encode failed: {err}"))
+            }),
+    }
+}
+
 /// Collect public depth texts and rebuild a local book from a REST-style snapshot.
 pub async fn collect_subscribed_public_depth_book<S, Fut>(
     symbol: &str,
@@ -1089,7 +1236,8 @@ where
         ));
     }
     let texts = source().await?;
-    let messages = policy_demo_messages_from_public_depth_book(snapshot_json, texts, symbol)?;
+    let snapshots = policy_demo_public_depth_snapshot_jsons(snapshot_json)?;
+    let messages = policy_demo_messages_from_public_depth_books(snapshots, texts, symbol)?;
     if messages.is_empty() {
         return Err(PolicyDemoError::DepthInput(
             "public depth book produced no frames".into(),
@@ -1105,17 +1253,40 @@ pub async fn subscribe_binance_public_depth(
     max_frames: usize,
     timeout_duration: Duration,
 ) -> Result<Vec<Message>, PolicyDemoError> {
+    subscribe_binance_public_depth_symbols(
+        venue,
+        &[symbol.as_ref().to_string()],
+        max_frames,
+        timeout_duration,
+    )
+    .await
+}
+
+/// Subscribe and rebuild a local book for each configured policy-demo symbol.
+pub async fn subscribe_binance_public_depth_symbols(
+    venue: DemoVenue,
+    symbols: &[String],
+    max_frames: usize,
+    timeout_duration: Duration,
+) -> Result<Vec<Message>, PolicyDemoError> {
     if timeout_duration.is_zero() {
         return Err(PolicyDemoError::DepthInput(
             "--public-depth-timeout-secs must be greater than zero".into(),
         ));
     }
-    let symbol = symbol.as_ref();
-    let snapshot = fetch_public_depth_snapshot(venue, symbol).await?;
+    let symbols: Vec<String> = if symbols.is_empty() {
+        vec!["BTCUSDT".into()]
+    } else {
+        symbols.to_vec()
+    };
+    let mut snapshots = Vec::new();
+    for symbol in &symbols {
+        snapshots.push(fetch_public_depth_snapshot(venue, symbol).await?);
+    }
     let mut socket = connect_public_depth_websocket(&public_depth_stream_url(venue)).await?;
     socket
         .send(Message::Text(
-            public_depth_subscribe_request_json(symbol).into(),
+            public_depth_subscribe_request_json_for_symbols(&symbols).into(),
         ))
         .await
         .map_err(|err| {
@@ -1125,7 +1296,7 @@ pub async fn subscribe_binance_public_depth(
     let deadline = Instant::now() + timeout_duration;
     let want = max_frames.max(1);
     let mut texts = Vec::new();
-    while texts.len() + 1 < want {
+    while texts.len() + snapshots.len() < want {
         let Some(frame) = next_public_depth_message(&mut socket, deadline).await? else {
             break;
         };
@@ -1137,7 +1308,8 @@ pub async fn subscribe_binance_public_depth(
         }
         texts.push(text.to_string());
     }
-    let messages = policy_demo_messages_from_public_depth_book(&snapshot, texts, symbol)?;
+    let default_symbol = symbols[0].as_str();
+    let messages = policy_demo_messages_from_public_depth_books(snapshots, texts, default_symbol)?;
     if messages.is_empty() {
         return Err(PolicyDemoError::DepthInput(
             "timed out waiting for public depth frames".into(),
@@ -1151,9 +1323,13 @@ async fn fetch_public_depth_snapshot(
     symbol: &str,
 ) -> Result<String, PolicyDemoError> {
     let url = public_depth_snapshot_url(venue, symbol);
-    let response = reqwest::Client::new().get(&url).send().await.map_err(|err| {
-        PolicyDemoError::DepthInput(format!("public depth snapshot request failed: {err}"))
-    })?;
+    let response = reqwest::Client::new()
+        .get(&url)
+        .send()
+        .await
+        .map_err(|err| {
+            PolicyDemoError::DepthInput(format!("public depth snapshot request failed: {err}"))
+        })?;
     if !response.status().is_success() {
         return Err(PolicyDemoError::DepthInput(format!(
             "public depth snapshot HTTP {}",

@@ -10,15 +10,16 @@ use binance_usdm_exec::{
     PlaceOrderResponse as UsdmPlaceOrderResponse,
 };
 use trolly::policy_demo::{
-    collect_subscribed_public_depth, policy_demo_depth_messages_from_json,
-    policy_demo_messages_from_public_depth_book, policy_demo_public_depth_messages_from_texts,
+    collect_subscribed_public_depth, parse_policy_demo_symbols,
+    policy_demo_depth_messages_from_json, policy_demo_messages_from_public_depth_book,
+    policy_demo_public_depth_messages_from_texts, policy_demo_public_depth_snapshot_jsons,
     policy_demo_user_data_messages_from_json, public_depth_snapshot_url, public_depth_stream_url,
-    public_depth_subscribe_request_json, reconcile_policy_demo_report, run_policy_demo,
-    run_policy_demo_with_policy, run_policy_demo_with_public_depth,
-    run_policy_demo_with_subscribed_public_depth_texts, run_spot_policy_demo_with_placer,
-    run_spot_policy_demo_with_placer_and_user_data, run_usdm_policy_demo_with_placer,
-    run_usdm_policy_demo_with_placer_and_user_data, DemoVenue, PolicyDemoConfig, PolicyDemoError,
-    PolicyDemoOrders,
+    public_depth_subscribe_request_json, public_depth_subscribe_request_json_for_symbols,
+    reconcile_policy_demo_report, run_policy_demo, run_policy_demo_with_policy,
+    run_policy_demo_with_public_depth, run_policy_demo_with_subscribed_public_depth_texts,
+    run_spot_policy_demo_with_placer, run_spot_policy_demo_with_placer_and_user_data,
+    run_usdm_policy_demo_with_placer, run_usdm_policy_demo_with_placer_and_user_data, DemoVenue,
+    PolicyDemoConfig, PolicyDemoError, PolicyDemoOrders,
 };
 use trolly_gym::{
     write_recorded_mean_mu_onnx, Action, PolicyProvider, DEFAULT_GAUSSIAN_MU_ONNX_OBS_DIM,
@@ -214,6 +215,241 @@ async fn policy_demo_injected_public_depth_dispatches_orders() {
 }
 
 #[tokio::test]
+async fn policy_demo_injected_two_symbols_joins_observations() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT,ETHUSDT");
+    config.max_steps = 4;
+    config.window_frames = 1;
+    config.qty = "0.01".into();
+    let policy = CaptureObsPolicy::default();
+
+    let report = run_policy_demo_with_public_depth(config, &policy, "injected-multi", || async {
+        policy_demo_depth_messages_from_json(
+            r#"[
+              {"kind":"depth","symbol":"BTCUSDT","bids":[{"price":"100.00","qty":"1.0"}],"asks":[{"price":"102.00","qty":"1.0"}],"update_id":1},
+              {"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"200.00","qty":"1.0"}],"asks":[{"price":"202.00","qty":"1.0"}],"update_id":2}
+            ]"#,
+            "BTCUSDT",
+        )
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(report.depth_source, "injected");
+    assert_eq!(report.symbol, "BTCUSDT");
+    assert_eq!(report.observation_symbols, vec!["BTCUSDT", "ETHUSDT"]);
+    assert_eq!(report.steps, 2);
+    let obs = policy.last.borrow();
+    assert_eq!(obs.len(), 14);
+    assert!((obs[0] - 100.00).abs() < 1e-3, "btc bid {}", obs[0]);
+    assert!((obs[7] - 200.00).abs() < 1e-3, "eth bid {}", obs[7]);
+}
+
+#[tokio::test]
+async fn policy_demo_injected_two_symbols_dispatch_primary() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT,ETHUSDT");
+    config.max_steps = 4;
+    config.qty = "0.02".into();
+    let policy = SequencePolicy {
+        actions: vec![Action::Hold, Action::Buy],
+        next: Cell::new(0),
+    };
+
+    let report = run_policy_demo_with_public_depth(config, &policy, "injected-multi-buy", || async {
+        policy_demo_depth_messages_from_json(
+            r#"[
+              {"kind":"depth","symbol":"BTCUSDT","bids":[{"price":"100.00","qty":"1.0"}],"asks":[{"price":"102.00","qty":"1.0"}],"update_id":1},
+              {"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"200.00","qty":"1.0"}],"asks":[{"price":"202.00","qty":"1.0"}],"update_id":2}
+            ]"#,
+            "BTCUSDT",
+        )
+    })
+    .await
+    .unwrap();
+
+    let PolicyDemoOrders::Spot(orders) = report.orders else {
+        panic!("expected spot orders");
+    };
+    assert_eq!(orders.len(), 1);
+    assert_eq!(orders[0].symbol, "BTCUSDT");
+    assert_eq!(orders[0].side, SpotOrderSide::Buy);
+    assert_eq!(orders[0].quantity, "0.02");
+}
+
+#[tokio::test]
+async fn policy_demo_gaussian_multi_symbol_keeps_primary_ladder() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT,ETHUSDT");
+    config.max_steps = 4;
+    config.window_frames = 1;
+    config.qty = "0.01".into();
+    config.gaussian_mean_actions = Some("0.8,-0.8".into());
+    let policy =
+        trolly_gym::CheckpointOrHoldPolicy::from_mean_actions_csv("0.8,-0.8", 0.25).unwrap();
+    let obs = CaptureObsPolicy::default();
+
+    // Drive Env through the same Gaussian config path as execute policy-demo.
+    let report = run_policy_demo_with_public_depth(
+        config.clone(),
+        &policy,
+        "gaussian-multi",
+        || async {
+            policy_demo_depth_messages_from_json(
+                r#"[
+                  {"kind":"depth","symbol":"BTCUSDT","bids":[{"price":"100.00","qty":"1.0"}],"asks":[{"price":"104.00","qty":"1.0"}],"update_id":1},
+                  {"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"200.00","qty":"1.0"}],"asks":[{"price":"202.00","qty":"1.0"}],"update_id":2}
+                ]"#,
+                "BTCUSDT",
+            )
+        },
+    )
+    .await
+    .unwrap();
+
+    let PolicyDemoOrders::Spot(orders) = report.orders else {
+        panic!("expected spot orders");
+    };
+    assert_eq!(orders.len(), 2);
+    assert_eq!(orders[0].symbol, "BTCUSDT");
+    assert_eq!(orders[0].side, SpotOrderSide::Buy);
+    assert_eq!(orders[1].side, SpotOrderSide::Sell);
+
+    let report = run_policy_demo_with_public_depth(config, &obs, "gaussian-multi-obs", || async {
+        policy_demo_depth_messages_from_json(
+            r#"[
+              {"kind":"depth","symbol":"BTCUSDT","bids":[{"price":"100.00","qty":"1.0"}],"asks":[{"price":"104.00","qty":"1.0"}],"update_id":1},
+              {"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"200.00","qty":"1.0"}],"asks":[{"price":"202.00","qty":"1.0"}],"update_id":2}
+            ]"#,
+            "BTCUSDT",
+        )
+    })
+    .await
+    .unwrap();
+    assert_eq!(report.symbol, "BTCUSDT");
+    assert_eq!(report.observation_symbols, vec!["BTCUSDT", "ETHUSDT"]);
+    let last = obs.last.borrow();
+    assert_eq!(last.len(), 40, "primary V×5 (V=8), not 80-D join");
+    assert!(
+        (last[1] - 2.0).abs() < 1e-5,
+        "btc half-spread δ {}",
+        last[1]
+    );
+}
+
+#[tokio::test]
+async fn policy_demo_synthetic_default_stays_single_symbol_tape() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT,ETHUSDT");
+    config.max_steps = 2;
+    config.window_frames = 1;
+    let policy = CaptureObsPolicy::default();
+
+    let report = run_policy_demo_with_policy(config, &policy, "synthetic-primary")
+        .await
+        .unwrap();
+
+    assert_eq!(report.depth_source, "synthetic");
+    assert_eq!(report.steps, 2);
+    let obs = policy.last.borrow();
+    assert_eq!(obs.len(), 14);
+    assert!(obs[0] > 0.0, "btc synthetic bid");
+    assert_eq!(obs[7], 0.0);
+}
+
+#[tokio::test]
+async fn policy_demo_subscribed_two_symbols_join_stream_frames() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT,ETHUSDT");
+    config.max_steps = 4;
+    config.window_frames = 1;
+    config.subscribe_public_depth = true;
+    config.public_depth_timeout = Duration::from_secs(2);
+    let policy = CaptureObsPolicy::default();
+
+    let report = run_policy_demo_with_subscribed_public_depth_texts(
+        config,
+        &policy,
+        "subscribed-multi",
+        || async {
+            Ok(vec![
+                r#"{"result":null,"id":1}"#.into(),
+                r#"{"e":"depthUpdate","s":"BTCUSDT","b":[["100.00","1.0"]],"a":[["102.00","1.0"]],"u":7}"#.into(),
+                r#"{"e":"depthUpdate","s":"ETHUSDT","b":[["200.00","1.0"]],"a":[["202.00","1.0"]],"u":8}"#.into(),
+            ])
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(report.depth_source, "subscribed");
+    assert_eq!(report.symbol, "BTCUSDT");
+    assert_eq!(report.observation_symbols, vec!["BTCUSDT", "ETHUSDT"]);
+    let obs = policy.last.borrow();
+    assert_eq!(obs.len(), 14);
+    assert!((obs[0] - 100.00).abs() < 1e-3);
+    assert!((obs[7] - 200.00).abs() < 1e-3);
+}
+
+#[test]
+fn policy_demo_snapshot_jsons_accept_object_or_array() {
+    let one = policy_demo_public_depth_snapshot_jsons(
+        r#"{"lastUpdateId":1,"symbol":"BTCUSDT","bids":[["100.00","1"]],"asks":[["101.00","1"]]}"#,
+    )
+    .unwrap();
+    assert_eq!(one.len(), 1);
+    let two = policy_demo_public_depth_snapshot_jsons(
+        r#"[
+          {"lastUpdateId":1,"s":"BTCUSDT","bids":[["100.00","1"]],"asks":[["101.00","1"]]},
+          {"lastUpdateId":2,"s":"ETHUSDT","bids":[["200.00","1"]],"asks":[["201.00","1"]]}
+        ]"#,
+    )
+    .unwrap();
+    assert_eq!(two.len(), 2);
+}
+
+#[tokio::test]
+async fn policy_demo_subscribed_two_snapshot_books() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT,ETHUSDT");
+    config.max_steps = 4;
+    config.window_frames = 1;
+    config.public_depth_timeout = Duration::from_secs(2);
+    config.public_depth_snapshot_json = Some(
+        r#"[
+          {"lastUpdateId":10,"s":"BTCUSDT","bids":[["100.00","1.0"]],"asks":[["101.00","1.0"]]},
+          {"lastUpdateId":20,"s":"ETHUSDT","bids":[["200.00","1.0"]],"asks":[["201.00","1.0"]]}
+        ]"#
+        .into(),
+    );
+    let policy = CaptureObsPolicy::default();
+
+    let report = run_policy_demo_with_subscribed_public_depth_texts(
+        config,
+        &policy,
+        "subscribed-multi-snap",
+        || async {
+            Ok(vec![
+                r#"{"result":null,"id":1}"#.into(),
+                r#"{"e":"depthUpdate","s":"BTCUSDT","b":[["102.00","1.5"]],"a":[["103.00","1.0"]],"u":11}"#.into(),
+                r#"{"e":"depthUpdate","s":"ETHUSDT","b":[["204.00","1.0"]],"a":[["205.00","1.0"]],"u":21}"#.into(),
+            ])
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(report.depth_source, "subscribed");
+    assert_eq!(report.symbol, "BTCUSDT");
+    let obs = policy.last.borrow();
+    assert_eq!(obs.len(), 14);
+    assert!(
+        (obs[0] - 102.00).abs() < 1e-3,
+        "btc bid after diff {}",
+        obs[0]
+    );
+    assert!(
+        (obs[7] - 204.00).abs() < 1e-3,
+        "eth bid after diff {}",
+        obs[7]
+    );
+}
+
+#[tokio::test]
 async fn policy_demo_depth_json_wins_over_injected_source() {
     let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT");
     config.max_steps = 1;
@@ -264,6 +500,14 @@ fn policy_demo_public_depth_urls_use_demo_hosts() {
     assert_eq!(
         public_depth_subscribe_request_json("BTCUSDT"),
         r#"{"method":"SUBSCRIBE","params":["btcusdt@depth"],"id":1}"#
+    );
+    assert_eq!(
+        public_depth_subscribe_request_json_for_symbols(["BTCUSDT", "ETHUSDT"]),
+        r#"{"method":"SUBSCRIBE","params":["btcusdt@depth","ethusdt@depth"],"id":1}"#
+    );
+    assert_eq!(
+        parse_policy_demo_symbols("BTCUSDT, ETHUSDT;btcusdt"),
+        vec!["BTCUSDT", "ETHUSDT"]
     );
     assert_eq!(
         public_depth_snapshot_url(DemoVenue::Spot, "btcusdt"),

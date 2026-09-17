@@ -316,6 +316,14 @@ cargo run --bin depth_monitor -- execute policy-demo \
     --qty 0.01
 ```
 
+`--symbol` accepts a comma-separated list (`BTCUSDT,ETHUSDT`). The first pair
+is the dispatch / inventory symbol `Action::dispatch` uses. Extra pairs join
+the Hold / 3-logit observation (latest 7-D stream frame per symbol). Synthetic
+depth still emits only the primary pair. `--depth-json` and injected/subscribed
+public depth can carry every listed symbol. Gaussian sources (recorded
+mean-actions, torch `gaussian_mlp`, `mu.onnx`) still receive the **primary**
+WP-032 `V×5` ladder so weekday checkpoints keep their `[1, V×5]` dim.
+
 Default builds use the hold fallback and add no model runtime. To load exported
 policy artifacts through the root command, opt in to the matching root feature:
 
@@ -462,7 +470,8 @@ frames through that hook, pass `--subscribe-public-depth` plus a bounded
 REST snapshot (`/api/v3/depth` or `/fapi/v1/depth`) then applies `@depth`
 diffs (qty `0` removes a level; stale `u` is skipped) so `Env` sees a
 reconstructed top of book rather than raw partial frames. Tests inject a
-snapshot via `PolicyDemoConfig.public_depth_snapshot_json`. No keys are
+snapshot via `PolicyDemoConfig.public_depth_snapshot_json` (one REST object
+or a JSON array, one snapshot per symbol). No keys are
 required for public depth. Synthetic fixture remains the default when the
 flag is unset. Do not place live orders here; demo REST placement still needs
 `--execute-demo-orders` and `RUN_BINANCE_DEMO_ORDERS=1`.
@@ -480,10 +489,11 @@ The offline regression for this bridge is `cargo test --test policy_demo_runner
 --locked`; it validates spot/USDM request generation, the hold fallback,
 recorded Gaussian mean-action quantization (WP-036), captured depth ingest
 (WP-041), the injectable public-depth hook (WP-042), mocked public-depth
-subscribe (WP-043), snapshot+diff book rebuild (WP-044), the guard refusal,
-live wait option guards, mock placement receipts, mocked frame-source
-reconciliation, and captured receipt-to-user-stream reconciliation without
-live network or keys.
+subscribe (WP-043), snapshot+diff book rebuild (WP-044), multi-symbol
+joined observations (WP-045), primary-symbol Gaussian `V×5` (WP-046),
+multi-symbol snapshot arrays (WP-047), the guard refusal, live wait option guards,
+mock placement receipts, mocked frame-source reconciliation, and captured
+receipt-to-user-stream reconciliation without live network or keys.
 
 See the **WP-020 training loop** section below for rollout collection, the
 `WolfPpoTrainDriver`, and checkpoint save/load.

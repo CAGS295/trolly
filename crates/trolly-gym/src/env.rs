@@ -1,12 +1,12 @@
 //! Stream-fed training environment stepping on observations and dispatching actions.
 
-use trolly_strategy::{OutboundMessage, StreamEgress, StreamEvent};
+use trolly_strategy::{DepthUpdate, OutboundMessage, StreamEgress, StreamEvent};
 use trolly_stream::Message;
 
 use crate::action::Action;
 use crate::observation::{
-    features_from_event, ladder_features, ladder_features_from_depth, DepthLadderSpec,
-    ObservationWindow,
+    features_from_event, join_feature_frames, ladder_features, ladder_features_from_depth,
+    zero_stream_features, DepthLadderSpec, ObservationWindow,
 };
 use crate::policy::PolicyProvider;
 use crate::replay::ReplayBuffer;
@@ -41,6 +41,12 @@ impl<E: std::fmt::Debug> std::error::Error for OfflinePolicyHarnessError<E> {}
 #[derive(Debug, Clone)]
 pub struct EnvConfig {
     pub symbol: String,
+    /// Extra public-depth symbols joined into the policy observation.
+    ///
+    /// Empty keeps the single-symbol Env. The first entry of
+    /// [`EnvConfig::tracked_symbols`] is the dispatch / inventory pair
+    /// (`symbol`); extras are observation-only.
+    pub observation_symbols: Vec<String>,
     pub window_frames: usize,
     pub replay_capacity: usize,
     pub default_qty: String,
@@ -50,12 +56,16 @@ pub struct EnvConfig {
     pub observation_layout: ObservationLayout,
     /// Ladder spec used when [`ObservationLayout::Ladder`] is selected.
     pub ladder: DepthLadderSpec,
+    /// When false, multi-symbol Ladder `act()` sees only the primary `V×5`.
+    /// Default true keeps the WP-045 concatenated `N×V×5` join.
+    pub join_ladder_symbols: bool,
 }
 
 impl EnvConfig {
     pub fn new(symbol: impl Into<String>) -> Self {
         Self {
             symbol: symbol.into(),
+            observation_symbols: Vec::new(),
             window_frames: 8,
             replay_capacity: 256,
             default_qty: "0.01".into(),
@@ -63,7 +73,63 @@ impl EnvConfig {
             reward: RewardConfig::default(),
             observation_layout: ObservationLayout::Stream,
             ladder: DepthLadderSpec::default(),
+            join_ladder_symbols: true,
         }
+    }
+
+    /// Track additional symbols (after the primary dispatch symbol) in one Env.
+    pub fn observe_symbols<I, S>(&mut self, symbols: I)
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        let mut tracked = Vec::new();
+        Self::push_unique_symbol(&mut tracked, self.symbol.clone());
+        for symbol in symbols {
+            Self::push_unique_symbol(&mut tracked, symbol.into());
+        }
+        if let Some(primary) = tracked.first() {
+            self.symbol = primary.clone();
+        }
+        self.observation_symbols = tracked;
+    }
+
+    fn push_unique_symbol(tracked: &mut Vec<String>, symbol: String) {
+        let trimmed = symbol.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+        if tracked
+            .iter()
+            .any(|existing| existing.eq_ignore_ascii_case(trimmed))
+        {
+            return;
+        }
+        tracked.push(trimmed.to_string());
+    }
+
+    /// Primary dispatch symbol first, then extra observation symbols.
+    pub fn tracked_symbols(&self) -> Vec<&str> {
+        if self.observation_symbols.len() > 1 {
+            self.observation_symbols
+                .iter()
+                .map(String::as_str)
+                .collect()
+        } else if self.observation_symbols.len() == 1 {
+            vec![self.observation_symbols[0].as_str()]
+        } else {
+            vec![self.symbol.as_str()]
+        }
+    }
+
+    pub fn tracks_symbol(&self, symbol: &str) -> bool {
+        self.tracked_symbols()
+            .iter()
+            .any(|tracked| tracked.eq_ignore_ascii_case(symbol))
+    }
+
+    pub fn is_multi_symbol(&self) -> bool {
+        self.tracked_symbols().len() > 1
     }
 
     /// Feed `PolicyProvider::act` the WP-032 `V×5` ladder instead of 7-D frames.
@@ -125,6 +191,14 @@ where
     }
 }
 
+/// Per-symbol book state joined into the multi-symbol policy observation.
+#[derive(Debug, Clone)]
+struct SymbolObs {
+    symbol: String,
+    window: ObservationWindow,
+    last_depth: Option<DepthUpdate>,
+}
+
 /// Training gym environment fed by normalized stream events.
 ///
 /// Ingest stream updates to grow the observation window; call [`Env::step`] to
@@ -135,6 +209,7 @@ where
 {
     config: EnvConfig,
     window: ObservationWindow,
+    symbol_obs: Vec<SymbolObs>,
     replay: ReplayBuffer,
     egress: E,
     last_observation: Vec<f32>,
@@ -156,9 +231,19 @@ where
     pub fn new(config: EnvConfig, egress: E) -> Self {
         let window_frames = config.window_frames;
         let replay_capacity = config.replay_capacity;
+        let symbol_obs = config
+            .tracked_symbols()
+            .into_iter()
+            .map(|symbol| SymbolObs {
+                symbol: symbol.to_string(),
+                window: ObservationWindow::new(window_frames),
+                last_depth: None,
+            })
+            .collect();
         Self {
             config,
             window: ObservationWindow::new(window_frames),
+            symbol_obs,
             replay: ReplayBuffer::new(replay_capacity),
             egress,
             last_observation: Vec::new(),
@@ -169,6 +254,10 @@ where
 
     pub fn symbol(&self) -> &str {
         &self.config.symbol
+    }
+
+    pub fn tracked_symbols(&self) -> Vec<&str> {
+        self.config.tracked_symbols()
     }
 
     pub fn observation_window(&self) -> &ObservationWindow {
@@ -201,14 +290,25 @@ where
 
     /// Consume one normalized stream event and update the observation window.
     pub fn ingest_event(&mut self, event: &StreamEvent) -> bool {
-        if event.routing_id() != self.config.symbol {
+        if !self.config.tracks_symbol(event.routing_id()) {
             return false;
         }
         if let Some(frame) = features_from_event(event) {
+            let is_primary = event.routing_id().eq_ignore_ascii_case(&self.config.symbol);
             if let StreamEvent::Depth(depth) = event {
-                self.reward_state.last_depth = Some(depth.clone());
+                if is_primary {
+                    self.reward_state.last_depth = Some(depth.clone());
+                }
+                if let Some(slot) = self.symbol_slot_mut(event.routing_id()) {
+                    slot.last_depth = Some(depth.clone());
+                }
             }
-            self.window.push(frame);
+            if let Some(slot) = self.symbol_slot_mut(event.routing_id()) {
+                slot.window.push(frame.clone());
+            }
+            if is_primary {
+                self.window.push(frame);
+            }
             self.last_observation = self.policy_observation();
             self.replay.push_observation_window(&self.last_observation);
             crate::ticks::try_ingest_event(event, "stream", "stream");
@@ -216,6 +316,12 @@ where
         } else {
             false
         }
+    }
+
+    fn symbol_slot_mut(&mut self, symbol: &str) -> Option<&mut SymbolObs> {
+        self.symbol_obs
+            .iter_mut()
+            .find(|slot| slot.symbol.eq_ignore_ascii_case(symbol))
     }
 
     /// Ingest a websocket text envelope (stream ingress hook).
@@ -292,6 +398,11 @@ where
     }
 
     fn policy_observation(&self) -> Vec<f32> {
+        if self.config.is_multi_symbol()
+            && !(self.config.uses_ladder_observation() && !self.config.join_ladder_symbols)
+        {
+            return self.joined_policy_observation();
+        }
         match self.config.observation_layout {
             ObservationLayout::Stream => self.window.flattened(),
             ObservationLayout::Ladder => {
@@ -302,6 +413,25 @@ where
                 }
             }
         }
+    }
+
+    fn joined_policy_observation(&self) -> Vec<f32> {
+        let q = self.reward_state.position as f32;
+        let frames = self
+            .symbol_obs
+            .iter()
+            .map(|slot| match self.config.observation_layout {
+                ObservationLayout::Stream => slot
+                    .window
+                    .latest()
+                    .cloned()
+                    .unwrap_or_else(zero_stream_features),
+                ObservationLayout::Ladder => match &slot.last_depth {
+                    Some(depth) => ladder_features_from_depth(depth, &self.config.ladder, q),
+                    None => ladder_features(&self.config.ladder, q),
+                },
+            });
+        join_feature_frames(frames)
     }
 }
 
@@ -381,6 +511,96 @@ mod tests {
         assert!(!env.ingest_event(&depth_event("ETHUSDT", "100", "101")));
         assert!(env.ingest_event(&depth_event("BTCUSDT", "100", "102")));
         assert_eq!(env.observation_window().len(), 1);
+    }
+
+    #[test]
+    fn multi_symbol_stream_joins_latest_7d_and_dispatches_primary() {
+        let mut config = EnvConfig::new("BTCUSDT");
+        config.window_frames = 1;
+        config.observe_symbols(["BTCUSDT", "ETHUSDT"]);
+        let mut env = Env::new(config, RecordingEgress::default());
+        assert_eq!(env.tracked_symbols(), vec!["BTCUSDT", "ETHUSDT"]);
+        assert!(env.ingest_event(&depth_event("BTCUSDT", "100", "102")));
+        assert!(env.ingest_event(&depth_event("ETHUSDT", "200", "204")));
+
+        let seen = std::cell::Cell::new(0usize);
+        let bid0 = std::cell::Cell::new(0.0f32);
+        let bid1 = std::cell::Cell::new(0.0f32);
+        let policy = |obs: &[f32]| {
+            seen.set(obs.len());
+            bid0.set(obs[0]);
+            bid1.set(obs[7]);
+            Action::Buy
+        };
+        let result = env.step(&policy).unwrap();
+        assert_eq!(seen.get(), 14);
+        assert!((bid0.get() - 100.0).abs() < f32::EPSILON);
+        assert!((bid1.get() - 200.0).abs() < f32::EPSILON);
+        assert_eq!(result.observation.len(), 14);
+        assert_eq!(
+            env.egress().dispatched,
+            vec![Action::Buy.to_outbound("BTCUSDT", "0.01", None)]
+        );
+    }
+
+    #[test]
+    fn multi_symbol_ladder_joins_per_symbol_vx5() {
+        let mut config = EnvConfig::new("BTCUSDT");
+        config.window_frames = 1;
+        config.use_ladder_observation();
+        config.ladder.rung_count = 2;
+        config.observe_symbols(["ETHUSDT"]);
+        let mut env = Env::new(config, RecordingEgress::default());
+        env.ingest_event(&depth_event("BTCUSDT", "100", "104"));
+        env.ingest_event(&depth_event("ETHUSDT", "200", "202"));
+
+        let seen = std::cell::Cell::new(0usize);
+        let btc_delta = std::cell::Cell::new(0.0f32);
+        let eth_delta = std::cell::Cell::new(0.0f32);
+        let policy = |obs: &[f32]| {
+            seen.set(obs.len());
+            btc_delta.set(obs[1]);
+            eth_delta.set(obs[11]);
+            Action::Hold
+        };
+        let result = env.step(&policy).unwrap();
+        assert_eq!(seen.get(), 20);
+        assert!((btc_delta.get() - 2.0).abs() < 1e-6);
+        assert!((eth_delta.get() - 1.0).abs() < 1e-6);
+        assert_eq!(result.observation.len(), 20);
+        assert_eq!(
+            env.egress().dispatched,
+            vec![Action::Hold.to_outbound("BTCUSDT", "0.01", None)]
+        );
+    }
+
+    #[test]
+    fn multi_symbol_ladder_can_keep_primary_vx5() {
+        let mut config = EnvConfig::new("BTCUSDT");
+        config.window_frames = 1;
+        config.use_ladder_observation();
+        config.join_ladder_symbols = false;
+        config.ladder.rung_count = 2;
+        config.observe_symbols(["ETHUSDT"]);
+        let mut env = Env::new(config, RecordingEgress::default());
+        env.ingest_event(&depth_event("BTCUSDT", "100", "104"));
+        env.ingest_event(&depth_event("ETHUSDT", "200", "202"));
+
+        let seen = std::cell::Cell::new(0usize);
+        let delta = std::cell::Cell::new(0.0f32);
+        let policy = |obs: &[f32]| {
+            seen.set(obs.len());
+            delta.set(obs[1]);
+            Action::Buy
+        };
+        let result = env.step(&policy).unwrap();
+        assert_eq!(seen.get(), 10);
+        assert!((delta.get() - 2.0).abs() < 1e-6);
+        assert_eq!(result.observation.len(), 10);
+        assert_eq!(
+            env.egress().dispatched,
+            vec![Action::Buy.to_outbound("BTCUSDT", "0.01", None)]
+        );
     }
 
     #[test]

@@ -21,7 +21,7 @@ Shipped so far (not the destination): global book CLI; stream-native spot/USDM b
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: 2026-09-16
+- last_run: 2026-09-17
 - max_parallel: 3
 - ship_branch: integrate/orchestrator-branches
 
@@ -743,7 +743,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-045 — Policy-demo multi-symbol stream observations
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-037, WP-044]
 - scope: crates/trolly-gym/src/env.rs, crates/trolly-gym/src/observation.rs, src/policy_demo.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
@@ -754,6 +754,47 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - offline tests inject two symbols; default `cargo test --test policy_demo_runner` and `cargo test -p trolly-gym` stay offline
   - do not train; do not resume `_retired_unit_lot_microstructure`
 - notes: Broad goal calls for multi-symbol `trolly-stream` observations. WP-043/044 are single-symbol demo books. This is the next gym→strategy join, not a third venue or docs-only chore.
+- worker/orchestrator (2026-09-17): trainer guidance missing (silent). `--symbol BTCUSDT,ETHUSDT` joins latest 7-D or per-symbol `V×5` frames; extras are observation-only; Buy/Sell still `Action::dispatch` the primary pair; synthetic tape stays single-symbol; live subscribe sends every `{symbol}@depth`. Acceptance: `cargo +stable test -p trolly-gym --lib --locked` 71 pass; `cargo +stable test --test policy_demo_runner --locked` 43 pass.
+
+### WP-046 — Primary-symbol Gaussian ladder on multi-symbol streams
+
+- status: done
+- repos: trolly
+- depends_on: [WP-036, WP-045]
+- scope: crates/trolly-gym/src/env.rs, src/policy_demo.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - when a Gaussian source is selected and extra symbols are configured, `PolicyProvider::act` receives the primary-symbol WP-032 `V×5` ladder (weekday `mu.onnx` / `gaussian_mlp` dim), not the concatenated `N×V×5` join
+  - extra symbols are still ingested; Hold / 3-logit stay on the joined 7-D frames
+  - Buy/Sell still dispatch the primary symbol through `Action::dispatch`
+  - offline tests; no live orders; do not train; do not resume `_retired_unit_lot_microstructure`
+- notes: WP-045 joins both layouts. Weekday Gaussian artifacts are still `[1, V×5]`. This keeps load-and-dispatch working when `--symbol` lists more than one book.
+- worker/orchestrator (2026-09-17): trainer guidance missing (silent). `EnvConfig.join_ladder_symbols = false` on Gaussian policy-demo so `act()` stays `V×5` on the dispatch symbol; extras still ingest. Report `symbol` stays the primary pair (user-stream reconcile). Acceptance: `cargo +stable test -p trolly-gym --lib --locked` 72 pass; `cargo +stable test --test policy_demo_runner --locked` 45 pass.
+
+### WP-047 — Multi-symbol public-depth snapshot list
+
+- status: done
+- repos: trolly
+- depends_on: [WP-044, WP-045]
+- scope: src/policy_demo.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - mocked / captured `public_depth_snapshot_json` can seed one local book per symbol (JSON array of REST-style snapshots, or one object as today)
+  - WS diffs still route by `s` / symbol; qty `0` removes; stale `u` skipped
+  - `--depth-json` still wins; synthetic default remains single-symbol; no live orders; do not train
+  - offline tests inject two snapshots plus diffs; `cargo test --test policy_demo_runner` stays offline
+- notes: Live subscribe already fetches a REST snapshot per configured symbol. The mocked WP-044 field is still one JSON object, so two-symbol book rebuild cannot be tested or injected offline.
+- worker/orchestrator (2026-09-17): trainer guidance missing (silent). `policy_demo_public_depth_snapshot_jsons` accepts one REST object or an array; diffs still route by symbol. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 47 pass.
+
+### WP-048 — Per-symbol Action::dispatch from joined observations
+
+- status: todo
+- repos: trolly
+- depends_on: [WP-035, WP-045]
+- scope: crates/trolly-gym/src/action.rs, crates/trolly-gym/src/env.rs, src/policy_demo.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - a policy acting on joined multi-symbol observations can emit `Action::dispatch` for a non-primary tracked symbol (document how qty/side are chosen)
+  - default remains primary-symbol dispatch so existing single-symbol and WP-046 Gaussian paths stay unchanged
+  - offline tests; no live orders; do not train
+- notes: WP-045/046 join extra books but still place only on the first `--symbol`. The broad goal's strategy→exec loop needs a typed path to act on more than the primary pair without inventing a third venue.
 
 ## Integration test reference
 

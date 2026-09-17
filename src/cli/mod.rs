@@ -83,7 +83,8 @@ struct PolicyDemoArgs {
     /// Execution venue adapter to exercise.
     #[clap(long, value_enum, default_value_t = PolicyDemoVenue::Spot)]
     venue: PolicyDemoVenue,
-    /// Trading pair (e.g. BTCUSDT).
+    /// Trading pair, or comma-separated pairs (e.g. BTCUSDT,ETHUSDT).
+    /// First symbol is the dispatch / inventory pair; extras join the observation.
     #[clap(long, default_value = "BTCUSDT")]
     symbol: String,
     /// Default order quantity emitted by Buy/Sell actions.
@@ -296,7 +297,7 @@ fn print_policy_demo_report(report: &PolicyDemoReport) {
     println!(
         "policy demo: venue={} symbol={} policy={} depth={} steps={} order_requests={} placed_orders={} reconciled_orders={} mode={}",
         report.venue,
-        report.symbol,
+        report.display_symbols(),
         report.policy_source,
         report.depth_source,
         report.steps,

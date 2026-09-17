@@ -4,6 +4,22 @@ use std::collections::VecDeque;
 
 use trolly_strategy::{DepthUpdate, EventKind, StreamEvent};
 
+/// Length of a 7-D stream depth frame (`bid, bid_qty, ask, ask_qty, spread, mid, u`).
+pub const STREAM_FEATURES: usize = 7;
+
+/// Concatenate per-symbol frames (7-D stream or `V×5` ladder) into one policy vector.
+pub fn join_feature_frames<I>(frames: I) -> Vec<f32>
+where
+    I: IntoIterator<Item = FeatureVector>,
+{
+    frames.into_iter().flat_map(|frame| frame.0).collect()
+}
+
+/// Zero-filled 7-D stream frame used when a tracked symbol has not ticked yet.
+pub fn zero_stream_features() -> FeatureVector {
+    FeatureVector(vec![0.0; STREAM_FEATURES])
+}
+
 /// Fixed-size feature vector extracted from a normalized stream event.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FeatureVector(pub Vec<f32>);
@@ -324,9 +340,19 @@ mod tests {
             update_id: Some(5),
         });
         let features = features_from_event(&event).unwrap();
-        assert_eq!(features.len(), 7);
+        assert_eq!(features.len(), STREAM_FEATURES);
         assert!((features.as_slice()[4] - 2.0).abs() < f32::EPSILON); // spread
         assert!((features.as_slice()[5] - 101.0).abs() < f32::EPSILON); // mid
+    }
+
+    #[test]
+    fn join_feature_frames_concatenates_per_symbol_layouts() {
+        let joined = join_feature_frames([
+            FeatureVector(vec![1.0, 2.0]),
+            FeatureVector(vec![3.0, 4.0, 5.0]),
+        ]);
+        assert_eq!(joined, vec![1.0, 2.0, 3.0, 4.0, 5.0]);
+        assert_eq!(zero_stream_features().len(), STREAM_FEATURES);
     }
 
     #[test]
