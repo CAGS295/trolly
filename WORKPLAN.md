@@ -799,7 +799,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-049 — Policy-demo reconcile tracks dispatched order symbols
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-030, WP-048]
 - scope: src/policy_demo.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
@@ -809,6 +809,32 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - offline tests inject a non-primary dispatch plus a matching user-data frame; `cargo test --test policy_demo_runner` stays offline
   - no live orders; do not train
 - notes: WP-048 can `Action::dispatch` ETHUSDT while reconcile hubs still subscribe/match `report.symbol` (the first `--symbol`). The strategy→exec loop cannot confirm extra-symbol fills until reconcile follows the typed orders.
+- worker/orchestrator (2026-09-18): trainer guidance missing (silent). Spot/USDM user-data hubs register primary, `--dispatch-symbol`, observation, receipt, and `OrderRequest` symbols so extra-pair `executionReport` / `ORDER_TRADE_UPDATE` frames route. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 51 pass.
+
+### WP-050 — Per-symbol inventory when dispatching extra pairs
+
+- status: done
+- repos: trolly
+- depends_on: [WP-023, WP-048]
+- scope: crates/trolly-gym/src/env.rs, crates/trolly-gym/src/action.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - `Env` inventory / market reward for a Buy/Sell on a tracked extra symbol uses that book's mid/spread, not only the primary pair
+  - default single-symbol and primary-only Gaussian paths stay unchanged
+  - offline tests; no live orders; do not train
+- notes: WP-048/049 can place and reconcile ETHUSDT while `RewardState` still tracks the first `--symbol`. The gym→strategy loop needs book-local inventory so a checkpoint acting on joined observations is scored on the pair it traded.
+- worker/orchestrator (2026-09-18): trainer guidance missing (silent). Extra-pair Buy/Sell scores mid/spread on that book's window; `Env::position()` stays primary; `position_for` reads the traded slot. Acceptance: `cargo +stable test -p trolly-gym --lib --locked` 78 pass.
+
+### WP-051 — Write extra-symbol fills back into Env inventory
+
+- status: todo
+- repos: trolly
+- depends_on: [WP-049, WP-050]
+- scope: src/policy_demo.rs, crates/trolly-gym/src/env.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - a typed extra-symbol reconciliation row can update `Env::position_for` for that pair (not only the primary book)
+  - default single-symbol reconcile/inventory paths stay unchanged
+  - offline tests; no live orders; do not train
+- notes: WP-049 confirms extra-pair user-data fills and WP-050 scores the dispatched book, but Env inventory is still stepped only from the policy action. Closing gym←exec needs the fill to land on the same per-symbol slot.
 
 ## Integration test reference
 

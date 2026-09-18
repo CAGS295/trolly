@@ -219,7 +219,9 @@ impl PolicyProvider for MyPolicy {
 
 `decide()` defaults to that `act()` on the primary pair. To trade a joined extra
 book, return `Action::Buy.on_symbol("ETHUSDT")`. Qty is still
-`EnvConfig.default_qty`; an unknown name falls back to primary.
+`EnvConfig.default_qty`; an unknown name falls back to primary. Inventory and
+market reward for that step use the dispatched book's mid/spread; primary
+`Env::position()` stays on the first symbol.
 
 Stream rewards now mirror the synthetic microstructure benchmark: the env keeps
 a unit inventory (`-1`, `0`, `1`) and computes
@@ -440,7 +442,9 @@ JSON file to `--reconcile-user-data-json`. The file may contain one JSON frame,
 a JSON array of frames, or newline-delimited raw frames. Reconciliation fans the
 frames through the existing spot `executionReport` / USDM `ORDER_TRADE_UPDATE`
 ingest and bookkeeping paths and prints typed rows matched by order id or
-deterministic client order id:
+deterministic client order id. The ingest hub registers every dispatched
+`OrderRequest` symbol (plus the primary `--symbol`) so a WP-048 extra-pair
+fill is not dropped when user-data routes by instrument:
 
 ```bash
 cargo run --bin depth_monitor -- execute policy-demo \
@@ -501,6 +505,8 @@ recorded Gaussian mean-action quantization (WP-036), captured depth ingest
 subscribe (WP-043), snapshot+diff book rebuild (WP-044), multi-symbol
 joined observations (WP-045), primary-symbol Gaussian `V×5` (WP-046),
 multi-symbol snapshot arrays (WP-047), per-symbol `Action::dispatch` (WP-048),
+dispatched-symbol user-stream reconcile (WP-049),
+per-symbol inventory on extra-pair dispatch (WP-050),
 the guard refusal, live wait option guards,
 mock placement receipts, mocked frame-source reconciliation, and captured
 receipt-to-user-stream reconciliation without live network or keys.

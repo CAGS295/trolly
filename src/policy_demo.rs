@@ -710,7 +710,8 @@ fn reconcile_spot_policy_demo_user_data(
         events: tx,
         account,
     };
-    let mut hub = build_spot_multiplexor(&[report.symbol.as_str()], ctx);
+    let symbols = policy_demo_reconcile_symbols(report);
+    let mut hub = build_spot_multiplexor(&symbol_refs(&symbols), ctx);
 
     for message in messages {
         ingest_spot_user_data(&mut hub, message);
@@ -731,7 +732,8 @@ fn reconcile_usdm_policy_demo_user_data(
 
     let (tx, mut rx) = mpsc::unbounded_channel();
     let ctx = UsdmExecContext::new(Some(tx));
-    let mut hub = build_usdm_multiplexor_with_context(&[report.symbol.as_str()], ctx);
+    let symbols = policy_demo_reconcile_symbols(report);
+    let mut hub = build_usdm_multiplexor_with_context(&symbol_refs(&symbols), ctx);
 
     for message in messages {
         ingest_usdm_user_data(&mut hub, message);
@@ -917,6 +919,49 @@ fn truncate_depth_messages(mut messages: Vec<Message>, max_steps: usize) -> Vec<
         messages.truncate(max_steps);
     }
     messages
+}
+
+fn policy_demo_reconcile_symbols(report: &PolicyDemoReport) -> Vec<String> {
+    let mut symbols = Vec::new();
+    push_unique_symbol(&mut symbols, &report.symbol);
+    push_unique_symbol(&mut symbols, &report.dispatch_symbol);
+    for symbol in &report.observation_symbols {
+        push_unique_symbol(&mut symbols, symbol);
+    }
+    for receipt in &report.receipts {
+        push_unique_symbol(&mut symbols, &receipt.symbol);
+    }
+    match &report.orders {
+        PolicyDemoOrders::Spot(orders) => {
+            for order in orders {
+                push_unique_symbol(&mut symbols, &order.symbol);
+            }
+        }
+        PolicyDemoOrders::Usdm(orders) => {
+            for order in orders {
+                push_unique_symbol(&mut symbols, &order.symbol);
+            }
+        }
+    }
+    symbols
+}
+
+fn push_unique_symbol(symbols: &mut Vec<String>, symbol: &str) {
+    let trimmed = symbol.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+    if symbols
+        .iter()
+        .any(|existing| existing.eq_ignore_ascii_case(trimmed))
+    {
+        return;
+    }
+    symbols.push(trimmed.to_string());
+}
+
+fn symbol_refs(symbols: &[String]) -> Vec<&str> {
+    symbols.iter().map(String::as_str).collect()
 }
 
 fn policy_demo_dispatch_symbol(config: &PolicyDemoConfig) -> String {
@@ -1849,7 +1894,8 @@ async fn wait_spot_live_reconciliations(
         events: tx,
         account,
     };
-    let mut hub = build_spot_multiplexor(&[report.symbol.as_str()], ctx);
+    let symbols = policy_demo_reconcile_symbols(report);
+    let mut hub = build_spot_multiplexor(&symbol_refs(&symbols), ctx);
     let deadline = Instant::now() + timeout_duration;
 
     while !state.is_terminal_complete() {
@@ -1875,7 +1921,8 @@ async fn wait_usdm_live_reconciliations(
 
     let (tx, mut rx) = mpsc::unbounded_channel();
     let ctx = UsdmExecContext::new(Some(tx));
-    let mut hub = build_usdm_multiplexor_with_context(&[report.symbol.as_str()], ctx);
+    let symbols = policy_demo_reconcile_symbols(report);
+    let mut hub = build_usdm_multiplexor_with_context(&symbol_refs(&symbols), ctx);
     let deadline = Instant::now() + timeout_duration;
 
     while !state.is_terminal_complete() {

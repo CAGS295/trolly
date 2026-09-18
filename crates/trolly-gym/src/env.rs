@@ -249,6 +249,8 @@ struct SymbolObs {
     symbol: String,
     window: ObservationWindow,
     last_depth: Option<DepthUpdate>,
+    position: i8,
+    last_mid: Option<f32>,
 }
 
 /// Training gym environment fed by normalized stream events.
@@ -290,6 +292,8 @@ where
                 symbol: symbol.to_string(),
                 window: ObservationWindow::new(window_frames),
                 last_depth: None,
+                position: 0,
+                last_mid: None,
             })
             .collect();
         Self {
@@ -338,6 +342,18 @@ where
 
     pub fn position(&self) -> i8 {
         self.reward_state.position
+    }
+
+    /// Inventory on a tracked pair. Unknown names use the primary book.
+    pub fn position_for(&self, symbol: &str) -> i8 {
+        if symbol.eq_ignore_ascii_case(&self.config.symbol) {
+            return self.reward_state.position;
+        }
+        self.symbol_obs
+            .iter()
+            .find(|slot| slot.symbol.eq_ignore_ascii_case(symbol))
+            .map(|slot| slot.position)
+            .unwrap_or(self.reward_state.position)
     }
 
     /// Consume one normalized stream event and update the observation window.
@@ -403,7 +419,7 @@ where
             .config
             .resolve_dispatch_symbol(decision.symbol.as_deref())
             .to_string();
-        let reward = self.market_reward(&stream_observation, action);
+        let reward = self.market_reward(&stream_observation, action, &dispatch_symbol);
         let done = self.steps + 1 >= self.config.episode_steps.max(1);
 
         action.dispatch(
@@ -429,28 +445,77 @@ where
         self.egress.dispatch(message)
     }
 
-    fn market_reward(&mut self, observation: &[f32], action: Action) -> f32 {
-        let previous_position = self.reward_state.position;
+    fn market_reward(&mut self, observation: &[f32], action: Action, dispatch_symbol: &str) -> f32 {
+        let is_primary = dispatch_symbol.eq_ignore_ascii_case(&self.config.symbol);
+        if is_primary || !self.config.is_multi_symbol() {
+            return self.apply_market_reward(observation, action, None);
+        }
+        let extra_obs = self
+            .symbol_obs
+            .iter()
+            .find(|slot| slot.symbol.eq_ignore_ascii_case(dispatch_symbol))
+            .map(|slot| slot.window.flattened())
+            .filter(|frame| !frame.is_empty())
+            .unwrap_or_else(|| observation.to_vec());
+        self.apply_market_reward(&extra_obs, action, Some(dispatch_symbol))
+    }
+
+    fn apply_market_reward(
+        &mut self,
+        observation: &[f32],
+        action: Action,
+        extra_symbol: Option<&str>,
+    ) -> f32 {
+        let previous_position = match extra_symbol {
+            Some(symbol) => self.position_for(symbol),
+            None => self.reward_state.position,
+        };
         let next_position = action.target_position(previous_position);
+        let last_mid = match extra_symbol {
+            Some(symbol) => self
+                .symbol_obs
+                .iter()
+                .find(|slot| slot.symbol.eq_ignore_ascii_case(symbol))
+                .and_then(|slot| slot.last_mid),
+            None => self.reward_state.last_mid,
+        };
         let snapshot = MarketSnapshot::from_observation(observation);
         let (delta_mid, spread) = match snapshot {
             Some(snapshot) => {
-                let delta = self
-                    .reward_state
-                    .last_mid
+                let delta = last_mid
                     .map(|last_mid| snapshot.mid - last_mid)
                     .unwrap_or(0.0);
-                self.reward_state.last_mid = Some(snapshot.mid);
+                if let Some(symbol) = extra_symbol {
+                    if let Some(slot) = self.symbol_slot_mut(symbol) {
+                        slot.last_mid = Some(snapshot.mid);
+                        slot.position = next_position;
+                    }
+                } else {
+                    self.reward_state.last_mid = Some(snapshot.mid);
+                    self.reward_state.position = next_position;
+                    if let Some(slot) = self.symbol_slot_mut(&self.config.symbol.clone()) {
+                        slot.last_mid = Some(snapshot.mid);
+                        slot.position = next_position;
+                    }
+                }
                 (delta, snapshot.spread)
             }
-            None => (0.0, 0.0),
+            None => {
+                if let Some(symbol) = extra_symbol {
+                    if let Some(slot) = self.symbol_slot_mut(symbol) {
+                        slot.position = next_position;
+                    }
+                } else {
+                    self.reward_state.position = next_position;
+                }
+                (0.0, 0.0)
+            }
         };
         let spread_cost = if next_position != previous_position {
             spread * self.config.reward.spread_cost_multiplier
         } else {
             0.0
         };
-        self.reward_state.position = next_position;
         next_position as f32 * delta_mid - spread_cost
     }
 
@@ -722,6 +787,25 @@ mod tests {
         assert_eq!(
             env.egress().dispatched,
             vec![Action::Buy.to_outbound("ETHUSDT", "0.02", None)]
+        );
+    }
+
+    #[test]
+    fn extra_symbol_buy_uses_that_book_spread() {
+        let mut config = EnvConfig::new("BTCUSDT");
+        config.window_frames = 1;
+        config.observe_symbols(["ETHUSDT"]);
+        let mut env = Env::new(config, RecordingEgress::default());
+        assert!(env.ingest_event(&depth_event("BTCUSDT", "100", "102")));
+        assert!(env.ingest_event(&depth_event("ETHUSDT", "200", "204")));
+
+        let result = env.step(Action::Buy.on_symbol("ETHUSDT")).unwrap();
+        assert_eq!(result.reward, -4.0);
+        assert_eq!(env.position(), 0);
+        assert_eq!(env.position_for("ETHUSDT"), 1);
+        assert_eq!(
+            env.egress().dispatched,
+            vec![Action::Buy.to_outbound("ETHUSDT", "0.01", None)]
         );
     }
 

@@ -4,12 +4,14 @@ Project journal for shipped work. Active backlog lives in [`WORKPLAN.md`](WORKPL
 
 ## WIP
 
-- Live demo place + user-stream reconcile of a Gaussian-quantized policy on Binance demo (keys / `RUN_BINANCE_DEMO_ORDERS=1`). Offline load-and-dispatch, captured/injected/subscribed books, ONNX Gaussian μ, snapshot+diff rebuild, multi-symbol joined observations, and per-symbol `Action::dispatch` are in.
-- User-stream reconcile still keys off the primary `--symbol` after WP-048 extra-symbol dispatch (WP-049).
+- Live demo place + user-stream reconcile of a Gaussian-quantized policy on Binance demo (keys / `RUN_BINANCE_DEMO_ORDERS=1`). Offline load-and-dispatch, captured/injected/subscribed books, ONNX Gaussian μ, snapshot+diff rebuild, multi-symbol joined observations, per-symbol `Action::dispatch`, extra-symbol reconcile, and book-local inventory scoring are in.
+- Extra-symbol user-data fills are not written back into `Env::position_for` (WP-051).
 - Keep local GPU training checkpoint metrics improving via ClickHouse `trolly.ticks`, trajectory FIFO replay, daily `--continue` slices, and checkpoint fingerprints.
 - Add more exchange providers beyond Binance spot + USDM (stub scaffold landed; full venues remain).
 
 ## change log
++ `trolly-gym`: extra-pair Buy/Sell scores that book's mid/spread; `Env::position()` stays primary (WP-050). Trainer guidance missing (silent).
++ `execute policy-demo`: user-data hubs register dispatched `OrderRequest` symbols so extra-pair fills reconcile offline (WP-049). Trainer guidance missing (silent).
 + `trolly-gym` / policy-demo: `PolicyProvider::decide` / `--dispatch-symbol` can `Action::dispatch` a tracked extra pair; qty stays `--qty`, side stays Buy/Sell/Hold, default remains primary (WP-048). Trainer guidance missing (silent).
 + `execute policy-demo`: `public_depth_snapshot_json` accepts a JSON array of REST-style snapshots (one local book per symbol) so two-symbol subscribe rebuilds stay offline-testable (WP-047). Trainer guidance missing (silent).
 + `trolly-gym` / policy-demo: Gaussian sources keep the primary-symbol `V×5` ladder when extra books are listed so weekday `mu.onnx` / `gaussian_mlp` dim still matches (WP-046). Trainer guidance missing (silent).
