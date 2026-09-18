@@ -34,7 +34,8 @@ use tokio::time::{timeout, Instant};
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 use trolly_gym::policy::DEFAULT_INVENTORY_DEADZONE;
 use trolly_gym::{
-    run_offline_policy_harness, CheckpointOrHoldPolicy, Env, EnvConfig, PolicyProvider,
+    run_offline_policy_harness, CheckpointOrHoldPolicy, DispatchSymbolPolicy, Env, EnvConfig,
+    PolicyProvider,
 };
 use trolly_strategy::{
     envelope_message, parse_envelope, DepthUpdate, OrderOnlyEgress, PriceLevel, StreamEvent,
@@ -67,6 +68,9 @@ pub struct PolicyDemoConfig {
     pub symbol: String,
     /// All observation symbols (primary first). Empty means `symbol` only.
     pub observation_symbols: Vec<String>,
+    /// Optional non-primary pair for `Action::dispatch` when the policy omits one.
+    /// Default `None` keeps the first `--symbol` (WP-046 Gaussian path).
+    pub dispatch_symbol: Option<String>,
     pub qty: String,
     pub window_frames: usize,
     pub max_steps: usize,
@@ -110,6 +114,7 @@ impl PolicyDemoConfig {
             venue,
             symbol,
             observation_symbols,
+            dispatch_symbol: None,
             qty: "0.01".into(),
             window_frames: 1,
             max_steps: 3,
@@ -144,6 +149,32 @@ impl PolicyDemoConfig {
     pub fn display_symbols(&self) -> String {
         self.all_symbols().join(",")
     }
+
+    /// Pin Buy/Sell onto a tracked observation pair. Appends the name to
+    /// `--symbol` extras when missing so that book's depth can join Env.
+    ///
+    /// Qty stays `--qty`. Side stays the policy `Action`. Unset keeps the
+    /// primary pair so Gaussian `V×5` load-and-dispatch is unchanged.
+    pub fn set_dispatch_symbol(&mut self, symbol: impl Into<String>) {
+        let trimmed = symbol.into();
+        let trimmed = trimmed.trim();
+        if trimmed.is_empty() {
+            self.dispatch_symbol = None;
+            return;
+        }
+        if !self
+            .all_symbols()
+            .iter()
+            .any(|existing| existing.eq_ignore_ascii_case(trimmed))
+        {
+            self.observation_symbols = {
+                let mut symbols = self.all_symbols();
+                symbols.push(trimmed.to_string());
+                symbols
+            };
+        }
+        self.dispatch_symbol = Some(trimmed.to_string());
+    }
 }
 
 /// Split `--symbol BTCUSDT,ETHUSDT` into unique pairs (primary first).
@@ -168,10 +199,12 @@ pub fn parse_policy_demo_symbols(input: &str) -> Vec<String> {
 #[derive(Debug, Clone)]
 pub struct PolicyDemoReport {
     pub venue: DemoVenue,
-    /// Dispatch / inventory pair used by `Action::dispatch` and user-stream reconcile.
+    /// Default dispatch / inventory pair and user-stream reconcile key.
     pub symbol: String,
     /// All observation symbols (primary first). Used for display only.
     pub observation_symbols: Vec<String>,
+    /// Pair actually used by `Action::dispatch` when a policy or `--dispatch-symbol` pins one.
+    pub dispatch_symbol: String,
     pub policy_source: String,
     pub depth_source: String,
     pub steps: usize,
@@ -401,6 +434,7 @@ where
         venue: DemoVenue::Spot,
         symbol: config.symbol.clone(),
         observation_symbols: config.all_symbols(),
+        dispatch_symbol: policy_demo_dispatch_symbol(&config),
         policy_source,
         depth_source,
         steps,
@@ -458,6 +492,7 @@ where
         venue: DemoVenue::Usdm,
         symbol: config.symbol.clone(),
         observation_symbols: config.all_symbols(),
+        dispatch_symbol: policy_demo_dispatch_symbol(&config),
         policy_source,
         depth_source,
         steps,
@@ -509,6 +544,7 @@ where
         venue: DemoVenue::Spot,
         symbol: config.symbol.clone(),
         observation_symbols: config.all_symbols(),
+        dispatch_symbol: policy_demo_dispatch_symbol(&config),
         policy_source: policy_source.into(),
         depth_source,
         steps,
@@ -550,6 +586,7 @@ where
         venue: DemoVenue::Usdm,
         symbol: config.symbol.clone(),
         observation_symbols: config.all_symbols(),
+        dispatch_symbol: policy_demo_dispatch_symbol(&config),
         policy_source: policy_source.into(),
         depth_source,
         steps,
@@ -833,16 +870,24 @@ where
     env_config.default_qty = config.qty.clone();
     env_config.window_frames = config.window_frames;
     env_config.episode_steps = config.max_steps.max(1) as u64;
+    if let Some(symbol) = &config.dispatch_symbol {
+        env_config.set_dispatch_symbol(symbol);
+    }
     if uses_gaussian_source(config) {
         env_config.use_ladder_observation();
-        // Weekday μ / gaussian_mlp stay `[1, V×5]` on the dispatch symbol.
+        // Weekday μ / gaussian_mlp stay `[1, V×5]` on the primary book.
         env_config.join_ladder_symbols = false;
     }
 
     let mut env = Env::new(env_config, egress);
     let messages = depth_messages_for_config(config)?;
-    let steps = run_offline_policy_harness(&mut env, policy, messages)
-        .map_err(|err| PolicyDemoError::Harness(err.to_string()))?;
+    let steps = if let Some(symbol) = &config.dispatch_symbol {
+        let pinned = DispatchSymbolPolicy::new(policy, symbol.clone());
+        run_offline_policy_harness(&mut env, &pinned, messages)
+    } else {
+        run_offline_policy_harness(&mut env, policy, messages)
+    }
+    .map_err(|err| PolicyDemoError::Harness(err.to_string()))?;
     Ok(steps.len())
 }
 
@@ -872,6 +917,19 @@ fn truncate_depth_messages(mut messages: Vec<Message>, max_steps: usize) -> Vec<
         messages.truncate(max_steps);
     }
     messages
+}
+
+fn policy_demo_dispatch_symbol(config: &PolicyDemoConfig) -> String {
+    config
+        .dispatch_symbol
+        .clone()
+        .filter(|symbol| {
+            config
+                .all_symbols()
+                .iter()
+                .any(|tracked| tracked.eq_ignore_ascii_case(symbol))
+        })
+        .unwrap_or_else(|| config.symbol.clone())
 }
 
 pub fn policy_demo_depth_source_label(config: &PolicyDemoConfig) -> &'static str {

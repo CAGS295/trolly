@@ -3,7 +3,7 @@
 use trolly_strategy::{DepthUpdate, OutboundMessage, StreamEgress, StreamEvent};
 use trolly_stream::Message;
 
-use crate::action::Action;
+use crate::action::{Action, ActionDecision};
 use crate::observation::{
     features_from_event, join_feature_frames, ladder_features, ladder_features_from_depth,
     zero_stream_features, DepthLadderSpec, ObservationWindow,
@@ -44,8 +44,9 @@ pub struct EnvConfig {
     /// Extra public-depth symbols joined into the policy observation.
     ///
     /// Empty keeps the single-symbol Env. The first entry of
-    /// [`EnvConfig::tracked_symbols`] is the dispatch / inventory pair
-    /// (`symbol`); extras are observation-only.
+    /// [`EnvConfig::tracked_symbols`] is the default dispatch / inventory pair
+    /// (`symbol`). Extras join the observation and may be selected by
+    /// [`crate::policy::PolicyProvider::decide`] or [`EnvConfig::dispatch_symbol`].
     pub observation_symbols: Vec<String>,
     pub window_frames: usize,
     pub replay_capacity: usize,
@@ -59,6 +60,9 @@ pub struct EnvConfig {
     /// When false, multi-symbol Ladder `act()` sees only the primary `V×5`.
     /// Default true keeps the WP-045 concatenated `N×V×5` join.
     pub join_ladder_symbols: bool,
+    /// Fallback dispatch pair when [`crate::policy::PolicyProvider::decide`]
+    /// does not name a symbol. `None` keeps the primary `symbol`.
+    pub dispatch_symbol: Option<String>,
 }
 
 impl EnvConfig {
@@ -74,7 +78,45 @@ impl EnvConfig {
             observation_layout: ObservationLayout::Stream,
             ladder: DepthLadderSpec::default(),
             join_ladder_symbols: true,
+            dispatch_symbol: None,
         }
+    }
+
+    /// Pin Buy/Sell/Hold onto a tracked extra symbol when the policy omits one.
+    ///
+    /// The name is appended to [`EnvConfig::observation_symbols`] if missing so
+    /// public depth for that pair can join the observation. Qty stays
+    /// `default_qty`.
+    pub fn set_dispatch_symbol(&mut self, symbol: impl Into<String>) {
+        let trimmed = symbol.into();
+        let trimmed = trimmed.trim();
+        if trimmed.is_empty() {
+            self.dispatch_symbol = None;
+            return;
+        }
+        if !self.tracks_symbol(trimmed) {
+            let mut extras: Vec<String> = self
+                .tracked_symbols()
+                .into_iter()
+                .skip(1)
+                .map(str::to_string)
+                .collect();
+            extras.push(trimmed.to_string());
+            self.observe_symbols(extras);
+        }
+        self.dispatch_symbol = Some(trimmed.to_string());
+    }
+
+    /// Resolve a requested pair to a tracked observation symbol.
+    pub fn resolve_dispatch_symbol<'a>(&'a self, requested: Option<&'a str>) -> &'a str {
+        let requested = requested.or(self.dispatch_symbol.as_deref());
+        let Some(requested) = requested else {
+            return self.symbol.as_str();
+        };
+        self.tracked_symbols()
+            .into_iter()
+            .find(|tracked| tracked.eq_ignore_ascii_case(requested))
+            .unwrap_or(self.symbol.as_str())
     }
 
     /// Track additional symbols (after the primary dispatch symbol) in one Env.
@@ -173,12 +215,22 @@ impl Default for RewardConfig {
 
 /// Input accepted by [`Env::step`].
 pub trait StepActionSource {
-    fn select_action(&self, observation: &[f32]) -> Action;
+    fn select_decision(&self, observation: &[f32]) -> ActionDecision;
+
+    fn select_action(&self, observation: &[f32]) -> Action {
+        self.select_decision(observation).action
+    }
 }
 
 impl StepActionSource for Action {
-    fn select_action(&self, _observation: &[f32]) -> Action {
-        *self
+    fn select_decision(&self, _observation: &[f32]) -> ActionDecision {
+        ActionDecision::from(*self)
+    }
+}
+
+impl StepActionSource for ActionDecision {
+    fn select_decision(&self, _observation: &[f32]) -> ActionDecision {
+        self.clone()
     }
 }
 
@@ -186,8 +238,8 @@ impl<P> StepActionSource for &P
 where
     P: PolicyProvider + ?Sized,
 {
-    fn select_action(&self, observation: &[f32]) -> Action {
-        (*self).act(observation)
+    fn select_decision(&self, observation: &[f32]) -> ActionDecision {
+        (*self).decide(observation)
     }
 }
 
@@ -345,13 +397,18 @@ where
         } else {
             self.last_observation.clone()
         };
-        let action = source.select_action(&observation);
+        let decision = source.select_decision(&observation);
+        let action = decision.action;
+        let dispatch_symbol = self
+            .config
+            .resolve_dispatch_symbol(decision.symbol.as_deref())
+            .to_string();
         let reward = self.market_reward(&stream_observation, action);
         let done = self.steps + 1 >= self.config.episode_steps.max(1);
 
         action.dispatch(
             &mut self.egress,
-            &self.config.symbol,
+            &dispatch_symbol,
             &self.config.default_qty,
             None,
         )?;
@@ -600,6 +657,71 @@ mod tests {
         assert_eq!(
             env.egress().dispatched,
             vec![Action::Buy.to_outbound("BTCUSDT", "0.01", None)]
+        );
+    }
+
+    #[test]
+    fn multi_symbol_policy_can_dispatch_extra_symbol() {
+        let mut config = EnvConfig::new("BTCUSDT");
+        config.window_frames = 1;
+        config.observe_symbols(["ETHUSDT"]);
+        let mut env = Env::new(config, RecordingEgress::default());
+        assert!(env.ingest_event(&depth_event("BTCUSDT", "100", "102")));
+        assert!(env.ingest_event(&depth_event("ETHUSDT", "200", "204")));
+
+        struct ExtraBookBuy;
+        impl PolicyProvider for ExtraBookBuy {
+            fn act(&self, obs: &[f32]) -> Action {
+                if obs.len() >= 14 && obs[7] > 0.0 {
+                    Action::Buy
+                } else {
+                    Action::Hold
+                }
+            }
+
+            fn decide(&self, obs: &[f32]) -> ActionDecision {
+                let action = self.act(obs);
+                if action == Action::Buy {
+                    action.on_symbol("ETHUSDT")
+                } else {
+                    action.into()
+                }
+            }
+        }
+
+        let result = env.step(&ExtraBookBuy).unwrap();
+        assert_eq!(result.observation.len(), 14);
+        assert_eq!(
+            env.egress().dispatched,
+            vec![Action::Buy.to_outbound("ETHUSDT", "0.01", None)]
+        );
+    }
+
+    #[test]
+    fn untracked_dispatch_symbol_falls_back_to_primary() {
+        let mut env = Env::new(EnvConfig::new("BTCUSDT"), RecordingEgress::default());
+        env.ingest_event(&depth_event("BTCUSDT", "100", "102"));
+        env.step(Action::Sell.on_symbol("NOTALISTED")).unwrap();
+        assert_eq!(
+            env.egress().dispatched,
+            vec![Action::Sell.to_outbound("BTCUSDT", "0.01", None)]
+        );
+    }
+
+    #[test]
+    fn config_dispatch_symbol_pins_when_policy_omits_one() {
+        let mut config = EnvConfig::new("BTCUSDT");
+        config.window_frames = 1;
+        config.default_qty = "0.02".into();
+        config.set_dispatch_symbol("ETHUSDT");
+        assert_eq!(config.tracked_symbols(), vec!["BTCUSDT", "ETHUSDT"]);
+        let mut env = Env::new(config, RecordingEgress::default());
+        env.ingest_event(&depth_event("BTCUSDT", "100", "102"));
+        env.ingest_event(&depth_event("ETHUSDT", "200", "204"));
+        env.step(Action::Buy).unwrap();
+        assert_eq!(
+            env.egress().dispatched,
+            vec![Action::Buy.to_outbound("ETHUSDT", "0.02", None)]
         );
     }
 

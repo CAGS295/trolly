@@ -4,12 +4,13 @@ Project journal for shipped work. Active backlog lives in [`WORKPLAN.md`](WORKPL
 
 ## WIP
 
-- Live demo place + user-stream reconcile of a Gaussian-quantized policy on Binance demo (keys / `RUN_BINANCE_DEMO_ORDERS=1`). Offline load-and-dispatch, captured/injected/subscribed books, ONNX Gaussian μ, snapshot+diff rebuild, and multi-symbol joined observations are in.
-- Per-symbol `Action::dispatch` from joined observations (WP-048); extras are observation-only today.
+- Live demo place + user-stream reconcile of a Gaussian-quantized policy on Binance demo (keys / `RUN_BINANCE_DEMO_ORDERS=1`). Offline load-and-dispatch, captured/injected/subscribed books, ONNX Gaussian μ, snapshot+diff rebuild, multi-symbol joined observations, and per-symbol `Action::dispatch` are in.
+- User-stream reconcile still keys off the primary `--symbol` after WP-048 extra-symbol dispatch (WP-049).
 - Keep local GPU training checkpoint metrics improving via ClickHouse `trolly.ticks`, trajectory FIFO replay, daily `--continue` slices, and checkpoint fingerprints.
 - Add more exchange providers beyond Binance spot + USDM (stub scaffold landed; full venues remain).
 
 ## change log
++ `trolly-gym` / policy-demo: `PolicyProvider::decide` / `--dispatch-symbol` can `Action::dispatch` a tracked extra pair; qty stays `--qty`, side stays Buy/Sell/Hold, default remains primary (WP-048). Trainer guidance missing (silent).
 + `execute policy-demo`: `public_depth_snapshot_json` accepts a JSON array of REST-style snapshots (one local book per symbol) so two-symbol subscribe rebuilds stay offline-testable (WP-047). Trainer guidance missing (silent).
 + `trolly-gym` / policy-demo: Gaussian sources keep the primary-symbol `V×5` ladder when extra books are listed so weekday `mu.onnx` / `gaussian_mlp` dim still matches (WP-046). Trainer guidance missing (silent).
 + `trolly-gym` / policy-demo: Env joins per-symbol 7-D or `V×5` frames (`--symbol BTCUSDT,ETHUSDT`); Buy/Sell still dispatch the primary pair; synthetic tape stays single-symbol (WP-045). Trainer guidance missing (silent).

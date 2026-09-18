@@ -179,8 +179,8 @@ sudo amdgpu-install -y --usecase=rocm --no-dkms
 ## Architecture
 
 - **Observations** — normalized [`StreamEvent`](https://github.com/CAGS295/trolly/tree/main/crates/trolly-strategy) values from `trolly-stream` ingress are converted to feature vectors and kept in a rolling [`ObservationWindow`](src/observation.rs).
-- **Policies** — [`PolicyProvider`](src/policy.rs) turns flattened observations into [`Action`](src/action.rs) values. `HoldPolicy` is the default safe baseline; `RecordedMeanActionPolicy` replays a Gaussian mean-action tape and quantizes via WP-035; torch builds can load a 3-logit `CheckpointPolicy` or a Gaussian ladder checkpoint; ONNX Runtime builds can load exported 3-logit actors with `OnnxPolicy` or a Gaussian μ head with `OnnxGaussianMeanPolicy`.
-- **Actions** — discrete [`Action`](src/action.rs) values map to [`OutboundMessage`](https://github.com/CAGS295/trolly/tree/main/crates/trolly-strategy) commands and dispatch through [`StreamEgress`](https://github.com/CAGS295/trolly/tree/main/crates/trolly-strategy). Env stepping always calls `Action::dispatch`; it does not build parallel order messages.
+- **Policies** — [`PolicyProvider`](src/policy.rs) turns flattened observations into [`Action`](src/action.rs) values. Override [`PolicyProvider::decide`](src/policy.rs) to name a tracked extra symbol; default `act()` stays on the primary pair. `HoldPolicy` is the default safe baseline; `RecordedMeanActionPolicy` replays a Gaussian mean-action tape and quantizes via WP-035; torch builds can load a 3-logit `CheckpointPolicy` or a Gaussian ladder checkpoint; ONNX Runtime builds can load exported 3-logit actors with `OnnxPolicy` or a Gaussian μ head with `OnnxGaussianMeanPolicy`.
+- **Actions** — discrete [`Action`](src/action.rs) values map to [`OutboundMessage`](https://github.com/CAGS295/trolly/tree/main/crates/trolly-strategy) commands and dispatch through [`StreamEgress`](https://github.com/CAGS295/trolly/tree/main/crates/trolly-strategy). Env stepping always calls `Action::dispatch`; it does not build parallel order messages. Qty is `EnvConfig.default_qty`; side is Buy/Sell/Hold; symbol is the primary pair unless `decide()` or `EnvConfig.dispatch_symbol` names a tracked extra.
 - **Replay** — [`ReplayBuffer`](src/replay.rs) FIFO ring plus recency-bounded [`TrajectoryReplay`](src/replay.rs) (on-policy trajectories, age-decayed sample; not classic PER).
 - **Env** — [`Env`](src/env.rs) ties ingest -> window -> policy/action step -> egress; see `tests/smoke.rs` for an offline mock flow.
 
@@ -216,6 +216,10 @@ impl PolicyProvider for MyPolicy {
     }
 }
 ```
+
+`decide()` defaults to that `act()` on the primary pair. To trade a joined extra
+book, return `Action::Buy.on_symbol("ETHUSDT")`. Qty is still
+`EnvConfig.default_qty`; an unknown name falls back to primary.
 
 Stream rewards now mirror the synthetic microstructure benchmark: the env keeps
 a unit inventory (`-1`, `0`, `1`) and computes
@@ -317,12 +321,17 @@ cargo run --bin depth_monitor -- execute policy-demo \
 ```
 
 `--symbol` accepts a comma-separated list (`BTCUSDT,ETHUSDT`). The first pair
-is the dispatch / inventory symbol `Action::dispatch` uses. Extra pairs join
-the Hold / 3-logit observation (latest 7-D stream frame per symbol). Synthetic
+is the default dispatch / inventory symbol `Action::dispatch` uses. Extra pairs
+join the Hold / 3-logit observation (latest 7-D stream frame per symbol) and
+can be selected for dispatch: a policy may return
+`Action::Buy.on_symbol("ETHUSDT")` via `PolicyProvider::decide`, or
+`--dispatch-symbol ETHUSDT` pins every step. Qty stays `--qty`; side stays the
+policy Buy/Sell/Hold. Unknown names fall back to the primary pair. Synthetic
 depth still emits only the primary pair. `--depth-json` and injected/subscribed
 public depth can carry every listed symbol. Gaussian sources (recorded
 mean-actions, torch `gaussian_mlp`, `mu.onnx`) still receive the **primary**
-WP-032 `V×5` ladder so weekday checkpoints keep their `[1, V×5]` dim.
+WP-032 `V×5` ladder so weekday checkpoints keep their `[1, V×5]` dim; they
+still dispatch the primary pair unless `--dispatch-symbol` is set.
 
 Default builds use the hold fallback and add no model runtime. To load exported
 policy artifacts through the root command, opt in to the matching root feature:
@@ -491,7 +500,8 @@ recorded Gaussian mean-action quantization (WP-036), captured depth ingest
 (WP-041), the injectable public-depth hook (WP-042), mocked public-depth
 subscribe (WP-043), snapshot+diff book rebuild (WP-044), multi-symbol
 joined observations (WP-045), primary-symbol Gaussian `V×5` (WP-046),
-multi-symbol snapshot arrays (WP-047), the guard refusal, live wait option guards,
+multi-symbol snapshot arrays (WP-047), per-symbol `Action::dispatch` (WP-048),
+the guard refusal, live wait option guards,
 mock placement receipts, mocked frame-source reconciliation, and captured
 receipt-to-user-stream reconciliation without live network or keys.
 

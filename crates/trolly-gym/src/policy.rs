@@ -54,6 +54,59 @@ pub fn decode_gaussian_mean_output(output: &[f32]) -> Result<f32, GaussianMeanDe
 /// Injectable action provider for [`crate::Env`] stepping.
 pub trait PolicyProvider {
     fn act(&self, obs: &[f32]) -> Action;
+
+    /// Choose side and an optional non-primary dispatch symbol.
+    ///
+    /// Default keeps [`PolicyProvider::act`] on the primary Env pair so
+    /// existing Hold / 3-logit / Gaussian providers stay unchanged. Override
+    /// to `Action::dispatch` a tracked extra symbol. Qty stays
+    /// `EnvConfig.default_qty`; side is `Buy` / `Sell` / `Hold`.
+    fn decide(&self, obs: &[f32]) -> crate::action::ActionDecision {
+        crate::action::ActionDecision {
+            action: self.act(obs),
+            symbol: None,
+        }
+    }
+}
+
+/// Pin every decision from `inner` onto one tracked observation symbol.
+///
+/// Used by `execute policy-demo --dispatch-symbol`. Unknown names still fall
+/// back to the primary Env pair inside [`crate::Env::step`].
+#[derive(Debug, Clone)]
+pub struct DispatchSymbolPolicy<'a, P: ?Sized> {
+    inner: &'a P,
+    symbol: String,
+}
+
+impl<'a, P: PolicyProvider + ?Sized> DispatchSymbolPolicy<'a, P> {
+    pub fn new(inner: &'a P, symbol: impl Into<String>) -> Self {
+        Self {
+            inner,
+            symbol: symbol.into(),
+        }
+    }
+
+    pub fn symbol(&self) -> &str {
+        &self.symbol
+    }
+
+    pub fn inner(&self) -> &'a P {
+        self.inner
+    }
+}
+
+impl<P: PolicyProvider + ?Sized> PolicyProvider for DispatchSymbolPolicy<'_, P> {
+    fn act(&self, obs: &[f32]) -> Action {
+        self.inner.act(obs)
+    }
+
+    fn decide(&self, obs: &[f32]) -> crate::action::ActionDecision {
+        crate::action::ActionDecision {
+            action: self.inner.act(obs),
+            symbol: Some(self.symbol.clone()),
+        }
+    }
 }
 
 /// Wrap a target-inventory source and quantize onto `{Hold,Buy,Sell}`.
@@ -453,6 +506,16 @@ mod tests {
         let policy = QuantizeInventoryPolicy::new(|obs: &[f32]| obs[0], 0.25);
         assert_eq!(policy.act(&[0.1]), Action::Hold);
         assert_eq!(policy.act(&[0.4]), Action::Buy);
+        assert_eq!(policy.act(&[-0.4]), Action::Sell);
+    }
+
+    #[test]
+    fn dispatch_symbol_policy_pins_decide_and_keeps_side() {
+        let inner = QuantizeInventoryPolicy::new(|obs: &[f32]| obs[0], 0.25);
+        let policy = DispatchSymbolPolicy::new(&inner, "ETHUSDT");
+        let decision = policy.decide(&[0.4]);
+        assert_eq!(decision.action, Action::Buy);
+        assert_eq!(decision.symbol.as_deref(), Some("ETHUSDT"));
         assert_eq!(policy.act(&[-0.4]), Action::Sell);
     }
 

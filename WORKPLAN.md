@@ -21,7 +21,7 @@ Shipped so far (not the destination): global book CLI; stream-native spot/USDM b
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: 2026-09-17
+- last_run: 2026-09-18
 - max_parallel: 3
 - ship_branch: integrate/orchestrator-branches
 
@@ -786,7 +786,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-048 — Per-symbol Action::dispatch from joined observations
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-035, WP-045]
 - scope: crates/trolly-gym/src/action.rs, crates/trolly-gym/src/env.rs, src/policy_demo.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
@@ -795,6 +795,20 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - default remains primary-symbol dispatch so existing single-symbol and WP-046 Gaussian paths stay unchanged
   - offline tests; no live orders; do not train
 - notes: WP-045/046 join extra books but still place only on the first `--symbol`. The broad goal's strategy→exec loop needs a typed path to act on more than the primary pair without inventing a third venue.
+- worker/orchestrator (2026-09-18): trainer guidance missing (silent). `PolicyProvider::decide` / `Action::on_symbol` emit `Action::dispatch` for a tracked extra pair; qty stays `EnvConfig.default_qty` / `--qty`; side stays Buy/Sell/Hold; unknown names fall back to primary. `--dispatch-symbol` and `DispatchSymbolPolicy` pin when the policy omits a name. Gaussian `V×5` still acts and (unless pinned) dispatches the primary pair. Acceptance: `cargo +stable test -p trolly-gym --lib --locked` 77 pass; `cargo +stable test --test policy_demo_runner --locked` 49 pass.
+
+### WP-049 — Policy-demo reconcile tracks dispatched order symbols
+
+- status: todo
+- repos: trolly
+- depends_on: [WP-030, WP-048]
+- scope: src/policy_demo.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - user-stream ingest / reconcile matching includes every symbol that appears on placed `OrderRequest`s, not only the primary `--symbol`
+  - default single-symbol and primary-only Gaussian paths stay unchanged
+  - offline tests inject a non-primary dispatch plus a matching user-data frame; `cargo test --test policy_demo_runner` stays offline
+  - no live orders; do not train
+- notes: WP-048 can `Action::dispatch` ETHUSDT while reconcile hubs still subscribe/match `report.symbol` (the first `--symbol`). The strategy→exec loop cannot confirm extra-symbol fills until reconcile follows the typed orders.
 
 ## Integration test reference
 

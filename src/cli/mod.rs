@@ -84,9 +84,13 @@ struct PolicyDemoArgs {
     #[clap(long, value_enum, default_value_t = PolicyDemoVenue::Spot)]
     venue: PolicyDemoVenue,
     /// Trading pair, or comma-separated pairs (e.g. BTCUSDT,ETHUSDT).
-    /// First symbol is the dispatch / inventory pair; extras join the observation.
+    /// First symbol is the default dispatch / inventory pair; extras join the observation.
     #[clap(long, default_value = "BTCUSDT")]
     symbol: String,
+    /// Optional tracked pair for Action::dispatch. Default keeps the first `--symbol`.
+    /// Qty stays `--qty`; side stays the policy Buy/Sell/Hold.
+    #[clap(long)]
+    dispatch_symbol: Option<String>,
     /// Default order quantity emitted by Buy/Sell actions.
     #[clap(long, default_value = "0.01")]
     qty: String,
@@ -243,6 +247,9 @@ impl PlaceOrderArgs {
 impl PolicyDemoArgs {
     async fn run(&self) {
         let mut config = PolicyDemoConfig::new(self.venue.into(), self.symbol.clone());
+        if let Some(symbol) = &self.dispatch_symbol {
+            config.set_dispatch_symbol(symbol);
+        }
         config.qty = self.qty.clone();
         config.window_frames = self.window_frames;
         config.max_steps = self.max_steps;
@@ -295,9 +302,10 @@ impl PolicyDemoArgs {
 
 fn print_policy_demo_report(report: &PolicyDemoReport) {
     println!(
-        "policy demo: venue={} symbol={} policy={} depth={} steps={} order_requests={} placed_orders={} reconciled_orders={} mode={}",
+        "policy demo: venue={} symbol={} dispatch={} policy={} depth={} steps={} order_requests={} placed_orders={} reconciled_orders={} mode={}",
         report.venue,
         report.display_symbols(),
+        report.dispatch_symbol,
         report.policy_source,
         report.depth_source,
         report.steps,

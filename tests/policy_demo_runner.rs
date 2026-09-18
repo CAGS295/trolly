@@ -275,6 +275,90 @@ async fn policy_demo_injected_two_symbols_dispatch_primary() {
     assert_eq!(orders[0].quantity, "0.02");
 }
 
+struct ExtraBookBuyPolicy;
+
+impl PolicyProvider for ExtraBookBuyPolicy {
+    fn act(&self, obs: &[f32]) -> Action {
+        if obs.len() >= 14 && obs[7] > 0.0 {
+            Action::Buy
+        } else {
+            Action::Hold
+        }
+    }
+
+    fn decide(&self, obs: &[f32]) -> trolly_gym::ActionDecision {
+        let action = self.act(obs);
+        if action == Action::Buy {
+            action.on_symbol("ETHUSDT")
+        } else {
+            action.into()
+        }
+    }
+}
+
+#[tokio::test]
+async fn policy_demo_joined_policy_can_dispatch_extra_symbol() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT,ETHUSDT");
+    config.max_steps = 4;
+    config.qty = "0.03".into();
+    let policy = ExtraBookBuyPolicy;
+
+    let report = run_policy_demo_with_public_depth(config, &policy, "joined-extra-buy", || async {
+        policy_demo_depth_messages_from_json(
+            r#"[
+              {"kind":"depth","symbol":"BTCUSDT","bids":[{"price":"100.00","qty":"1.0"}],"asks":[{"price":"102.00","qty":"1.0"}],"update_id":1},
+              {"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"200.00","qty":"1.0"}],"asks":[{"price":"202.00","qty":"1.0"}],"update_id":2}
+            ]"#,
+            "BTCUSDT",
+        )
+    })
+    .await
+    .unwrap();
+
+    let PolicyDemoOrders::Spot(orders) = report.orders else {
+        panic!("expected spot orders");
+    };
+    assert_eq!(report.symbol, "BTCUSDT");
+    assert_eq!(report.dispatch_symbol, "BTCUSDT");
+    assert_eq!(orders.len(), 1);
+    assert_eq!(orders[0].symbol, "ETHUSDT");
+    assert_eq!(orders[0].side, SpotOrderSide::Buy);
+    assert_eq!(orders[0].quantity, "0.03");
+}
+
+#[tokio::test]
+async fn policy_demo_dispatch_symbol_pin_keeps_qty_and_side() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT,ETHUSDT");
+    config.set_dispatch_symbol("ETHUSDT");
+    config.max_steps = 4;
+    config.qty = "0.04".into();
+    let policy = SequencePolicy {
+        actions: vec![Action::Hold, Action::Sell],
+        next: Cell::new(0),
+    };
+
+    let report = run_policy_demo_with_public_depth(config, &policy, "pin-eth-sell", || async {
+        policy_demo_depth_messages_from_json(
+            r#"[
+              {"kind":"depth","symbol":"BTCUSDT","bids":[{"price":"100.00","qty":"1.0"}],"asks":[{"price":"102.00","qty":"1.0"}],"update_id":1},
+              {"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"200.00","qty":"1.0"}],"asks":[{"price":"202.00","qty":"1.0"}],"update_id":2}
+            ]"#,
+            "BTCUSDT",
+        )
+    })
+    .await
+    .unwrap();
+
+    let PolicyDemoOrders::Spot(orders) = report.orders else {
+        panic!("expected spot orders");
+    };
+    assert_eq!(report.dispatch_symbol, "ETHUSDT");
+    assert_eq!(orders.len(), 1);
+    assert_eq!(orders[0].symbol, "ETHUSDT");
+    assert_eq!(orders[0].side, SpotOrderSide::Sell);
+    assert_eq!(orders[0].quantity, "0.04");
+}
+
 #[tokio::test]
 async fn policy_demo_gaussian_multi_symbol_keeps_primary_ladder() {
     let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT,ETHUSDT");

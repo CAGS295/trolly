@@ -88,6 +88,38 @@ impl Action {
     ) -> Result<(), E::Error> {
         egress.dispatch(self.to_outbound(symbol, qty, price))
     }
+
+    /// Pin this side onto a tracked observation symbol.
+    ///
+    /// Qty is never chosen here: [`crate::Env`] always uses
+    /// [`crate::EnvConfig::default_qty`]. Side is `Buy` / `Sell` / `Hold`.
+    /// Unknown symbols fall back to the primary Env pair.
+    pub fn on_symbol(self, symbol: impl Into<String>) -> ActionDecision {
+        ActionDecision {
+            action: self,
+            symbol: Some(symbol.into()),
+        }
+    }
+}
+
+/// Side plus optional non-primary dispatch symbol.
+///
+/// `symbol = None` keeps the primary `EnvConfig.symbol` (single-symbol and
+/// WP-046 Gaussian paths). `symbol = Some` must name a tracked observation
+/// pair or Env falls back to primary. Qty is always `EnvConfig.default_qty`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActionDecision {
+    pub action: Action,
+    pub symbol: Option<String>,
+}
+
+impl From<Action> for ActionDecision {
+    fn from(action: Action) -> Self {
+        Self {
+            action,
+            symbol: None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -121,5 +153,13 @@ mod tests {
                 position_side: None,
             })
         );
+    }
+
+    #[test]
+    fn on_symbol_keeps_side_and_names_pair() {
+        let decision = Action::Sell.on_symbol("ETHUSDT");
+        assert_eq!(decision.action, Action::Sell);
+        assert_eq!(decision.symbol.as_deref(), Some("ETHUSDT"));
+        assert_eq!(ActionDecision::from(Action::Hold).symbol, None);
     }
 }

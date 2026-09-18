@@ -31,7 +31,7 @@ pub mod games;
 #[cfg(feature = "torch")]
 pub mod train;
 
-pub use action::Action;
+pub use action::{Action, ActionDecision};
 pub use env::{
     run_offline_policy_harness, Env, EnvConfig, OfflinePolicyHarnessError, RewardConfig,
     StepActionSource, StepResult,
@@ -53,8 +53,8 @@ pub use onnx::{OnnxGaussianMeanPolicy, OnnxPolicy, OnnxPolicyError};
 #[cfg(feature = "torch")]
 pub use policy::CheckpointPolicy;
 pub use policy::{
-    decode_gaussian_mean_output, CheckpointOrHoldPolicy, GaussianMeanDecodeError, HoldPolicy,
-    PolicyProvider, QuantizeInventoryPolicy,
+    decode_gaussian_mean_output, CheckpointOrHoldPolicy, DispatchSymbolPolicy,
+    GaussianMeanDecodeError, HoldPolicy, PolicyProvider, QuantizeInventoryPolicy,
 };
 pub use replay::{
     FeatureRingBuffer, OnPolicyRolloutBuffer, OnPolicyStep, ReplayBuffer, Trajectory,
