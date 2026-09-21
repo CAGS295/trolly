@@ -34,11 +34,12 @@ use tokio::time::{timeout, Instant};
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 use trolly_gym::policy::DEFAULT_INVENTORY_DEADZONE;
 use trolly_gym::{
-    run_offline_policy_harness, CheckpointOrHoldPolicy, DispatchSymbolPolicy, Env, EnvConfig,
-    PolicyProvider,
+    run_offline_policy_harness, Action, CheckpointOrHoldPolicy, DispatchSymbolPolicy, Env,
+    EnvConfig, PolicyProvider,
 };
 use trolly_strategy::{
-    envelope_message, parse_envelope, DepthUpdate, OrderOnlyEgress, PriceLevel, StreamEvent,
+    envelope_message, parse_envelope, DepthUpdate, OrderOnlyEgress, PriceLevel, RecordingEgress,
+    StreamEvent,
 };
 use trolly_stream::{Message, VenueEndpoints};
 
@@ -101,6 +102,9 @@ pub struct PolicyDemoConfig {
     /// Optional REST-style depth snapshot JSON used to seed the local book
     /// before applying subscribed/injected `depthUpdate` diffs (WP-044).
     pub public_depth_snapshot_json: Option<String>,
+    /// Captured user-data JSON/NDJSON reconciled before the harness Env drops.
+    /// Same envelope as `--reconcile-user-data-json`.
+    pub captured_user_data_json: Option<String>,
 }
 
 impl PolicyDemoConfig {
@@ -132,6 +136,7 @@ impl PolicyDemoConfig {
             subscribe_public_depth: false,
             public_depth_timeout: Duration::ZERO,
             public_depth_snapshot_json: None,
+            captured_user_data_json: None,
         }
     }
 
@@ -212,7 +217,15 @@ pub struct PolicyDemoReport {
     pub placed_orders: usize,
     pub receipts: Vec<PolicyDemoReceipt>,
     pub reconciliations: Vec<PolicyDemoReconciliation>,
+    /// Extra-pair inventory after WP-051 fill write-back. Primary stays empty.
+    pub extra_symbol_inventory: Vec<PolicyDemoSymbolInventory>,
     pub orders: PolicyDemoOrders,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PolicyDemoSymbolInventory {
+    pub symbol: String,
+    pub position: i8,
 }
 
 impl PolicyDemoReport {
@@ -411,7 +424,8 @@ where
     P: PolicyProvider + ?Sized,
 {
     let (spot_egress, mut rx) = SpotOrderEgress::channel();
-    let steps = run_env_policy_harness(&config, OrderOnlyEgress::new(spot_egress), policy)?;
+    let (mut env, steps) =
+        run_env_policy_harness(&config, OrderOnlyEgress::new(spot_egress), policy)?;
     let mut orders = drain_spot_orders(&mut rx);
     assign_spot_client_order_ids(&mut orders, &config.client_order_id_prefix);
 
@@ -442,6 +456,7 @@ where
         placed_orders: receipts.len(),
         receipts,
         reconciliations: Vec::new(),
+        extra_symbol_inventory: Vec::new(),
         orders: PolicyDemoOrders::Spot(orders),
     };
 
@@ -449,8 +464,7 @@ where
         report.reconciliations =
             wait_spot_live_reconciliations(socket, &report, config.user_data_timeout).await?;
     }
-
-    Ok(report)
+    finish_policy_demo_report(&config, &mut env, report)
 }
 
 async fn run_usdm_policy_demo<P>(
@@ -463,7 +477,8 @@ where
     P: PolicyProvider + ?Sized,
 {
     let (usdm_egress, mut rx) = UsdmOrderEgress::channel();
-    let steps = run_env_policy_harness(&config, OrderOnlyEgress::new(usdm_egress), policy)?;
+    let (mut env, steps) =
+        run_env_policy_harness(&config, OrderOnlyEgress::new(usdm_egress), policy)?;
     let mut orders = drain_usdm_orders(&mut rx);
     assign_usdm_client_order_ids(&mut orders, &config.client_order_id_prefix);
 
@@ -500,6 +515,7 @@ where
         placed_orders: receipts.len(),
         receipts,
         reconciliations: Vec::new(),
+        extra_symbol_inventory: Vec::new(),
         orders: PolicyDemoOrders::Usdm(orders),
     };
 
@@ -511,7 +527,7 @@ where
         report.reconciliations = reconciliations?;
     }
 
-    Ok(report)
+    finish_policy_demo_report(&config, &mut env, report)
 }
 
 #[doc(hidden)]
@@ -527,7 +543,8 @@ where
     Fut: Future<Output = Result<SpotPlaceOrderResponse, PolicyDemoError>>,
 {
     let (spot_egress, mut rx) = SpotOrderEgress::channel();
-    let steps = run_env_policy_harness(&config, OrderOnlyEgress::new(spot_egress), policy)?;
+    let (mut env, steps) =
+        run_env_policy_harness(&config, OrderOnlyEgress::new(spot_egress), policy)?;
     let mut orders = drain_spot_orders(&mut rx);
     assign_spot_client_order_ids(&mut orders, &config.client_order_id_prefix);
 
@@ -540,7 +557,7 @@ where
     }
 
     let depth_source = policy_demo_depth_source_label(&config).to_string();
-    Ok(PolicyDemoReport {
+    let report = PolicyDemoReport {
         venue: DemoVenue::Spot,
         symbol: config.symbol.clone(),
         observation_symbols: config.all_symbols(),
@@ -552,8 +569,10 @@ where
         placed_orders: receipts.len(),
         receipts,
         reconciliations: Vec::new(),
+        extra_symbol_inventory: Vec::new(),
         orders: PolicyDemoOrders::Spot(orders),
-    })
+    };
+    finish_policy_demo_report(&config, &mut env, report)
 }
 
 #[doc(hidden)]
@@ -569,7 +588,8 @@ where
     Fut: Future<Output = Result<UsdmPlaceOrderResponse, PolicyDemoError>>,
 {
     let (usdm_egress, mut rx) = UsdmOrderEgress::channel();
-    let steps = run_env_policy_harness(&config, OrderOnlyEgress::new(usdm_egress), policy)?;
+    let (mut env, steps) =
+        run_env_policy_harness(&config, OrderOnlyEgress::new(usdm_egress), policy)?;
     let mut orders = drain_usdm_orders(&mut rx);
     assign_usdm_client_order_ids(&mut orders, &config.client_order_id_prefix);
 
@@ -582,7 +602,7 @@ where
     }
 
     let depth_source = policy_demo_depth_source_label(&config).to_string();
-    Ok(PolicyDemoReport {
+    let report = PolicyDemoReport {
         venue: DemoVenue::Usdm,
         symbol: config.symbol.clone(),
         observation_symbols: config.all_symbols(),
@@ -594,8 +614,10 @@ where
         placed_orders: receipts.len(),
         receipts,
         reconciliations: Vec::new(),
+        extra_symbol_inventory: Vec::new(),
         orders: PolicyDemoOrders::Usdm(orders),
-    })
+    };
+    finish_policy_demo_report(&config, &mut env, report)
 }
 
 #[doc(hidden)]
@@ -658,6 +680,77 @@ pub fn reconcile_policy_demo_report(
         DemoVenue::Spot => reconcile_spot_policy_demo_user_data(report, messages),
         DemoVenue::Usdm => reconcile_usdm_policy_demo_user_data(report, messages),
     };
+    write_extra_symbol_fills_into_report(report);
+}
+
+/// Write extra-symbol FILLED rows into [`Env::position_for`] for that pair.
+///
+/// Primary-book inventory stays on the policy-step path. Unknown / non-FILLED
+/// rows are ignored. The same helper seeds
+/// [`PolicyDemoReport::extra_symbol_inventory`].
+pub fn apply_extra_symbol_fills_to_env<E>(env: &mut Env<E>, report: &PolicyDemoReport)
+where
+    E: trolly_strategy::StreamEgress,
+{
+    for reconciliation in &report.reconciliations {
+        if !reconciliation_is_extra_symbol_fill(report, reconciliation) {
+            continue;
+        }
+        let Some(action) = Action::from_side(&reconciliation.side) else {
+            continue;
+        };
+        env.apply_fill(&reconciliation.symbol, action);
+    }
+}
+
+fn reconciliation_is_extra_symbol_fill(
+    report: &PolicyDemoReport,
+    reconciliation: &PolicyDemoReconciliation,
+) -> bool {
+    reconciliation.terminal
+        && reconciliation.status.eq_ignore_ascii_case("FILLED")
+        && !reconciliation.symbol.eq_ignore_ascii_case(&report.symbol)
+}
+
+fn write_extra_symbol_fills_into_report(report: &mut PolicyDemoReport) {
+    let mut env = env_for_extra_symbol_fills(report);
+    apply_extra_symbol_fills_to_env(&mut env, report);
+    report.extra_symbol_inventory = extra_symbol_positions(&env, report);
+}
+
+fn env_for_extra_symbol_fills(report: &PolicyDemoReport) -> Env<RecordingEgress> {
+    let mut config = EnvConfig::new(report.symbol.clone());
+    let mut extras = report.observation_symbols.clone();
+    extras.push(report.dispatch_symbol.clone());
+    extras.extend(report.receipts.iter().map(|receipt| receipt.symbol.clone()));
+    extras.extend(
+        report
+            .reconciliations
+            .iter()
+            .map(|reconciliation| reconciliation.symbol.clone()),
+    );
+    config.observe_symbols(extras);
+    Env::new(config, RecordingEgress::default())
+}
+
+fn extra_symbol_positions<E: trolly_strategy::StreamEgress>(
+    env: &Env<E>,
+    report: &PolicyDemoReport,
+) -> Vec<PolicyDemoSymbolInventory> {
+    env.tracked_symbols()
+        .into_iter()
+        .filter(|symbol| !symbol.eq_ignore_ascii_case(&report.symbol))
+        .filter(|symbol| {
+            report.reconciliations.iter().any(|reconciliation| {
+                reconciliation_is_extra_symbol_fill(report, reconciliation)
+                    && reconciliation.symbol.eq_ignore_ascii_case(symbol)
+            })
+        })
+        .map(|symbol| PolicyDemoSymbolInventory {
+            symbol: symbol.to_string(),
+            position: env.position_for(symbol),
+        })
+        .collect()
 }
 
 pub fn policy_demo_user_data_messages_from_json(
@@ -752,11 +845,7 @@ struct ReconciliationState {
 impl ReconciliationState {
     fn from_report(report: &PolicyDemoReport) -> Self {
         Self {
-            targets: report
-                .receipts
-                .iter()
-                .map(|receipt| (receipt.order_id, receipt.client_order_id.clone()))
-                .collect(),
+            targets: policy_demo_reconciliation_targets(report),
             reconciliations: Vec::new(),
             seen: HashSet::new(),
         }
@@ -861,7 +950,7 @@ fn run_env_policy_harness<E, P>(
     config: &PolicyDemoConfig,
     egress: E,
     policy: &P,
-) -> Result<usize, PolicyDemoError>
+) -> Result<(Env<E>, usize), PolicyDemoError>
 where
     E: trolly_strategy::StreamEgress,
     E::Error: fmt::Debug,
@@ -890,7 +979,26 @@ where
         run_offline_policy_harness(&mut env, policy, messages)
     }
     .map_err(|err| PolicyDemoError::Harness(err.to_string()))?;
-    Ok(steps.len())
+    Ok((env, steps.len()))
+}
+
+fn finish_policy_demo_report<E>(
+    config: &PolicyDemoConfig,
+    env: &mut Env<E>,
+    mut report: PolicyDemoReport,
+) -> Result<PolicyDemoReport, PolicyDemoError>
+where
+    E: trolly_strategy::StreamEgress,
+{
+    if report.reconciliations.is_empty() {
+        if let Some(input) = &config.captured_user_data_json {
+            let messages = policy_demo_user_data_messages_from_json(input)?;
+            reconcile_policy_demo_report(&mut report, messages);
+        }
+    }
+    apply_extra_symbol_fills_to_env(env, &report);
+    report.extra_symbol_inventory = extra_symbol_positions(env, &report);
+    Ok(report)
 }
 
 fn depth_messages_for_config(config: &PolicyDemoConfig) -> Result<Vec<Message>, PolicyDemoError> {
@@ -919,6 +1027,34 @@ fn truncate_depth_messages(mut messages: Vec<Message>, max_steps: usize) -> Vec<
         messages.truncate(max_steps);
     }
     messages
+}
+
+fn policy_demo_reconciliation_targets(report: &PolicyDemoReport) -> Vec<(i64, String)> {
+    let mut targets: Vec<(i64, String)> = report
+        .receipts
+        .iter()
+        .map(|receipt| (receipt.order_id, receipt.client_order_id.clone()))
+        .collect();
+    if !targets.is_empty() {
+        return targets;
+    }
+    match &report.orders {
+        PolicyDemoOrders::Spot(orders) => {
+            for order in orders {
+                if let Some(client_order_id) = &order.new_client_order_id {
+                    targets.push((0, client_order_id.clone()));
+                }
+            }
+        }
+        PolicyDemoOrders::Usdm(orders) => {
+            for order in orders {
+                if let Some(client_order_id) = &order.new_client_order_id {
+                    targets.push((0, client_order_id.clone()));
+                }
+            }
+        }
+    }
+    targets
 }
 
 fn policy_demo_reconcile_symbols(report: &PolicyDemoReport) -> Vec<String> {

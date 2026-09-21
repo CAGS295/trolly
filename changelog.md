@@ -4,12 +4,16 @@ Project journal for shipped work. Active backlog lives in [`WORKPLAN.md`](WORKPL
 
 ## WIP
 
-- Live demo place + user-stream reconcile of a Gaussian-quantized policy on Binance demo (keys / `RUN_BINANCE_DEMO_ORDERS=1`). Offline load-and-dispatch, captured/injected/subscribed books, ONNX Gaussian μ, snapshot+diff rebuild, multi-symbol joined observations, per-symbol `Action::dispatch`, extra-symbol reconcile, and book-local inventory scoring are in.
-- Extra-symbol user-data fills are not written back into `Env::position_for` (WP-051).
+- Live demo place + user-stream reconcile of a Gaussian-quantized policy on Binance demo (keys / `RUN_BINANCE_DEMO_ORDERS=1`). Offline load-and-dispatch, captured/injected/subscribed books, ONNX Gaussian μ, snapshot+diff rebuild, multi-symbol joined observations, per-symbol `Action::dispatch`, extra-symbol reconcile, book-local inventory scoring, and extra-symbol fill write-back are in.
+- Policy-demo still ends the harness at reconcile, so a continued depth tape cannot consume fill-backed extra-symbol `q` (WP-055).
 - Keep local GPU training checkpoint metrics improving via ClickHouse `trolly.ticks`, trajectory FIFO replay, daily `--continue` slices, and checkpoint fingerprints.
 - Add more exchange providers beyond Binance spot + USDM (stub scaffold landed; full venues remain).
 
 ## change log
++ `execute policy-demo`: dry-run captured user-data matches assigned `newClientOrderId`s so extra-symbol fills write inventory without placement receipts (WP-054). Trainer guidance missing (silent).
++ `execute policy-demo`: `--reconcile-user-data-json` runs before the harness Env drops and writes extra-symbol FILLED rows into that Env (WP-053). Trainer guidance missing (silent).
++ `trolly-gym`: extra-symbol fill `q` appears on the next joined ladder observation; primary-only / `join_ladder_symbols=false` stay on primary inventory (WP-052). Trainer guidance missing (silent).
++ `trolly-gym` / policy-demo: extra-symbol FILLED rows write `Env::position_for` for that pair; primary inventory stays the policy-step path (WP-051). Trainer guidance missing (silent).
 + `trolly-gym`: extra-pair Buy/Sell scores that book's mid/spread; `Env::position()` stays primary (WP-050). Trainer guidance missing (silent).
 + `execute policy-demo`: user-data hubs register dispatched `OrderRequest` symbols so extra-pair fills reconcile offline (WP-049). Trainer guidance missing (silent).
 + `trolly-gym` / policy-demo: `PolicyProvider::decide` / `--dispatch-symbol` can `Action::dispatch` a tracked extra pair; qty stays `--qty`, side stays Buy/Sell/Hold, default remains primary (WP-048). Trainer guidance missing (silent).

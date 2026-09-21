@@ -10,7 +10,7 @@ use binance_usdm_exec::{
     PlaceOrderResponse as UsdmPlaceOrderResponse,
 };
 use trolly::policy_demo::{
-    collect_subscribed_public_depth, parse_policy_demo_symbols,
+    apply_extra_symbol_fills_to_env, collect_subscribed_public_depth, parse_policy_demo_symbols,
     policy_demo_depth_messages_from_json, policy_demo_messages_from_public_depth_book,
     policy_demo_public_depth_messages_from_texts, policy_demo_public_depth_snapshot_jsons,
     policy_demo_user_data_messages_from_json, public_depth_snapshot_url, public_depth_stream_url,
@@ -19,12 +19,13 @@ use trolly::policy_demo::{
     run_policy_demo_with_public_depth, run_policy_demo_with_subscribed_public_depth_texts,
     run_spot_policy_demo_with_placer, run_spot_policy_demo_with_placer_and_user_data,
     run_usdm_policy_demo_with_placer, run_usdm_policy_demo_with_placer_and_user_data, DemoVenue,
-    PolicyDemoConfig, PolicyDemoError, PolicyDemoOrders,
+    PolicyDemoConfig, PolicyDemoError, PolicyDemoOrders, PolicyDemoSymbolInventory,
 };
 use trolly_gym::{
-    write_recorded_mean_mu_onnx, Action, PolicyProvider, DEFAULT_GAUSSIAN_MU_ONNX_OBS_DIM,
-    GAUSSIAN_MU_ONNX_INPUT, GAUSSIAN_MU_ONNX_OUTPUT,
+    write_recorded_mean_mu_onnx, Action, Env, EnvConfig, PolicyProvider,
+    DEFAULT_GAUSSIAN_MU_ONNX_OBS_DIM, GAUSSIAN_MU_ONNX_INPUT, GAUSSIAN_MU_ONNX_OUTPUT,
 };
+use trolly_strategy::{DepthUpdate, PriceLevel, RecordingEgress, StreamEvent};
 
 struct SequencePolicy {
     actions: Vec<Action>,
@@ -1332,6 +1333,133 @@ async fn policy_demo_spot_reconciles_dispatched_extra_symbol() {
     assert_eq!(report.reconciliations[0].side, "BUY");
     assert!(report.reconciliations[0].terminal);
     assert_eq!(report.reconciliations[1].side, "SELL");
+    assert_eq!(
+        report.extra_symbol_inventory,
+        vec![PolicyDemoSymbolInventory {
+            symbol: "ETHUSDT".into(),
+            position: -1,
+        }]
+    );
+
+    let mut env = Env::new(
+        {
+            let mut config = EnvConfig::new("BTCUSDT");
+            config.window_frames = 1;
+            config.use_ladder_observation();
+            config.ladder.rung_count = 2;
+            config.observe_symbols(["ETHUSDT"]);
+            config
+        },
+        RecordingEgress::default(),
+    );
+    env.ingest_event(&policy_demo_depth_event("BTCUSDT", "100", "104"));
+    env.ingest_event(&policy_demo_depth_event("ETHUSDT", "200", "202"));
+    apply_extra_symbol_fills_to_env(&mut env, &report);
+    assert_eq!(env.position(), 0);
+    assert_eq!(env.position_for("ETHUSDT"), -1);
+    assert_eq!(env.position_for("BTCUSDT"), 0);
+
+    let eth_q = Cell::new(-99.0f32);
+    let next = |obs: &[f32]| {
+        eth_q.set(obs[14]);
+        Action::Hold
+    };
+    env.step(&next).unwrap();
+    assert_eq!(eth_q.get(), -1.0);
+}
+
+#[tokio::test]
+async fn policy_demo_spot_captured_user_data_writes_extra_inventory() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT,ETHUSDT");
+    config.set_dispatch_symbol("ETHUSDT");
+    config.max_steps = 3;
+    config.qty = "0.03".into();
+    config.execute_demo_orders = true;
+    config.client_order_id_prefix = "unit-spot-eth".into();
+    config.captured_user_data_json = Some(format!(
+        "{}\n{}",
+        spot_execution_report_json("ETHUSDT", "unit-spot-eth-spot-0000", 51, "BUY", "FILLED"),
+        spot_execution_report_json("ETHUSDT", "unit-spot-eth-spot-0001", 52, "SELL", "FILLED"),
+    ));
+    let policy = SequencePolicy::hold_buy_sell();
+
+    let report = run_spot_policy_demo_with_placer(
+        config,
+        &policy,
+        "captured-json-env",
+        |order| async move {
+            assert_eq!(order.symbol, "ETHUSDT");
+            let client_order_id = order
+                .new_client_order_id
+                .clone()
+                .expect("client order id assigned before placement");
+            Ok(SpotPlaceOrderResponse {
+                symbol: order.symbol.clone(),
+                order_id: if order.side == SpotOrderSide::Buy {
+                    51
+                } else {
+                    52
+                },
+                client_order_id,
+                transact_time: 1,
+                price: "0.00000000".into(),
+                orig_qty: order.quantity.clone(),
+                executed_qty: order.quantity,
+                status: "NEW".into(),
+                side: order.side.as_str().into(),
+                order_type: order.order_type.as_str().into(),
+            })
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(report.symbol, "BTCUSDT");
+    assert_eq!(report.dispatch_symbol, "ETHUSDT");
+    assert_eq!(report.reconciliations.len(), 2);
+    assert_eq!(
+        report.extra_symbol_inventory,
+        vec![PolicyDemoSymbolInventory {
+            symbol: "ETHUSDT".into(),
+            position: -1,
+        }]
+    );
+}
+
+#[tokio::test]
+async fn policy_demo_dry_run_captured_user_data_matches_client_ids() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT,ETHUSDT");
+    config.set_dispatch_symbol("ETHUSDT");
+    config.max_steps = 3;
+    config.qty = "0.03".into();
+    config.execute_demo_orders = false;
+    config.client_order_id_prefix = "unit-spot-dry".into();
+    config.captured_user_data_json = Some(format!(
+        "{}\n{}",
+        spot_execution_report_json("ETHUSDT", "unit-spot-dry-spot-0000", 91, "BUY", "FILLED"),
+        spot_execution_report_json("ETHUSDT", "unit-spot-dry-spot-0001", 92, "SELL", "FILLED"),
+    ));
+    let policy = SequencePolicy::hold_buy_sell();
+
+    let report =
+        run_spot_policy_demo_with_placer(config, &policy, "dry-run-client-ids", |_| async {
+            panic!("dry-run must not place")
+        })
+        .await
+        .unwrap();
+
+    assert!(!report.execute_demo_orders);
+    assert_eq!(report.placed_orders, 0);
+    assert_eq!(report.receipts.len(), 0);
+    assert_eq!(report.reconciliations.len(), 2);
+    assert_eq!(report.reconciliations[0].symbol, "ETHUSDT");
+    assert_eq!(
+        report.extra_symbol_inventory,
+        vec![PolicyDemoSymbolInventory {
+            symbol: "ETHUSDT".into(),
+            position: -1,
+        }]
+    );
 }
 
 #[tokio::test]
@@ -1510,6 +1638,10 @@ async fn policy_demo_spot_reconciles_mock_user_data_receipts() {
     assert_eq!(report.reconciliations[0].status, "FILLED");
     assert!(report.reconciliations[0].terminal);
     assert_eq!(report.reconciliations[1].side, "SELL");
+    assert!(
+        report.extra_symbol_inventory.is_empty(),
+        "primary-only fills stay on the policy-step inventory path"
+    );
 }
 
 #[tokio::test]
@@ -1570,6 +1702,10 @@ async fn policy_demo_usdm_reconciles_mock_user_data_receipts() {
     assert_eq!(report.reconciliations[0].status, "FILLED");
     assert!(report.reconciliations[0].terminal);
     assert_eq!(report.reconciliations[1].side, "SELL");
+    assert!(
+        report.extra_symbol_inventory.is_empty(),
+        "primary-only fills stay on the policy-step inventory path"
+    );
 }
 
 #[tokio::test]
@@ -1656,6 +1792,28 @@ async fn policy_demo_usdm_reconciles_dispatched_extra_symbol() {
     assert_eq!(report.reconciliations[0].symbol, "ETHUSDT");
     assert!(report.reconciliations[0].terminal);
     assert_eq!(report.reconciliations[1].side, "SELL");
+    assert_eq!(
+        report.extra_symbol_inventory,
+        vec![PolicyDemoSymbolInventory {
+            symbol: "ETHUSDT".into(),
+            position: -1,
+        }]
+    );
+}
+
+fn policy_demo_depth_event(symbol: &str, bid: &str, ask: &str) -> StreamEvent {
+    StreamEvent::Depth(DepthUpdate {
+        symbol: symbol.into(),
+        bids: vec![PriceLevel {
+            price: bid.into(),
+            qty: "1".into(),
+        }],
+        asks: vec![PriceLevel {
+            price: ask.into(),
+            qty: "1".into(),
+        }],
+        update_id: Some(1),
+    })
 }
 
 fn spot_execution_report_json(

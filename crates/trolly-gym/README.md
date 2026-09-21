@@ -334,6 +334,12 @@ public depth can carry every listed symbol. Gaussian sources (recorded
 mean-actions, torch `gaussian_mlp`, `mu.onnx`) still receive the **primary**
 WP-032 `V×5` ladder so weekday checkpoints keep their `[1, V×5]` dim; they
 still dispatch the primary pair unless `--dispatch-symbol` is set.
+A terminal extra-symbol `FILLED` row writes that book's inventory through
+[`Env::apply_fill`](src/env.rs) / `Env::position_for` (WP-051). The next
+`PolicyProvider::act` on a joined ladder sees that pair's `q` (WP-052).
+Primary-book fills stay on the policy-step inventory path so single-symbol
+reconcile is unchanged. Gaussian `join_ladder_symbols = false` still uses
+primary `q`. The report lists extra-pair positions as `extra_inventory`.
 
 Default builds use the hold fallback and add no model runtime. To load exported
 policy artifacts through the root command, opt in to the matching root feature:
@@ -438,7 +444,11 @@ existing `binance-spot-exec` / `binance-usdm-exec` ingest and bookkeeping paths;
 the runner only prints typed reconciliation rows, not captured JSON.
 
 To validate captured user-data frames against those receipts, pass an explicit
-JSON file to `--reconcile-user-data-json`. The file may contain one JSON frame,
+JSON file to `--reconcile-user-data-json`. The runner reads that file before
+dropping the harness `Env` and writes extra-symbol `FILLED` rows into
+`Env::position_for` (WP-053). Dry-run (no `--execute-demo-orders`) still
+matches those frames by the deterministic `newClientOrderId` values already
+assigned to queued orders (WP-054). The file may contain one JSON frame,
 a JSON array of frames, or newline-delimited raw frames. Reconciliation fans the
 frames through the existing spot `executionReport` / USDM `ORDER_TRADE_UPDATE`
 ingest and bookkeeping paths and prints typed rows matched by order id or
@@ -507,6 +517,10 @@ joined observations (WP-045), primary-symbol Gaussian `V×5` (WP-046),
 multi-symbol snapshot arrays (WP-047), per-symbol `Action::dispatch` (WP-048),
 dispatched-symbol user-stream reconcile (WP-049),
 per-symbol inventory on extra-pair dispatch (WP-050),
+extra-symbol fill write-back into `Env::position_for` (WP-051),
+per-symbol `q` on the next joined ladder observation (WP-052),
+captured user-data reconcile on the live harness Env (WP-053),
+dry-run captured frames matched by assigned client order ids (WP-054),
 the guard refusal, live wait option guards,
 mock placement receipts, mocked frame-source reconciliation, and captured
 receipt-to-user-stream reconciliation without live network or keys.

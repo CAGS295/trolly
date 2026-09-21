@@ -356,6 +356,33 @@ where
             .unwrap_or(self.reward_state.position)
     }
 
+    /// Apply a confirmed fill to a tracked pair without dispatching.
+    ///
+    /// Extra-symbol fills update that book's slot only; [`Env::position`]
+    /// (the primary path) stays unchanged. Unknown names are ignored.
+    pub fn apply_fill(&mut self, symbol: &str, action: Action) -> Option<i8> {
+        if !self.config.tracks_symbol(symbol) {
+            return None;
+        }
+        let is_primary = symbol.eq_ignore_ascii_case(&self.config.symbol);
+        let next = action.target_position(self.position_for(symbol));
+        if is_primary {
+            self.reward_state.position = next;
+            if let Some(slot) = self.symbol_slot_mut(symbol) {
+                slot.position = next;
+            }
+        } else if let Some(slot) = self.symbol_slot_mut(symbol) {
+            slot.position = next;
+        }
+        self.last_observation = self.policy_observation();
+        Some(next)
+    }
+
+    /// Apply a user-stream / receipt side string through [`Env::apply_fill`].
+    pub fn apply_reconciliation_fill(&mut self, symbol: &str, side: &str) -> Option<i8> {
+        Action::from_side(side).and_then(|action| self.apply_fill(symbol, action))
+    }
+
     /// Consume one normalized stream event and update the observation window.
     pub fn ingest_event(&mut self, event: &StreamEvent) -> bool {
         if !self.config.tracks_symbol(event.routing_id()) {
@@ -538,11 +565,9 @@ where
     }
 
     fn joined_policy_observation(&self) -> Vec<f32> {
-        let q = self.reward_state.position as f32;
-        let frames = self
-            .symbol_obs
-            .iter()
-            .map(|slot| match self.config.observation_layout {
+        let frames = self.symbol_obs.iter().map(|slot| {
+            let q = slot.position as f32;
+            match self.config.observation_layout {
                 ObservationLayout::Stream => slot
                     .window
                     .latest()
@@ -552,7 +577,8 @@ where
                     Some(depth) => ladder_features_from_depth(depth, &self.config.ladder, q),
                     None => ladder_features(&self.config.ladder, q),
                 },
-            });
+            }
+        });
         join_feature_frames(frames)
     }
 }
@@ -807,6 +833,99 @@ mod tests {
             env.egress().dispatched,
             vec![Action::Buy.to_outbound("ETHUSDT", "0.01", None)]
         );
+    }
+
+    #[test]
+    fn extra_symbol_fill_updates_that_book_not_primary() {
+        let mut config = EnvConfig::new("BTCUSDT");
+        config.observe_symbols(["ETHUSDT"]);
+        let mut env = Env::new(config, RecordingEgress::default());
+        assert_eq!(env.position(), 0);
+        assert_eq!(env.position_for("ETHUSDT"), 0);
+
+        assert_eq!(env.apply_reconciliation_fill("ETHUSDT", "BUY"), Some(1));
+        assert_eq!(env.position(), 0);
+        assert_eq!(env.position_for("ETHUSDT"), 1);
+        assert_eq!(env.position_for("BTCUSDT"), 0);
+        assert!(env.egress().dispatched.is_empty());
+
+        assert_eq!(env.apply_fill("ETHUSDT", Action::Sell), Some(-1));
+        assert_eq!(env.position_for("ETHUSDT"), -1);
+        assert_eq!(env.position(), 0);
+        assert_eq!(env.apply_fill("NOTALISTED", Action::Buy), None);
+    }
+
+    #[test]
+    fn extra_symbol_fill_feeds_joined_ladder_q() {
+        let mut config = EnvConfig::new("BTCUSDT");
+        config.window_frames = 1;
+        config.use_ladder_observation();
+        config.ladder.rung_count = 2;
+        config.observe_symbols(["ETHUSDT"]);
+        let mut env = Env::new(config, RecordingEgress::default());
+        env.ingest_event(&depth_event("BTCUSDT", "100", "104"));
+        env.ingest_event(&depth_event("ETHUSDT", "200", "202"));
+        assert_eq!(env.apply_reconciliation_fill("ETHUSDT", "BUY"), Some(1));
+
+        let seen = std::cell::Cell::new(0usize);
+        let btc_q = std::cell::Cell::new(-99.0f32);
+        let eth_q = std::cell::Cell::new(-99.0f32);
+        let policy = |obs: &[f32]| {
+            seen.set(obs.len());
+            btc_q.set(obs[4]);
+            eth_q.set(obs[14]);
+            Action::Hold
+        };
+        let result = env.step(&policy).unwrap();
+        assert_eq!(seen.get(), 20);
+        assert_eq!(btc_q.get(), 0.0);
+        assert_eq!(eth_q.get(), 1.0);
+        assert_eq!(result.observation.len(), 20);
+        assert_eq!(env.position(), 0);
+        assert_eq!(env.position_for("ETHUSDT"), 1);
+    }
+
+    #[test]
+    fn extra_symbol_fill_keeps_primary_ladder_when_not_joined() {
+        let mut config = EnvConfig::new("BTCUSDT");
+        config.window_frames = 1;
+        config.use_ladder_observation();
+        config.join_ladder_symbols = false;
+        config.ladder.rung_count = 2;
+        config.observe_symbols(["ETHUSDT"]);
+        let mut env = Env::new(config, RecordingEgress::default());
+        env.ingest_event(&depth_event("BTCUSDT", "100", "104"));
+        env.ingest_event(&depth_event("ETHUSDT", "200", "202"));
+        assert_eq!(env.apply_reconciliation_fill("ETHUSDT", "BUY"), Some(1));
+
+        let seen = std::cell::Cell::new(0usize);
+        let q = std::cell::Cell::new(-99.0f32);
+        let policy = |obs: &[f32]| {
+            seen.set(obs.len());
+            q.set(obs[4]);
+            Action::Hold
+        };
+        env.step(&policy).unwrap();
+        assert_eq!(seen.get(), 10);
+        assert_eq!(q.get(), 0.0);
+        assert_eq!(env.position(), 0);
+        assert_eq!(env.position_for("ETHUSDT"), 1);
+    }
+
+    #[test]
+    fn extra_symbol_fill_overrides_stepped_inventory() {
+        let mut config = EnvConfig::new("BTCUSDT");
+        config.window_frames = 1;
+        config.observe_symbols(["ETHUSDT"]);
+        let mut env = Env::new(config, RecordingEgress::default());
+        env.ingest_event(&depth_event("BTCUSDT", "100", "102"));
+        env.ingest_event(&depth_event("ETHUSDT", "200", "204"));
+        env.step(Action::Buy.on_symbol("ETHUSDT")).unwrap();
+        assert_eq!(env.position_for("ETHUSDT"), 1);
+
+        assert_eq!(env.apply_reconciliation_fill("ETHUSDT", "SELL"), Some(-1));
+        assert_eq!(env.position_for("ETHUSDT"), -1);
+        assert_eq!(env.position(), 0);
     }
 
     #[test]

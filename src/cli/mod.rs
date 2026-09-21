@@ -5,8 +5,7 @@ use binance_spot_exec::{
 };
 
 use crate::policy_demo::{
-    policy_demo_user_data_messages_from_json, reconcile_policy_demo_report, run_policy_demo,
-    DemoVenue, PolicyDemoConfig, PolicyDemoOrders, PolicyDemoReport,
+    run_policy_demo, DemoVenue, PolicyDemoConfig, PolicyDemoOrders, PolicyDemoReport,
 };
 
 #[derive(Parser)]
@@ -270,28 +269,18 @@ impl PolicyDemoArgs {
                 }
             }
         }
+        if let Some(path) = &self.reconcile_user_data_json {
+            match std::fs::read_to_string(path) {
+                Ok(input) => config.captured_user_data_json = Some(input),
+                Err(err) => {
+                    eprintln!("policy demo failed to read {}: {err}", path.display());
+                    std::process::exit(1);
+                }
+            }
+        }
 
         match run_policy_demo(config).await {
-            Ok(mut report) => {
-                if let Some(path) = &self.reconcile_user_data_json {
-                    let input = match std::fs::read_to_string(path) {
-                        Ok(input) => input,
-                        Err(err) => {
-                            eprintln!("policy demo failed to read {}: {err}", path.display());
-                            std::process::exit(1);
-                        }
-                    };
-                    let messages = match policy_demo_user_data_messages_from_json(&input) {
-                        Ok(messages) => messages,
-                        Err(err) => {
-                            eprintln!("policy demo failed to parse reconciliation input: {err}");
-                            std::process::exit(1);
-                        }
-                    };
-                    reconcile_policy_demo_report(&mut report, messages);
-                }
-                print_policy_demo_report(&report)
-            }
+            Ok(report) => print_policy_demo_report(&report),
             Err(err) => {
                 eprintln!("policy demo failed: {err}");
                 std::process::exit(1);
@@ -350,6 +339,13 @@ fn print_policy_demo_report(report: &PolicyDemoReport) {
             reconciliation.client_order_id,
             reconciliation.status,
             reconciliation.terminal,
+        );
+    }
+
+    for inventory in &report.extra_symbol_inventory {
+        println!(
+            "extra_inventory: symbol={} position={}",
+            inventory.symbol, inventory.position
         );
     }
 }

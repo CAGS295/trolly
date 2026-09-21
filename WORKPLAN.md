@@ -21,7 +21,7 @@ Shipped so far (not the destination): global book CLI; stream-native spot/USDM b
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: 2026-09-18
+- last_run: 2026-09-21
 - max_parallel: 3
 - ship_branch: integrate/orchestrator-branches
 
@@ -826,7 +826,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-051 — Write extra-symbol fills back into Env inventory
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-049, WP-050]
 - scope: src/policy_demo.rs, crates/trolly-gym/src/env.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
@@ -835,6 +835,58 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - default single-symbol reconcile/inventory paths stay unchanged
   - offline tests; no live orders; do not train
 - notes: WP-049 confirms extra-pair user-data fills and WP-050 scores the dispatched book, but Env inventory is still stepped only from the policy action. Closing gym←exec needs the fill to land on the same per-symbol slot.
+- worker/orchestrator (2026-09-21): trainer guidance missing (silent). `Env::apply_fill` / `apply_reconciliation_fill` write extra-pair FILLED rows into `position_for`; primary `Env::position` stays the policy-step path. `reconcile_policy_demo_report` seeds `extra_symbol_inventory`. Acceptance: `cargo +stable test -p trolly-gym --lib --locked` 81 pass; `cargo +stable test --test policy_demo_runner --locked` 51 pass.
+
+### WP-052 — Extra-symbol fill inventory in the next observation
+
+- status: done
+- repos: trolly
+- depends_on: [WP-037, WP-051]
+- scope: crates/trolly-gym/src/env.rs, crates/trolly-gym/src/observation.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - after an extra-symbol fill updates `Env::position_for`, the next `PolicyProvider::act` observation uses that book's inventory (`q` on joined ladder frames)
+  - primary-only and Gaussian `join_ladder_symbols = false` paths stay on primary `q`
+  - stream 7-D extractor stays unchanged; offline tests; no live orders; do not train
+- notes: WP-051 writes extra-pair fills into the inventory slot, but joined ladder frames still stamp primary `RewardState.position` on every book. The gym←exec→gym loop needs the next act() to see the filled pair.
+- worker/orchestrator (2026-09-21): trainer guidance missing (silent). Joined ladder frames use `slot.position`; `apply_fill` refreshes `last_observation`. Gaussian `join_ladder_symbols=false` stays primary `q`. Acceptance: `cargo +stable test -p trolly-gym --lib --locked` 83 pass; `cargo +stable test --test policy_demo_runner --locked` 51 pass.
+
+### WP-053 — Keep policy-demo Env through extra-symbol fill write-back
+
+- status: done
+- repos: trolly
+- depends_on: [WP-051, WP-052]
+- scope: src/policy_demo.rs, src/cli/mod.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - `execute policy-demo` can reconcile captured user-data (`--reconcile-user-data-json` / config) before the harness `Env` is dropped and apply extra-symbol FILLED rows to that same Env
+  - default dry-run and primary-only reconcile paths stay unchanged
+  - offline tests; no live orders; do not train
+- notes: WP-051/052 prove fill → `position_for` → next `act()` on a constructed Env. The runner still drops the harness Env before captured JSON reconcile, so gym←exec is not the same object that stepped.
+- worker/orchestrator (2026-09-21): trainer guidance missing (silent). `captured_user_data_json` reconciles inside the runner; `finish_policy_demo_report` applies extra-symbol FILLED rows to the harness Env. CLI `--reconcile-user-data-json` sets the config field. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 52 pass; `cargo +stable test -p trolly-gym --lib --locked` 83 pass.
+
+### WP-054 — Dry-run captured user-data matches assigned client order ids
+
+- status: done
+- repos: trolly
+- depends_on: [WP-053]
+- scope: src/policy_demo.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - captured user-data reconcile can match assigned `newClientOrderId` values when receipts are empty (dry-run, no `--execute-demo-orders`)
+  - extra-symbol FILLED rows still update `Env::position_for` / `extra_symbol_inventory`
+  - default placement+receipt matching stays unchanged; offline tests; no live orders
+- notes: WP-053 still needs receipts (placement) before `ReconciliationState` has targets. Offline gym←exec should work from the deterministic client order ids the runner already assigns.
+- worker/orchestrator (2026-09-21): trainer guidance missing (silent). Empty receipts fall back to assigned `newClientOrderId` targets. Dry-run extra-symbol captured FILLED rows write `extra_symbol_inventory`. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 53 pass; `cargo +stable test -p trolly-gym --lib --locked` 83 pass.
+
+### WP-055 — Continue Env steps after extra-symbol fill write-back
+
+- status: todo
+- repos: trolly
+- depends_on: [WP-052, WP-054]
+- scope: src/policy_demo.rs, crates/trolly-gym/src/env.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - after captured extra-symbol fills update the harness Env, a subsequent injected depth step uses that book's fill-backed `q` / `position_for`
+  - default dry-run and primary-only paths stay unchanged
+  - offline tests; no live orders; do not train
+- notes: WP-051–054 write extra-pair fills into Env and the next isolated `act()`. The runner still ends the harness at reconcile, so a continued tape cannot consume the filled slot. Next gym←exec→gym join.
 
 ## Integration test reference
 

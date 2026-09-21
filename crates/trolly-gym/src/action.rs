@@ -31,6 +31,16 @@ impl Action {
         }
     }
 
+    /// Map a user-stream / receipt side string onto `{Hold,Buy,Sell}`.
+    pub fn from_side(side: &str) -> Option<Self> {
+        match side.trim().to_ascii_uppercase().as_str() {
+            "BUY" => Some(Self::Buy),
+            "SELL" => Some(Self::Sell),
+            "HOLD" => Some(Self::Hold),
+            _ => None,
+        }
+    }
+
     pub(crate) fn target_position(self, current_position: i8) -> i8 {
         match self {
             Self::Hold => current_position,
@@ -126,6 +136,14 @@ impl From<Action> for ActionDecision {
 mod tests {
     use super::*;
     use trolly_strategy::{OutboundMessage, RecordingEgress};
+
+    #[test]
+    fn from_side_maps_user_stream_strings() {
+        assert_eq!(Action::from_side("buy"), Some(Action::Buy));
+        assert_eq!(Action::from_side("SELL"), Some(Action::Sell));
+        assert_eq!(Action::from_side("Hold"), Some(Action::Hold));
+        assert_eq!(Action::from_side("unknown"), None);
+    }
 
     #[test]
     fn quantize_inventory_deadzone_and_signs() {
