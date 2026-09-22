@@ -105,6 +105,14 @@ pub struct PolicyDemoConfig {
     /// Captured user-data JSON/NDJSON reconciled before the harness Env drops.
     /// Same envelope as `--reconcile-user-data-json`.
     pub captured_user_data_json: Option<String>,
+    /// Injected depth frames stepped after extra-symbol fill write-back.
+    /// Same envelope as `--depth-json`. Unset keeps the harness ending at reconcile.
+    pub continued_depth_json: Option<String>,
+    /// Pre-parsed continued depth frames (tests / injectable tape).
+    pub continued_depth_messages: Option<Vec<Message>>,
+    /// Use the WP-032 `V×5` ladder so continued extra-symbol `q` is visible.
+    /// Default false keeps Hold / 3-logit on 7-D stream frames.
+    pub use_ladder_observation: bool,
 }
 
 impl PolicyDemoConfig {
@@ -137,6 +145,9 @@ impl PolicyDemoConfig {
             public_depth_timeout: Duration::ZERO,
             public_depth_snapshot_json: None,
             captured_user_data_json: None,
+            continued_depth_json: None,
+            continued_depth_messages: None,
+            use_ladder_observation: false,
         }
     }
 
@@ -219,6 +230,10 @@ pub struct PolicyDemoReport {
     pub reconciliations: Vec<PolicyDemoReconciliation>,
     /// Extra-pair inventory after WP-051 fill write-back. Primary stays empty.
     pub extra_symbol_inventory: Vec<PolicyDemoSymbolInventory>,
+    /// Env steps taken on the post-fill continued depth tape (WP-055).
+    pub continued_steps: usize,
+    /// Observation the continued tape handed `PolicyProvider::act` (last step).
+    pub continued_observation: Vec<f32>,
     pub orders: PolicyDemoOrders,
 }
 
@@ -457,6 +472,8 @@ where
         receipts,
         reconciliations: Vec::new(),
         extra_symbol_inventory: Vec::new(),
+        continued_steps: 0,
+        continued_observation: Vec::new(),
         orders: PolicyDemoOrders::Spot(orders),
     };
 
@@ -464,7 +481,9 @@ where
         report.reconciliations =
             wait_spot_live_reconciliations(socket, &report, config.user_data_timeout).await?;
     }
-    finish_policy_demo_report(&config, &mut env, report)
+    let mut report = finish_policy_demo_report(&config, &mut env, policy, report)?;
+    append_continued_spot_orders(&config, &mut rx, &mut report);
+    Ok(report)
 }
 
 async fn run_usdm_policy_demo<P>(
@@ -516,6 +535,8 @@ where
         receipts,
         reconciliations: Vec::new(),
         extra_symbol_inventory: Vec::new(),
+        continued_steps: 0,
+        continued_observation: Vec::new(),
         orders: PolicyDemoOrders::Usdm(orders),
     };
 
@@ -527,24 +548,32 @@ where
         report.reconciliations = reconciliations?;
     }
 
-    finish_policy_demo_report(&config, &mut env, report)
+    let mut report = finish_policy_demo_report(&config, &mut env, policy, report)?;
+    append_continued_usdm_orders(&config, &mut rx, &mut report);
+    Ok(report)
 }
 
-#[doc(hidden)]
-pub async fn run_spot_policy_demo_with_placer<P, F, Fut>(
+async fn prepare_spot_policy_demo_with_placer<P, F, Fut>(
     config: PolicyDemoConfig,
     policy: &P,
     policy_source: impl Into<String>,
     mut place_order: F,
-) -> Result<PolicyDemoReport, PolicyDemoError>
+) -> Result<
+    (
+        PolicyDemoConfig,
+        Env<OrderOnlyEgress<SpotOrderEgress>>,
+        mpsc::UnboundedReceiver<SpotPlaceOrderRequest>,
+        PolicyDemoReport,
+    ),
+    PolicyDemoError,
+>
 where
     P: PolicyProvider + ?Sized,
     F: FnMut(SpotPlaceOrderRequest) -> Fut,
     Fut: Future<Output = Result<SpotPlaceOrderResponse, PolicyDemoError>>,
 {
     let (spot_egress, mut rx) = SpotOrderEgress::channel();
-    let (mut env, steps) =
-        run_env_policy_harness(&config, OrderOnlyEgress::new(spot_egress), policy)?;
+    let (env, steps) = run_env_policy_harness(&config, OrderOnlyEgress::new(spot_egress), policy)?;
     let mut orders = drain_spot_orders(&mut rx);
     assign_spot_client_order_ids(&mut orders, &config.client_order_id_prefix);
 
@@ -570,26 +599,34 @@ where
         receipts,
         reconciliations: Vec::new(),
         extra_symbol_inventory: Vec::new(),
+        continued_steps: 0,
+        continued_observation: Vec::new(),
         orders: PolicyDemoOrders::Spot(orders),
     };
-    finish_policy_demo_report(&config, &mut env, report)
+    Ok((config, env, rx, report))
 }
 
-#[doc(hidden)]
-pub async fn run_usdm_policy_demo_with_placer<P, F, Fut>(
+async fn prepare_usdm_policy_demo_with_placer<P, F, Fut>(
     config: PolicyDemoConfig,
     policy: &P,
     policy_source: impl Into<String>,
     mut place_order: F,
-) -> Result<PolicyDemoReport, PolicyDemoError>
+) -> Result<
+    (
+        PolicyDemoConfig,
+        Env<OrderOnlyEgress<UsdmOrderEgress>>,
+        mpsc::UnboundedReceiver<UsdmPlaceOrderRequest>,
+        PolicyDemoReport,
+    ),
+    PolicyDemoError,
+>
 where
     P: PolicyProvider + ?Sized,
     F: FnMut(UsdmPlaceOrderRequest) -> Fut,
     Fut: Future<Output = Result<UsdmPlaceOrderResponse, PolicyDemoError>>,
 {
     let (usdm_egress, mut rx) = UsdmOrderEgress::channel();
-    let (mut env, steps) =
-        run_env_policy_harness(&config, OrderOnlyEgress::new(usdm_egress), policy)?;
+    let (env, steps) = run_env_policy_harness(&config, OrderOnlyEgress::new(usdm_egress), policy)?;
     let mut orders = drain_usdm_orders(&mut rx);
     assign_usdm_client_order_ids(&mut orders, &config.client_order_id_prefix);
 
@@ -615,9 +652,49 @@ where
         receipts,
         reconciliations: Vec::new(),
         extra_symbol_inventory: Vec::new(),
+        continued_steps: 0,
+        continued_observation: Vec::new(),
         orders: PolicyDemoOrders::Usdm(orders),
     };
-    finish_policy_demo_report(&config, &mut env, report)
+    Ok((config, env, rx, report))
+}
+
+#[doc(hidden)]
+pub async fn run_spot_policy_demo_with_placer<P, F, Fut>(
+    config: PolicyDemoConfig,
+    policy: &P,
+    policy_source: impl Into<String>,
+    place_order: F,
+) -> Result<PolicyDemoReport, PolicyDemoError>
+where
+    P: PolicyProvider + ?Sized,
+    F: FnMut(SpotPlaceOrderRequest) -> Fut,
+    Fut: Future<Output = Result<SpotPlaceOrderResponse, PolicyDemoError>>,
+{
+    let (config, mut env, mut rx, report) =
+        prepare_spot_policy_demo_with_placer(config, policy, policy_source, place_order).await?;
+    let mut report = finish_policy_demo_report(&config, &mut env, policy, report)?;
+    append_continued_spot_orders(&config, &mut rx, &mut report);
+    Ok(report)
+}
+
+#[doc(hidden)]
+pub async fn run_usdm_policy_demo_with_placer<P, F, Fut>(
+    config: PolicyDemoConfig,
+    policy: &P,
+    policy_source: impl Into<String>,
+    place_order: F,
+) -> Result<PolicyDemoReport, PolicyDemoError>
+where
+    P: PolicyProvider + ?Sized,
+    F: FnMut(UsdmPlaceOrderRequest) -> Fut,
+    Fut: Future<Output = Result<UsdmPlaceOrderResponse, PolicyDemoError>>,
+{
+    let (config, mut env, mut rx, report) =
+        prepare_usdm_policy_demo_with_placer(config, policy, policy_source, place_order).await?;
+    let mut report = finish_policy_demo_report(&config, &mut env, policy, report)?;
+    append_continued_usdm_orders(&config, &mut rx, &mut report);
+    Ok(report)
 }
 
 #[doc(hidden)]
@@ -637,12 +714,14 @@ where
 {
     ensure_live_reconciliation_config(&config)?;
     let should_wait = config.wait_for_user_data;
-    let mut report =
-        run_spot_policy_demo_with_placer(config, policy, policy_source, place_order).await?;
+    let (config, mut env, mut rx, mut report) =
+        prepare_spot_policy_demo_with_placer(config, policy, policy_source, place_order).await?;
     if should_wait {
         let messages = user_data_messages(&report).await?;
         reconcile_policy_demo_report(&mut report, messages);
     }
+    let mut report = finish_policy_demo_report(&config, &mut env, policy, report)?;
+    append_continued_spot_orders(&config, &mut rx, &mut report);
     Ok(report)
 }
 
@@ -663,12 +742,14 @@ where
 {
     ensure_live_reconciliation_config(&config)?;
     let should_wait = config.wait_for_user_data;
-    let mut report =
-        run_usdm_policy_demo_with_placer(config, policy, policy_source, place_order).await?;
+    let (config, mut env, mut rx, mut report) =
+        prepare_usdm_policy_demo_with_placer(config, policy, policy_source, place_order).await?;
     if should_wait {
         let messages = user_data_messages(&report).await?;
         reconcile_policy_demo_report(&mut report, messages);
     }
+    let mut report = finish_policy_demo_report(&config, &mut env, policy, report)?;
+    append_continued_usdm_orders(&config, &mut rx, &mut report);
     Ok(report)
 }
 
@@ -968,6 +1049,8 @@ where
         env_config.use_ladder_observation();
         // Weekday μ / gaussian_mlp stay `[1, V×5]` on the primary book.
         env_config.join_ladder_symbols = false;
+    } else if config.use_ladder_observation {
+        env_config.use_ladder_observation();
     }
 
     let mut env = Env::new(env_config, egress);
@@ -982,13 +1065,16 @@ where
     Ok((env, steps.len()))
 }
 
-fn finish_policy_demo_report<E>(
+fn finish_policy_demo_report<E, P>(
     config: &PolicyDemoConfig,
     env: &mut Env<E>,
+    policy: &P,
     mut report: PolicyDemoReport,
 ) -> Result<PolicyDemoReport, PolicyDemoError>
 where
     E: trolly_strategy::StreamEgress,
+    E::Error: fmt::Debug,
+    P: PolicyProvider + ?Sized,
 {
     if report.reconciliations.is_empty() {
         if let Some(input) = &config.captured_user_data_json {
@@ -998,7 +1084,63 @@ where
     }
     apply_extra_symbol_fills_to_env(env, &report);
     report.extra_symbol_inventory = extra_symbol_positions(env, &report);
+    continue_policy_demo_after_fills(config, env, policy, &mut report)?;
     Ok(report)
+}
+
+fn continue_policy_demo_after_fills<E, P>(
+    config: &PolicyDemoConfig,
+    env: &mut Env<E>,
+    policy: &P,
+    report: &mut PolicyDemoReport,
+) -> Result<(), PolicyDemoError>
+where
+    E: trolly_strategy::StreamEgress,
+    E::Error: fmt::Debug,
+    P: PolicyProvider + ?Sized,
+{
+    let messages = continued_depth_messages_for_config(config)?;
+    if messages.is_empty() {
+        return Ok(());
+    }
+    env.allow_more_steps(messages.len() as u64);
+    let steps = if let Some(symbol) = &config.dispatch_symbol {
+        let pinned = DispatchSymbolPolicy::new(policy, symbol.clone());
+        run_offline_policy_harness(env, &pinned, messages)
+    } else {
+        run_offline_policy_harness(env, policy, messages)
+    }
+    .map_err(|err| PolicyDemoError::Harness(err.to_string()))?;
+    report.continued_steps = steps.len();
+    report.continued_observation = env.last_observation().to_vec();
+    report.extra_symbol_inventory = extra_symbol_positions(env, report);
+    Ok(())
+}
+
+fn continued_depth_messages_for_config(
+    config: &PolicyDemoConfig,
+) -> Result<Vec<Message>, PolicyDemoError> {
+    if let Some(input) = &config.continued_depth_json {
+        let trimmed = input.trim();
+        if !trimmed.is_empty() {
+            let messages = policy_demo_depth_messages_from_json(trimmed, &config.symbol)?;
+            if messages.is_empty() {
+                return Err(PolicyDemoError::DepthInput(
+                    "continued depth JSON contained no usable frames".into(),
+                ));
+            }
+            return Ok(messages);
+        }
+    }
+    if let Some(messages) = &config.continued_depth_messages {
+        if messages.is_empty() {
+            return Err(PolicyDemoError::DepthInput(
+                "continued depth source returned no frames".into(),
+            ));
+        }
+        return Ok(messages.clone());
+    }
+    Ok(Vec::new())
 }
 
 fn depth_messages_for_config(config: &PolicyDemoConfig) -> Result<Vec<Message>, PolicyDemoError> {
@@ -1824,6 +1966,38 @@ fn drain_spot_orders(
     orders
 }
 
+fn append_continued_spot_orders(
+    config: &PolicyDemoConfig,
+    rx: &mut mpsc::UnboundedReceiver<SpotPlaceOrderRequest>,
+    report: &mut PolicyDemoReport,
+) {
+    let extra = drain_spot_orders(rx);
+    if extra.is_empty() {
+        return;
+    }
+    if let PolicyDemoOrders::Spot(orders) = &mut report.orders {
+        let start = orders.len();
+        orders.extend(extra);
+        assign_spot_client_order_ids_from(orders, &config.client_order_id_prefix, start);
+    }
+}
+
+fn append_continued_usdm_orders(
+    config: &PolicyDemoConfig,
+    rx: &mut mpsc::UnboundedReceiver<UsdmPlaceOrderRequest>,
+    report: &mut PolicyDemoReport,
+) {
+    let extra = drain_usdm_orders(rx);
+    if extra.is_empty() {
+        return;
+    }
+    if let PolicyDemoOrders::Usdm(orders) = &mut report.orders {
+        let start = orders.len();
+        orders.extend(extra);
+        assign_usdm_client_order_ids_from(orders, &config.client_order_id_prefix, start);
+    }
+}
+
 fn drain_usdm_orders(
     rx: &mut mpsc::UnboundedReceiver<UsdmPlaceOrderRequest>,
 ) -> Vec<UsdmPlaceOrderRequest> {
@@ -2100,7 +2274,15 @@ async fn next_live_user_data_message(
 }
 
 fn assign_spot_client_order_ids(orders: &mut [SpotPlaceOrderRequest], prefix: &str) {
-    for (idx, order) in orders.iter_mut().enumerate() {
+    assign_spot_client_order_ids_from(orders, prefix, 0);
+}
+
+fn assign_spot_client_order_ids_from(
+    orders: &mut [SpotPlaceOrderRequest],
+    prefix: &str,
+    start_idx: usize,
+) {
+    for (idx, order) in orders.iter_mut().enumerate().skip(start_idx) {
         if order.new_client_order_id.is_none() {
             order.new_client_order_id = Some(demo_client_order_id(prefix, DemoVenue::Spot, idx));
         }
@@ -2108,7 +2290,15 @@ fn assign_spot_client_order_ids(orders: &mut [SpotPlaceOrderRequest], prefix: &s
 }
 
 fn assign_usdm_client_order_ids(orders: &mut [UsdmPlaceOrderRequest], prefix: &str) {
-    for (idx, order) in orders.iter_mut().enumerate() {
+    assign_usdm_client_order_ids_from(orders, prefix, 0);
+}
+
+fn assign_usdm_client_order_ids_from(
+    orders: &mut [UsdmPlaceOrderRequest],
+    prefix: &str,
+    start_idx: usize,
+) {
+    for (idx, order) in orders.iter_mut().enumerate().skip(start_idx) {
         if order.new_client_order_id.is_none() {
             order.new_client_order_id = Some(demo_client_order_id(prefix, DemoVenue::Usdm, idx));
         }

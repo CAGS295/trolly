@@ -39,6 +39,13 @@ impl SequencePolicy {
             next: Cell::new(0),
         }
     }
+
+    fn with_actions(actions: Vec<Action>) -> Self {
+        Self {
+            actions,
+            next: Cell::new(0),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -1369,6 +1376,90 @@ async fn policy_demo_spot_reconciles_dispatched_extra_symbol() {
 }
 
 #[tokio::test]
+async fn policy_demo_wait_user_data_continues_with_fill_backed_q() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT,ETHUSDT");
+    config.set_dispatch_symbol("ETHUSDT");
+    config.max_steps = 3;
+    config.window_frames = 1;
+    config.qty = "0.03".into();
+    config.execute_demo_orders = true;
+    config.wait_for_user_data = true;
+    config.use_ladder_observation = true;
+    config.client_order_id_prefix = "unit-spot-wait".into();
+    config.continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"210.00","qty":"1.0"}],"asks":[{"price":"212.00","qty":"1.0"}],"update_id":9}"#
+            .into(),
+    );
+    let policy = SequencePolicy::hold_buy_sell();
+
+    let report = run_spot_policy_demo_with_placer_and_user_data(
+        config,
+        &policy,
+        "wait-continue-fill",
+        |order| async move {
+            let client_order_id = order
+                .new_client_order_id
+                .clone()
+                .expect("client order id assigned before placement");
+            Ok(SpotPlaceOrderResponse {
+                symbol: order.symbol.clone(),
+                order_id: if order.side == SpotOrderSide::Buy {
+                    61
+                } else {
+                    62
+                },
+                client_order_id,
+                transact_time: 1,
+                price: "0.00000000".into(),
+                orig_qty: order.quantity.clone(),
+                executed_qty: order.quantity,
+                status: "NEW".into(),
+                side: order.side.as_str().into(),
+                order_type: order.order_type.as_str().into(),
+            })
+        },
+        |report| {
+            let messages = policy_demo_user_data_messages_from_json(&format!(
+                "{}\n{}",
+                spot_execution_report_json(
+                    "ETHUSDT",
+                    &report.receipts[0].client_order_id,
+                    report.receipts[0].order_id,
+                    "BUY",
+                    "FILLED"
+                ),
+                spot_execution_report_json(
+                    "ETHUSDT",
+                    &report.receipts[1].client_order_id,
+                    report.receipts[1].order_id,
+                    "SELL",
+                    "FILLED"
+                ),
+            ));
+            async move { messages }
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(report.reconciliations.len(), 2);
+    assert_eq!(report.continued_steps, 1);
+    assert_eq!(
+        report.extra_symbol_inventory,
+        vec![PolicyDemoSymbolInventory {
+            symbol: "ETHUSDT".into(),
+            position: -1,
+        }]
+    );
+    assert_eq!(report.continued_observation.len(), 80);
+    assert!(
+        (report.continued_observation[44] + 1.0).abs() < 1e-5,
+        "wait-path fill-backed eth q {}",
+        report.continued_observation[44]
+    );
+}
+
+#[tokio::test]
 async fn policy_demo_spot_captured_user_data_writes_extra_inventory() {
     let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT,ETHUSDT");
     config.set_dispatch_symbol("ETHUSDT");
@@ -1460,6 +1551,118 @@ async fn policy_demo_dry_run_captured_user_data_matches_client_ids() {
             position: -1,
         }]
     );
+    assert_eq!(report.continued_steps, 0);
+    assert!(report.continued_observation.is_empty());
+}
+
+#[tokio::test]
+async fn policy_demo_dry_run_continues_after_extra_symbol_fill() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT,ETHUSDT");
+    config.set_dispatch_symbol("ETHUSDT");
+    config.max_steps = 3;
+    config.window_frames = 1;
+    config.qty = "0.03".into();
+    config.execute_demo_orders = false;
+    config.client_order_id_prefix = "unit-spot-cont".into();
+    config.use_ladder_observation = true;
+    config.captured_user_data_json = Some(format!(
+        "{}\n{}",
+        spot_execution_report_json("ETHUSDT", "unit-spot-cont-spot-0000", 91, "BUY", "FILLED"),
+        spot_execution_report_json("ETHUSDT", "unit-spot-cont-spot-0001", 92, "SELL", "FILLED"),
+    ));
+    config.continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"210.00","qty":"1.0"}],"asks":[{"price":"212.00","qty":"1.0"}],"update_id":9}"#
+            .into(),
+    );
+    let policy = SequencePolicy::hold_buy_sell();
+
+    let report = run_spot_policy_demo_with_placer(config, &policy, "dry-run-continue", |_| async {
+        panic!("dry-run must not place")
+    })
+    .await
+    .unwrap();
+
+    assert!(!report.execute_demo_orders);
+    assert_eq!(report.placed_orders, 0);
+    assert_eq!(report.reconciliations.len(), 2);
+    assert_eq!(report.continued_steps, 1);
+    assert_eq!(
+        report.extra_symbol_inventory,
+        vec![PolicyDemoSymbolInventory {
+            symbol: "ETHUSDT".into(),
+            position: -1,
+        }]
+    );
+    // Joined ladder: default V=8 → 40-D per book; ETH q is index 44.
+    assert_eq!(report.continued_observation.len(), 80);
+    assert!(
+        (report.continued_observation[44] + 1.0).abs() < 1e-5,
+        "fill-backed eth q {}",
+        report.continued_observation[44]
+    );
+}
+
+#[tokio::test]
+async fn policy_demo_continued_tape_drains_dispatch_orders() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT,ETHUSDT");
+    config.set_dispatch_symbol("ETHUSDT");
+    config.max_steps = 3;
+    config.window_frames = 1;
+    config.qty = "0.03".into();
+    config.execute_demo_orders = false;
+    config.client_order_id_prefix = "unit-spot-more".into();
+    config.captured_user_data_json = Some(format!(
+        "{}\n{}",
+        spot_execution_report_json("ETHUSDT", "unit-spot-more-spot-0000", 91, "BUY", "FILLED"),
+        spot_execution_report_json("ETHUSDT", "unit-spot-more-spot-0001", 92, "SELL", "FILLED"),
+    ));
+    config.continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"210.00","qty":"1.0"}],"asks":[{"price":"212.00","qty":"1.0"}],"update_id":9}"#
+            .into(),
+    );
+    let policy =
+        SequencePolicy::with_actions(vec![Action::Hold, Action::Buy, Action::Sell, Action::Buy]);
+
+    let report = run_spot_policy_demo_with_placer(config, &policy, "continue-drain", |_| async {
+        panic!("dry-run must not place")
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(report.steps, 3);
+    assert_eq!(report.continued_steps, 1);
+    assert_eq!(report.placed_orders, 0);
+    assert_eq!(report.order_count(), 3);
+    let PolicyDemoOrders::Spot(orders) = &report.orders else {
+        panic!("expected spot orders");
+    };
+    assert_eq!(orders[2].symbol, "ETHUSDT");
+    assert_eq!(orders[2].quantity, "0.03");
+    assert_eq!(
+        orders[2].new_client_order_id.as_deref(),
+        Some("unit-spot-more-spot-0002")
+    );
+}
+
+#[tokio::test]
+async fn policy_demo_primary_only_continue_keeps_empty_extra_inventory() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT");
+    config.max_steps = 1;
+    config.window_frames = 1;
+    config.continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"BTCUSDT","bids":[{"price":"110.00","qty":"1.0"}],"asks":[{"price":"111.00","qty":"1.0"}],"update_id":3}"#
+            .into(),
+    );
+    let policy = CaptureObsPolicy::default();
+
+    let report = run_policy_demo_with_policy(config, &policy, "primary-continue")
+        .await
+        .unwrap();
+
+    assert_eq!(report.symbol, "BTCUSDT");
+    assert_eq!(report.continued_steps, 1);
+    assert!(report.extra_symbol_inventory.is_empty());
+    assert!(!report.continued_observation.is_empty());
 }
 
 #[tokio::test]

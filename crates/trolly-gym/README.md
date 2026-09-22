@@ -337,9 +337,15 @@ still dispatch the primary pair unless `--dispatch-symbol` is set.
 A terminal extra-symbol `FILLED` row writes that book's inventory through
 [`Env::apply_fill`](src/env.rs) / `Env::position_for` (WP-051). The next
 `PolicyProvider::act` on a joined ladder sees that pair's `q` (WP-052).
-Primary-book fills stay on the policy-step inventory path so single-symbol
-reconcile is unchanged. Gaussian `join_ladder_symbols = false` still uses
-primary `q`. The report lists extra-pair positions as `extra_inventory`.
+`--continued-depth-json` keeps that Env alive and steps more injected depth
+so the continued tape consumes the fill-backed slot (WP-055). Buy/Sell from
+those continued steps are drained onto the same `PolicyDemoReport.orders`
+with the next `newClientOrderId` values (WP-056); they are not placed unless
+a later guarded path does so. Mock `--wait-for-user-data` frames reconcile
+on that same harness Env before the continued tape (WP-057). Primary-book
+fills stay on the policy-step inventory path so single-symbol reconcile is
+unchanged. Gaussian `join_ladder_symbols = false` still uses primary `q`.
+The report lists extra-pair positions as `extra_inventory`.
 
 Default builds use the hold fallback and add no model runtime. To load exported
 policy artifacts through the root command, opt in to the matching root feature:
@@ -448,19 +454,23 @@ JSON file to `--reconcile-user-data-json`. The runner reads that file before
 dropping the harness `Env` and writes extra-symbol `FILLED` rows into
 `Env::position_for` (WP-053). Dry-run (no `--execute-demo-orders`) still
 matches those frames by the deterministic `newClientOrderId` values already
-assigned to queued orders (WP-054). The file may contain one JSON frame,
-a JSON array of frames, or newline-delimited raw frames. Reconciliation fans the
-frames through the existing spot `executionReport` / USDM `ORDER_TRADE_UPDATE`
-ingest and bookkeeping paths and prints typed rows matched by order id or
-deterministic client order id. The ingest hub registers every dispatched
-`OrderRequest` symbol (plus the primary `--symbol`) so a WP-048 extra-pair
-fill is not dropped when user-data routes by instrument:
+assigned to queued orders (WP-054). After those fills land, `--continued-depth-json`
+(same envelope as `--depth-json`) steps the same Env so the next
+`PolicyProvider::act` sees that book's fill-backed `q` / `position_for`
+(WP-055). Unset keeps the harness ending at reconcile. The file may contain one
+JSON frame, a JSON array of frames, or newline-delimited raw frames.
+Reconciliation fans the frames through the existing spot `executionReport` /
+USDM `ORDER_TRADE_UPDATE` ingest and bookkeeping paths and prints typed rows
+matched by order id or deterministic client order id. The ingest hub registers
+every dispatched `OrderRequest` symbol (plus the primary `--symbol`) so a
+WP-048 extra-pair fill is not dropped when user-data routes by instrument:
 
 ```bash
 cargo run --bin depth_monitor -- execute policy-demo \
     --venue spot \
     --execute-demo-orders \
-    --reconcile-user-data-json captured-demo-user-data.json
+    --reconcile-user-data-json captured-demo-user-data.json \
+    --continued-depth-json captured-demo-depth-after-fill.json
 ```
 
 To feed a captured demo/live book instead of the built-in synthetic depth tape,
@@ -521,6 +531,9 @@ extra-symbol fill write-back into `Env::position_for` (WP-051),
 per-symbol `q` on the next joined ladder observation (WP-052),
 captured user-data reconcile on the live harness Env (WP-053),
 dry-run captured frames matched by assigned client order ids (WP-054),
+post-fill continued depth using fill-backed extra-symbol `q` (WP-055),
+continued-tape `Action::dispatch` drained onto the report (WP-056),
+mock wait-for-user-data fills applied before the continued tape (WP-057),
 the guard refusal, live wait option guards,
 mock placement receipts, mocked frame-source reconciliation, and captured
 receipt-to-user-stream reconciliation without live network or keys.

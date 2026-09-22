@@ -340,6 +340,16 @@ where
         self.steps
     }
 
+    /// Latest policy observation, including fill-backed per-symbol `q`.
+    pub fn last_observation(&self) -> &[f32] {
+        &self.last_observation
+    }
+
+    /// Allow more [`Env::step`]s after the configured episode horizon.
+    pub fn allow_more_steps(&mut self, extra: u64) {
+        self.config.episode_steps = self.config.episode_steps.saturating_add(extra.max(1));
+    }
+
     pub fn position(&self) -> i8 {
         self.reward_state.position
     }
@@ -925,6 +935,33 @@ mod tests {
 
         assert_eq!(env.apply_reconciliation_fill("ETHUSDT", "SELL"), Some(-1));
         assert_eq!(env.position_for("ETHUSDT"), -1);
+        assert_eq!(env.position(), 0);
+    }
+
+    #[test]
+    fn extra_symbol_fill_survives_continued_depth_step() {
+        let mut config = EnvConfig::new("BTCUSDT");
+        config.window_frames = 1;
+        config.use_ladder_observation();
+        config.ladder.rung_count = 2;
+        config.observe_symbols(["ETHUSDT"]);
+        let mut env = Env::new(config, RecordingEgress::default());
+        env.ingest_event(&depth_event("BTCUSDT", "100", "104"));
+        env.ingest_event(&depth_event("ETHUSDT", "200", "202"));
+        env.step(Action::Hold).unwrap();
+        assert_eq!(env.apply_reconciliation_fill("ETHUSDT", "BUY"), Some(1));
+
+        assert!(env.ingest_event(&depth_event("ETHUSDT", "210", "212")));
+        let eth_q = std::cell::Cell::new(-99.0f32);
+        let policy = |obs: &[f32]| {
+            eth_q.set(obs[14]);
+            Action::Hold
+        };
+        env.allow_more_steps(1);
+        env.step(&policy).unwrap();
+        assert_eq!(eth_q.get(), 1.0);
+        assert_eq!(env.last_observation()[14], 1.0);
+        assert_eq!(env.position_for("ETHUSDT"), 1);
         assert_eq!(env.position(), 0);
     }
 

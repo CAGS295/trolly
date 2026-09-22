@@ -21,7 +21,7 @@ Shipped so far (not the destination): global book CLI; stream-native spot/USDM b
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: 2026-09-21
+- last_run: 2026-09-22
 - max_parallel: 3
 - ship_branch: integrate/orchestrator-branches
 
@@ -878,7 +878,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-055 — Continue Env steps after extra-symbol fill write-back
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-052, WP-054]
 - scope: src/policy_demo.rs, crates/trolly-gym/src/env.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
@@ -887,6 +887,45 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - default dry-run and primary-only paths stay unchanged
   - offline tests; no live orders; do not train
 - notes: WP-051–054 write extra-pair fills into Env and the next isolated `act()`. The runner still ends the harness at reconcile, so a continued tape cannot consume the filled slot. Next gym←exec→gym join.
+- worker/orchestrator (2026-09-22): trainer guidance missing (silent). `--continued-depth-json` / `continued_depth_messages` step the same harness Env after fill write-back; joined ladder `q` is fill-backed (`position_for`). Unset / primary-only stay unchanged. Acceptance: `cargo +stable test -p trolly-gym --lib --locked` 84 pass; `cargo +stable test --test policy_demo_runner --locked` 57 pass.
+
+### WP-056 — Drain continued-tape Action::dispatch onto the report
+
+- status: done
+- repos: trolly
+- depends_on: [WP-055]
+- scope: src/policy_demo.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - Buy/Sell emitted on the post-fill continued tape appear on `PolicyDemoReport.orders` with the next deterministic `newClientOrderId`
+  - default dry-run and paths without continued depth stay unchanged; continued orders are not placed
+  - offline tests; no live orders; do not train
+- notes: WP-055 steps the continued tape through `Action::dispatch` but those OrderRequests were already drained before fill write-back. gym←exec→gym→strategy needs the post-fill orders on the same report.
+- worker/orchestrator (2026-09-22): trainer guidance missing (silent). After continue, leftover spot/USDM channel orders are appended with `*-0002` ids. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 57 pass.
+
+### WP-057 — Apply wait-for-user-data fills before the continued tape
+
+- status: done
+- repos: trolly
+- depends_on: [WP-055, WP-031]
+- scope: src/policy_demo.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - mock `--wait-for-user-data` extra-symbol FILLED rows update the harness Env before `--continued-depth-json` steps
+  - default captured-JSON and dry-run continue paths stay unchanged
+  - offline tests; no live orders; do not train
+- notes: WP-053/055 apply captured JSON fills on the live Env. The placer+user-data helper still reconciled after Env drop, so a continued tape could not see wait-path fills.
+- worker/orchestrator (2026-09-22): trainer guidance missing (silent). Prepare/place, then mock user-data reconcile, then finish+continue on the same Env. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 57 pass.
+
+### WP-058 — Guarded placement of continued-tape orders
+
+- status: todo
+- repos: trolly
+- depends_on: [WP-056, WP-028]
+- scope: src/policy_demo.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - when `--execute-demo-orders` is set, OrderRequests drained from the post-fill continued tape can be placed through the same guarded spot/USDM adapters (offline mock placer is enough)
+  - default dry-run records continued orders without placing; first-tape receipts stay unchanged
+  - offline tests; no live network; do not train
+- notes: WP-056 records continued-tape `Action::dispatch` on the report but only the pre-fill tape is placed. The gym←exec→gym→exec loop still drops the post-fill hop.
 
 ## Integration test reference
 
