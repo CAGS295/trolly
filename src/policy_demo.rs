@@ -110,6 +110,9 @@ pub struct PolicyDemoConfig {
     pub continued_depth_json: Option<String>,
     /// Pre-parsed continued depth frames (tests / injectable tape).
     pub continued_depth_messages: Option<Vec<Message>>,
+    /// Captured user-data JSON/NDJSON matched after continued-tape placement.
+    /// Same envelope as `--reconcile-user-data-json`. Unset keeps first-tape reconcile only.
+    pub continued_user_data_json: Option<String>,
     /// Use the WP-032 `V×5` ladder so continued extra-symbol `q` is visible.
     /// Default false keeps Hold / 3-logit on 7-D stream frames.
     pub use_ladder_observation: bool,
@@ -147,6 +150,7 @@ impl PolicyDemoConfig {
             captured_user_data_json: None,
             continued_depth_json: None,
             continued_depth_messages: None,
+            continued_user_data_json: None,
             use_ladder_observation: false,
         }
     }
@@ -444,14 +448,14 @@ where
     let mut orders = drain_spot_orders(&mut rx);
     assign_spot_client_order_ids(&mut orders, &config.client_order_id_prefix);
 
-    let (receipts, mut live_socket) = if let Some(credentials) = credentials {
+    let (receipts, mut live_socket) = if let Some(ref credentials) = credentials {
         let live_socket = if config.wait_for_user_data {
-            Some(prepare_spot_live_user_data(&credentials, config.user_data_timeout).await?)
+            Some(prepare_spot_live_user_data(credentials, config.user_data_timeout).await?)
         } else {
             None
         };
         (
-            place_spot_demo_orders(credentials, &orders).await?,
+            place_spot_demo_orders(credentials.clone(), &orders).await?,
             live_socket,
         )
     } else {
@@ -482,7 +486,11 @@ where
             wait_spot_live_reconciliations(socket, &report, config.user_data_timeout).await?;
     }
     let mut report = finish_policy_demo_report(&config, &mut env, policy, report)?;
-    append_continued_spot_orders(&config, &mut rx, &mut report);
+    let extra = append_continued_spot_orders(&config, &mut rx, &mut report);
+    if let Some(credentials) = credentials {
+        place_continued_spot_demo_orders(credentials, extra, &mut report).await?;
+    }
+    finish_continued_user_data(&config, &mut env, &mut report)?;
     Ok(report)
 }
 
@@ -501,13 +509,13 @@ where
     let mut orders = drain_usdm_orders(&mut rx);
     assign_usdm_client_order_ids(&mut orders, &config.client_order_id_prefix);
 
-    let (receipts, live_user_data) = if let Some(credentials) = credentials {
+    let (receipts, live_user_data) = if let Some(ref credentials) = credentials {
         let live_user_data = if config.wait_for_user_data {
-            Some(prepare_usdm_live_user_data(&credentials).await?)
+            Some(prepare_usdm_live_user_data(credentials).await?)
         } else {
             None
         };
-        let receipts = match place_usdm_demo_orders(credentials, &orders).await {
+        let receipts = match place_usdm_demo_orders(credentials.clone(), &orders).await {
             Ok(receipts) => receipts,
             Err(err) => {
                 if let Some(live) = live_user_data {
@@ -549,7 +557,11 @@ where
     }
 
     let mut report = finish_policy_demo_report(&config, &mut env, policy, report)?;
-    append_continued_usdm_orders(&config, &mut rx, &mut report);
+    let extra = append_continued_usdm_orders(&config, &mut rx, &mut report);
+    if let Some(credentials) = credentials {
+        place_continued_usdm_demo_orders(credentials, extra, &mut report).await?;
+    }
+    finish_continued_user_data(&config, &mut env, &mut report)?;
     Ok(report)
 }
 
@@ -557,7 +569,7 @@ async fn prepare_spot_policy_demo_with_placer<P, F, Fut>(
     config: PolicyDemoConfig,
     policy: &P,
     policy_source: impl Into<String>,
-    mut place_order: F,
+    place_order: &mut F,
 ) -> Result<
     (
         PolicyDemoConfig,
@@ -610,7 +622,7 @@ async fn prepare_usdm_policy_demo_with_placer<P, F, Fut>(
     config: PolicyDemoConfig,
     policy: &P,
     policy_source: impl Into<String>,
-    mut place_order: F,
+    place_order: &mut F,
 ) -> Result<
     (
         PolicyDemoConfig,
@@ -664,7 +676,7 @@ pub async fn run_spot_policy_demo_with_placer<P, F, Fut>(
     config: PolicyDemoConfig,
     policy: &P,
     policy_source: impl Into<String>,
-    place_order: F,
+    mut place_order: F,
 ) -> Result<PolicyDemoReport, PolicyDemoError>
 where
     P: PolicyProvider + ?Sized,
@@ -672,9 +684,12 @@ where
     Fut: Future<Output = Result<SpotPlaceOrderResponse, PolicyDemoError>>,
 {
     let (config, mut env, mut rx, report) =
-        prepare_spot_policy_demo_with_placer(config, policy, policy_source, place_order).await?;
+        prepare_spot_policy_demo_with_placer(config, policy, policy_source, &mut place_order)
+            .await?;
     let mut report = finish_policy_demo_report(&config, &mut env, policy, report)?;
-    append_continued_spot_orders(&config, &mut rx, &mut report);
+    let extra = append_continued_spot_orders(&config, &mut rx, &mut report);
+    place_continued_spot_orders(&config, &mut place_order, extra, &mut report).await?;
+    finish_continued_user_data(&config, &mut env, &mut report)?;
     Ok(report)
 }
 
@@ -683,7 +698,7 @@ pub async fn run_usdm_policy_demo_with_placer<P, F, Fut>(
     config: PolicyDemoConfig,
     policy: &P,
     policy_source: impl Into<String>,
-    place_order: F,
+    mut place_order: F,
 ) -> Result<PolicyDemoReport, PolicyDemoError>
 where
     P: PolicyProvider + ?Sized,
@@ -691,9 +706,12 @@ where
     Fut: Future<Output = Result<UsdmPlaceOrderResponse, PolicyDemoError>>,
 {
     let (config, mut env, mut rx, report) =
-        prepare_usdm_policy_demo_with_placer(config, policy, policy_source, place_order).await?;
+        prepare_usdm_policy_demo_with_placer(config, policy, policy_source, &mut place_order)
+            .await?;
     let mut report = finish_policy_demo_report(&config, &mut env, policy, report)?;
-    append_continued_usdm_orders(&config, &mut rx, &mut report);
+    let extra = append_continued_usdm_orders(&config, &mut rx, &mut report);
+    place_continued_usdm_orders(&config, &mut place_order, extra, &mut report).await?;
+    finish_continued_user_data(&config, &mut env, &mut report)?;
     Ok(report)
 }
 
@@ -714,14 +732,18 @@ where
 {
     ensure_live_reconciliation_config(&config)?;
     let should_wait = config.wait_for_user_data;
+    let mut place_order = place_order;
     let (config, mut env, mut rx, mut report) =
-        prepare_spot_policy_demo_with_placer(config, policy, policy_source, place_order).await?;
+        prepare_spot_policy_demo_with_placer(config, policy, policy_source, &mut place_order)
+            .await?;
     if should_wait {
         let messages = user_data_messages(&report).await?;
         reconcile_policy_demo_report(&mut report, messages);
     }
     let mut report = finish_policy_demo_report(&config, &mut env, policy, report)?;
-    append_continued_spot_orders(&config, &mut rx, &mut report);
+    let extra = append_continued_spot_orders(&config, &mut rx, &mut report);
+    place_continued_spot_orders(&config, &mut place_order, extra, &mut report).await?;
+    finish_continued_user_data(&config, &mut env, &mut report)?;
     Ok(report)
 }
 
@@ -742,14 +764,18 @@ where
 {
     ensure_live_reconciliation_config(&config)?;
     let should_wait = config.wait_for_user_data;
+    let mut place_order = place_order;
     let (config, mut env, mut rx, mut report) =
-        prepare_usdm_policy_demo_with_placer(config, policy, policy_source, place_order).await?;
+        prepare_usdm_policy_demo_with_placer(config, policy, policy_source, &mut place_order)
+            .await?;
     if should_wait {
         let messages = user_data_messages(&report).await?;
         reconcile_policy_demo_report(&mut report, messages);
     }
     let mut report = finish_policy_demo_report(&config, &mut env, policy, report)?;
-    append_continued_usdm_orders(&config, &mut rx, &mut report);
+    let extra = append_continued_usdm_orders(&config, &mut rx, &mut report);
+    place_continued_usdm_orders(&config, &mut place_order, extra, &mut report).await?;
+    finish_continued_user_data(&config, &mut env, &mut report)?;
     Ok(report)
 }
 
@@ -1086,6 +1112,33 @@ where
     report.extra_symbol_inventory = extra_symbol_positions(env, &report);
     continue_policy_demo_after_fills(config, env, policy, &mut report)?;
     Ok(report)
+}
+
+fn finish_continued_user_data<E>(
+    config: &PolicyDemoConfig,
+    env: &mut Env<E>,
+    report: &mut PolicyDemoReport,
+) -> Result<(), PolicyDemoError>
+where
+    E: trolly_strategy::StreamEgress,
+{
+    let Some(input) = &config.continued_user_data_json else {
+        return Ok(());
+    };
+    let messages = policy_demo_user_data_messages_from_json(input)?;
+    if messages.is_empty() {
+        return Ok(());
+    }
+    let existing = report.reconciliations.clone();
+    reconcile_policy_demo_report(report, messages);
+    let continued = std::mem::take(&mut report.reconciliations);
+    report.reconciliations = existing;
+    report.reconciliations.extend(continued.iter().cloned());
+    let mut continued_report = report.clone();
+    continued_report.reconciliations = continued;
+    apply_extra_symbol_fills_to_env(env, &continued_report);
+    report.extra_symbol_inventory = extra_symbol_positions(env, report);
+    Ok(())
 }
 
 fn continue_policy_demo_after_fills<E, P>(
@@ -1970,32 +2023,132 @@ fn append_continued_spot_orders(
     config: &PolicyDemoConfig,
     rx: &mut mpsc::UnboundedReceiver<SpotPlaceOrderRequest>,
     report: &mut PolicyDemoReport,
-) {
+) -> usize {
     let extra = drain_spot_orders(rx);
     if extra.is_empty() {
-        return;
+        return 0;
     }
     if let PolicyDemoOrders::Spot(orders) = &mut report.orders {
         let start = orders.len();
         orders.extend(extra);
         assign_spot_client_order_ids_from(orders, &config.client_order_id_prefix, start);
+        return orders.len() - start;
     }
+    0
 }
 
 fn append_continued_usdm_orders(
     config: &PolicyDemoConfig,
     rx: &mut mpsc::UnboundedReceiver<UsdmPlaceOrderRequest>,
     report: &mut PolicyDemoReport,
-) {
+) -> usize {
     let extra = drain_usdm_orders(rx);
     if extra.is_empty() {
-        return;
+        return 0;
     }
     if let PolicyDemoOrders::Usdm(orders) = &mut report.orders {
         let start = orders.len();
         orders.extend(extra);
         assign_usdm_client_order_ids_from(orders, &config.client_order_id_prefix, start);
+        return orders.len() - start;
     }
+    0
+}
+
+fn continued_spot_orders(
+    report: &PolicyDemoReport,
+    extra_count: usize,
+) -> Vec<SpotPlaceOrderRequest> {
+    match &report.orders {
+        PolicyDemoOrders::Spot(orders) if extra_count > 0 && orders.len() >= extra_count => {
+            orders[orders.len() - extra_count..].to_vec()
+        }
+        _ => Vec::new(),
+    }
+}
+
+fn continued_usdm_orders(
+    report: &PolicyDemoReport,
+    extra_count: usize,
+) -> Vec<UsdmPlaceOrderRequest> {
+    match &report.orders {
+        PolicyDemoOrders::Usdm(orders) if extra_count > 0 && orders.len() >= extra_count => {
+            orders[orders.len() - extra_count..].to_vec()
+        }
+        _ => Vec::new(),
+    }
+}
+
+async fn place_continued_spot_orders<F, Fut>(
+    config: &PolicyDemoConfig,
+    place_order: &mut F,
+    extra_count: usize,
+    report: &mut PolicyDemoReport,
+) -> Result<(), PolicyDemoError>
+where
+    F: FnMut(SpotPlaceOrderRequest) -> Fut,
+    Fut: Future<Output = Result<SpotPlaceOrderResponse, PolicyDemoError>>,
+{
+    if !config.execute_demo_orders {
+        return Ok(());
+    }
+    for order in continued_spot_orders(report, extra_count) {
+        let response = place_order(order).await?;
+        report.receipts.push(spot_receipt_from_response(response));
+    }
+    report.placed_orders = report.receipts.len();
+    Ok(())
+}
+
+async fn place_continued_usdm_orders<F, Fut>(
+    config: &PolicyDemoConfig,
+    place_order: &mut F,
+    extra_count: usize,
+    report: &mut PolicyDemoReport,
+) -> Result<(), PolicyDemoError>
+where
+    F: FnMut(UsdmPlaceOrderRequest) -> Fut,
+    Fut: Future<Output = Result<UsdmPlaceOrderResponse, PolicyDemoError>>,
+{
+    if !config.execute_demo_orders {
+        return Ok(());
+    }
+    for order in continued_usdm_orders(report, extra_count) {
+        let response = place_order(order).await?;
+        report.receipts.push(usdm_receipt_from_response(response));
+    }
+    report.placed_orders = report.receipts.len();
+    Ok(())
+}
+
+async fn place_continued_spot_demo_orders(
+    credentials: DemoCredentials,
+    extra_count: usize,
+    report: &mut PolicyDemoReport,
+) -> Result<(), PolicyDemoError> {
+    let extra = continued_spot_orders(report, extra_count);
+    if extra.is_empty() {
+        return Ok(());
+    }
+    let extra_receipts = place_spot_demo_orders(credentials, &extra).await?;
+    report.receipts.extend(extra_receipts);
+    report.placed_orders = report.receipts.len();
+    Ok(())
+}
+
+async fn place_continued_usdm_demo_orders(
+    credentials: DemoCredentials,
+    extra_count: usize,
+    report: &mut PolicyDemoReport,
+) -> Result<(), PolicyDemoError> {
+    let extra = continued_usdm_orders(report, extra_count);
+    if extra.is_empty() {
+        return Ok(());
+    }
+    let extra_receipts = place_usdm_demo_orders(credentials, &extra).await?;
+    report.receipts.extend(extra_receipts);
+    report.placed_orders = report.receipts.len();
+    Ok(())
 }
 
 fn drain_usdm_orders(

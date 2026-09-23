@@ -4,12 +4,13 @@ Project journal for shipped work. Active backlog lives in [`WORKPLAN.md`](WORKPL
 
 ## WIP
 
-- Live demo place + user-stream reconcile of a Gaussian-quantized policy on Binance demo (keys / `RUN_BINANCE_DEMO_ORDERS=1`). Offline load-and-dispatch, captured/injected/subscribed books, ONNX Gaussian μ, snapshot+diff rebuild, multi-symbol joined observations, per-symbol `Action::dispatch`, extra-symbol reconcile, book-local inventory scoring, extra-symbol fill write-back, post-fill continued depth, and continued-tape order drain are in.
-- Continued-tape `Action::dispatch` is recorded dry-run but not placed on the guarded demo adapters (WP-058).
+- Live demo place + user-stream reconcile of a Gaussian-quantized policy on Binance demo (keys / `RUN_BINANCE_DEMO_ORDERS=1`). Offline load-and-dispatch, captured/injected/subscribed books, ONNX Gaussian μ, snapshot+diff rebuild, multi-symbol joined observations, per-symbol `Action::dispatch`, extra-symbol reconcile, book-local inventory scoring, extra-symbol fill write-back, post-fill continued depth, continued-tape order drain/placement, and continued-tape captured-JSON reconcile are in.
+- `--wait-for-user-data` still runs only on first-tape receipts; continued-tape live wait is WP-060.
 - Keep local GPU training checkpoint metrics improving via ClickHouse `trolly.ticks`, trajectory FIFO replay, daily `--continue` slices, and checkpoint fingerprints.
 - Add more exchange providers beyond Binance spot + USDM (stub scaffold landed; full venues remain).
 
 ## change log
++ `execute policy-demo`: continued-tape Buy/Sell place through guarded adapters; `--continued-user-data-json` matches those receipts / assigned ids (WP-058, WP-059). Trainer guidance missing (silent).
 + `execute policy-demo`: mock `--wait-for-user-data` extra-symbol fills land on the harness Env before `--continued-depth-json` steps (WP-057). Trainer guidance missing (silent).
 + `execute policy-demo`: continued-tape Buy/Sell drain onto `PolicyDemoReport.orders` with the next `newClientOrderId` (WP-056). Trainer guidance missing (silent).
 + `execute policy-demo`: `--continued-depth-json` steps the same Env after extra-symbol fill write-back so the next act() sees fill-backed `q` (WP-055). Trainer guidance missing (silent).

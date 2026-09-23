@@ -21,7 +21,7 @@ Shipped so far (not the destination): global book CLI; stream-native spot/USDM b
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: 2026-09-22
+- last_run: 2026-09-23
 - max_parallel: 3
 - ship_branch: integrate/orchestrator-branches
 
@@ -917,7 +917,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-058 — Guarded placement of continued-tape orders
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-056, WP-028]
 - scope: src/policy_demo.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
@@ -926,6 +926,32 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - default dry-run records continued orders without placing; first-tape receipts stay unchanged
   - offline tests; no live network; do not train
 - notes: WP-056 records continued-tape `Action::dispatch` on the report but only the pre-fill tape is placed. The gym←exec→gym→exec loop still drops the post-fill hop.
+- worker/orchestrator (2026-09-23): trainer guidance missing (silent). After continue, leftover spot/USDM orders are placed through the same mock/live adapters; first-tape receipts stay first. Dry-run still records only. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 59 pass; `cargo +stable test -p trolly-gym --lib --locked` 84 pass.
+
+### WP-059 — Reconcile continued-tape placement receipts
+
+- status: done
+- repos: trolly
+- depends_on: [WP-058, WP-054]
+- scope: src/policy_demo.rs, src/cli/mod.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - after continued-tape orders are assigned (dry-run) or placed, captured user-data can match those new receipts / `newClientOrderId`s
+  - extra-symbol FILLED rows from that second hop update the same harness Env; first-tape reconcile rows stay on the report
+  - default paths without `--continued-user-data-json` stay unchanged; offline tests; no live orders; do not train
+- notes: WP-058 places the post-fill hop. First-tape captured/wait reconcile still runs before continue, so the gym←exec→gym→exec loop cannot confirm the continued receipts.
+- worker/orchestrator (2026-09-23): trainer guidance missing (silent). `--continued-user-data-json` matches continued receipts / assigned ids after place; extra-symbol FILLED rows write the same Env; first-tape rows stay. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 61 pass.
+
+### WP-060 — Wait-for-user-data after continued-tape placement
+
+- status: todo
+- repos: trolly
+- depends_on: [WP-057, WP-059]
+- scope: src/policy_demo.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - mock `--wait-for-user-data` can supply frames after continued-tape orders are placed so those receipts reconcile without `--continued-user-data-json`
+  - first-tape wait still runs before the continued depth tape; dry-run / captured-JSON paths stay unchanged
+  - offline tests; no live network; do not train
+- notes: WP-057 waits only on first-tape receipts. WP-059 covers captured JSON after continue. Demo/live trust still needs the wait helper to see the post-fill hop.
 
 ## Integration test reference
 

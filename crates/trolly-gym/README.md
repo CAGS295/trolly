@@ -340,12 +340,17 @@ A terminal extra-symbol `FILLED` row writes that book's inventory through
 `--continued-depth-json` keeps that Env alive and steps more injected depth
 so the continued tape consumes the fill-backed slot (WP-055). Buy/Sell from
 those continued steps are drained onto the same `PolicyDemoReport.orders`
-with the next `newClientOrderId` values (WP-056); they are not placed unless
-a later guarded path does so. Mock `--wait-for-user-data` frames reconcile
-on that same harness Env before the continued tape (WP-057). Primary-book
-fills stay on the policy-step inventory path so single-symbol reconcile is
-unchanged. Gaussian `join_ladder_symbols = false` still uses primary `q`.
-The report lists extra-pair positions as `extra_inventory`.
+with the next `newClientOrderId` values (WP-056). Dry-run still records them
+without placing. With `--execute-demo-orders` they go through the same
+guarded spot/USDM adapters as the first tape; first-tape receipts stay
+unchanged and continued receipts append (WP-058). `--continued-user-data-json`
+then matches those new receipts / assigned `newClientOrderId`s and writes
+extra-symbol `FILLED` rows into the same harness Env (WP-059). Mock
+`--wait-for-user-data` frames reconcile on that same harness Env before the
+continued tape (WP-057). Primary-book fills stay on the policy-step
+inventory path so single-symbol reconcile is unchanged. Gaussian
+`join_ladder_symbols = false` still uses primary `q`. The report lists
+extra-pair positions as `extra_inventory`.
 
 Default builds use the hold fallback and add no model runtime. To load exported
 policy artifacts through the root command, opt in to the matching root feature:
@@ -457,7 +462,10 @@ matches those frames by the deterministic `newClientOrderId` values already
 assigned to queued orders (WP-054). After those fills land, `--continued-depth-json`
 (same envelope as `--depth-json`) steps the same Env so the next
 `PolicyProvider::act` sees that book's fill-backed `q` / `position_for`
-(WP-055). Unset keeps the harness ending at reconcile. The file may contain one
+(WP-055). `--continued-user-data-json` (same envelope as
+`--reconcile-user-data-json`) then matches continued-tape receipts or assigned
+ids after that hop and writes extra-symbol `FILLED` rows into the same Env
+(WP-059). Unset keeps first-tape reconcile only. The file may contain one
 JSON frame, a JSON array of frames, or newline-delimited raw frames.
 Reconciliation fans the frames through the existing spot `executionReport` /
 USDM `ORDER_TRADE_UPDATE` ingest and bookkeeping paths and prints typed rows
@@ -470,7 +478,8 @@ cargo run --bin depth_monitor -- execute policy-demo \
     --venue spot \
     --execute-demo-orders \
     --reconcile-user-data-json captured-demo-user-data.json \
-    --continued-depth-json captured-demo-depth-after-fill.json
+    --continued-depth-json captured-demo-depth-after-fill.json \
+    --continued-user-data-json captured-demo-user-data-after-continue.json
 ```
 
 To feed a captured demo/live book instead of the built-in synthetic depth tape,
@@ -534,6 +543,8 @@ dry-run captured frames matched by assigned client order ids (WP-054),
 post-fill continued depth using fill-backed extra-symbol `q` (WP-055),
 continued-tape `Action::dispatch` drained onto the report (WP-056),
 mock wait-for-user-data fills applied before the continued tape (WP-057),
+guarded placement of continued-tape orders (WP-058),
+continued-tape receipt reconcile via `--continued-user-data-json` (WP-059),
 the guard refusal, live wait option guards,
 mock placement receipts, mocked frame-source reconciliation, and captured
 receipt-to-user-stream reconciliation without live network or keys.
