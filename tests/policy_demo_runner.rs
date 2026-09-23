@@ -1460,6 +1460,96 @@ async fn policy_demo_wait_user_data_continues_with_fill_backed_q() {
 }
 
 #[tokio::test]
+async fn policy_demo_wait_user_data_reconciles_continued_tape() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT,ETHUSDT");
+    config.set_dispatch_symbol("ETHUSDT");
+    config.max_steps = 3;
+    config.window_frames = 1;
+    config.qty = "0.03".into();
+    config.execute_demo_orders = true;
+    config.wait_for_user_data = true;
+    config.client_order_id_prefix = "unit-spot-wait2".into();
+    config.continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"210.00","qty":"1.0"}],"asks":[{"price":"212.00","qty":"1.0"}],"update_id":9}"#
+            .into(),
+    );
+    let policy =
+        SequencePolicy::with_actions(vec![Action::Hold, Action::Buy, Action::Sell, Action::Buy]);
+    let waits = Cell::new(0usize);
+
+    let report = run_spot_policy_demo_with_placer_and_user_data(
+        config,
+        &policy,
+        "wait-continue-place",
+        |order| async move {
+            let client_order_id = order
+                .new_client_order_id
+                .clone()
+                .expect("client order id assigned before placement");
+            Ok(SpotPlaceOrderResponse {
+                symbol: order.symbol.clone(),
+                order_id: match client_order_id.as_str() {
+                    "unit-spot-wait2-spot-0000" => 71,
+                    "unit-spot-wait2-spot-0001" => 72,
+                    "unit-spot-wait2-spot-0002" => 73,
+                    other => panic!("unexpected client order id {other}"),
+                },
+                client_order_id,
+                transact_time: 1,
+                price: "0.00000000".into(),
+                orig_qty: order.quantity.clone(),
+                executed_qty: order.quantity,
+                status: "NEW".into(),
+                side: order.side.as_str().into(),
+                order_type: order.order_type.as_str().into(),
+            })
+        },
+        |report| {
+            waits.set(waits.get() + 1);
+            let payload = report
+                .receipts
+                .iter()
+                .map(|receipt| {
+                    spot_execution_report_json(
+                        &receipt.symbol,
+                        &receipt.client_order_id,
+                        receipt.order_id,
+                        &receipt.side,
+                        "FILLED",
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            let messages = policy_demo_user_data_messages_from_json(&payload);
+            async move { messages }
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(waits.get(), 2);
+    assert_eq!(report.placed_orders, 3);
+    assert_eq!(report.receipts.len(), 3);
+    assert_eq!(report.reconciliations.len(), 3);
+    assert_eq!(
+        report.reconciliations[0].client_order_id,
+        "unit-spot-wait2-spot-0000"
+    );
+    assert_eq!(
+        report.reconciliations[2].client_order_id,
+        "unit-spot-wait2-spot-0002"
+    );
+    assert!(report.reconciliations[2].terminal);
+    assert_eq!(
+        report.extra_symbol_inventory,
+        vec![PolicyDemoSymbolInventory {
+            symbol: "ETHUSDT".into(),
+            position: 1,
+        }]
+    );
+}
+
+#[tokio::test]
 async fn policy_demo_spot_captured_user_data_writes_extra_inventory() {
     let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT,ETHUSDT");
     config.set_dispatch_symbol("ETHUSDT");

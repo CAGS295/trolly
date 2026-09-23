@@ -347,7 +347,8 @@ unchanged and continued receipts append (WP-058). `--continued-user-data-json`
 then matches those new receipts / assigned `newClientOrderId`s and writes
 extra-symbol `FILLED` rows into the same harness Env (WP-059). Mock
 `--wait-for-user-data` frames reconcile on that same harness Env before the
-continued tape (WP-057). Primary-book fills stay on the policy-step
+continued tape (WP-057) and again after continued-tape placement so those
+receipts can match without `--continued-user-data-json` (WP-060). Primary-book fills stay on the policy-step
 inventory path so single-symbol reconcile is unchanged. Gaussian
 `join_ladder_symbols = false` still uses primary `q`. The report lists
 extra-pair positions as `extra_inventory`.
@@ -545,6 +546,7 @@ continued-tape `Action::dispatch` drained onto the report (WP-056),
 mock wait-for-user-data fills applied before the continued tape (WP-057),
 guarded placement of continued-tape orders (WP-058),
 continued-tape receipt reconcile via `--continued-user-data-json` (WP-059),
+mock wait-for-user-data after continued-tape placement (WP-060),
 the guard refusal, live wait option guards,
 mock placement receipts, mocked frame-source reconciliation, and captured
 receipt-to-user-stream reconciliation without live network or keys.

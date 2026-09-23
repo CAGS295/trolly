@@ -727,12 +727,13 @@ where
     P: PolicyProvider + ?Sized,
     F: FnMut(SpotPlaceOrderRequest) -> Fut,
     Fut: Future<Output = Result<SpotPlaceOrderResponse, PolicyDemoError>>,
-    S: FnOnce(&PolicyDemoReport) -> SFut,
+    S: FnMut(&PolicyDemoReport) -> SFut,
     SFut: Future<Output = Result<Vec<Message>, PolicyDemoError>>,
 {
     ensure_live_reconciliation_config(&config)?;
     let should_wait = config.wait_for_user_data;
     let mut place_order = place_order;
+    let mut user_data_messages = user_data_messages;
     let (config, mut env, mut rx, mut report) =
         prepare_spot_policy_demo_with_placer(config, policy, policy_source, &mut place_order)
             .await?;
@@ -744,6 +745,10 @@ where
     let extra = append_continued_spot_orders(&config, &mut rx, &mut report);
     place_continued_spot_orders(&config, &mut place_order, extra, &mut report).await?;
     finish_continued_user_data(&config, &mut env, &mut report)?;
+    if should_wait && extra > 0 {
+        let messages = user_data_messages(&report).await?;
+        merge_continued_reconciliations(&mut env, &mut report, messages);
+    }
     Ok(report)
 }
 
@@ -759,12 +764,13 @@ where
     P: PolicyProvider + ?Sized,
     F: FnMut(UsdmPlaceOrderRequest) -> Fut,
     Fut: Future<Output = Result<UsdmPlaceOrderResponse, PolicyDemoError>>,
-    S: FnOnce(&PolicyDemoReport) -> SFut,
+    S: FnMut(&PolicyDemoReport) -> SFut,
     SFut: Future<Output = Result<Vec<Message>, PolicyDemoError>>,
 {
     ensure_live_reconciliation_config(&config)?;
     let should_wait = config.wait_for_user_data;
     let mut place_order = place_order;
+    let mut user_data_messages = user_data_messages;
     let (config, mut env, mut rx, mut report) =
         prepare_usdm_policy_demo_with_placer(config, policy, policy_source, &mut place_order)
             .await?;
@@ -776,6 +782,10 @@ where
     let extra = append_continued_usdm_orders(&config, &mut rx, &mut report);
     place_continued_usdm_orders(&config, &mut place_order, extra, &mut report).await?;
     finish_continued_user_data(&config, &mut env, &mut report)?;
+    if should_wait && extra > 0 {
+        let messages = user_data_messages(&report).await?;
+        merge_continued_reconciliations(&mut env, &mut report, messages);
+    }
     Ok(report)
 }
 
@@ -1129,16 +1139,36 @@ where
     if messages.is_empty() {
         return Ok(());
     }
+    merge_continued_reconciliations(env, report, messages);
+    Ok(())
+}
+
+fn merge_continued_reconciliations<E>(
+    env: &mut Env<E>,
+    report: &mut PolicyDemoReport,
+    messages: impl IntoIterator<Item = Message>,
+) where
+    E: trolly_strategy::StreamEgress,
+{
     let existing = report.reconciliations.clone();
     reconcile_policy_demo_report(report, messages);
     let continued = std::mem::take(&mut report.reconciliations);
+    let mut new_rows = Vec::new();
+    for row in continued {
+        if existing
+            .iter()
+            .any(|seen| seen.client_order_id == row.client_order_id)
+        {
+            continue;
+        }
+        new_rows.push(row);
+    }
     report.reconciliations = existing;
-    report.reconciliations.extend(continued.iter().cloned());
+    report.reconciliations.extend(new_rows.iter().cloned());
     let mut continued_report = report.clone();
-    continued_report.reconciliations = continued;
+    continued_report.reconciliations = new_rows;
     apply_extra_symbol_fills_to_env(env, &continued_report);
     report.extra_symbol_inventory = extra_symbol_positions(env, report);
-    Ok(())
 }
 
 fn continue_policy_demo_after_fills<E, P>(

@@ -943,7 +943,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-060 — Wait-for-user-data after continued-tape placement
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-057, WP-059]
 - scope: src/policy_demo.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
@@ -952,6 +952,19 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - first-tape wait still runs before the continued depth tape; dry-run / captured-JSON paths stay unchanged
   - offline tests; no live network; do not train
 - notes: WP-057 waits only on first-tape receipts. WP-059 covers captured JSON after continue. Demo/live trust still needs the wait helper to see the post-fill hop.
+- worker/orchestrator (2026-09-23): trainer guidance missing (silent). Mock wait callback is `FnMut` and runs again after continued place when extra orders exist; new rows merge by client order id. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 62 pass.
+
+### WP-061 — Live user-data wait after continued-tape demo placement
+
+- status: todo
+- repos: trolly
+- depends_on: [WP-031, WP-060]
+- scope: src/policy_demo.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - when `--wait-for-user-data` and `--execute-demo-orders` are set, the live demo user-data listener can collect frames after continued-tape REST placement (offline mock socket/source is enough)
+  - first-tape live wait still runs before the continued depth tape; dry-run / captured-JSON / mock-callback paths stay unchanged
+  - offline tests; no production hosts; do not train
+- notes: WP-060 covers the mock placer callback. The live spot/USDM sockets still wait only on first-tape receipts, so demo/live trust cannot confirm the post-fill hop.
 
 ## Integration test reference
 
