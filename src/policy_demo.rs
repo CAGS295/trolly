@@ -1,7 +1,7 @@
 //! Guarded demo bridge from policy harness output to execution adapters.
 
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashSet, VecDeque},
     env, fmt,
     future::Future,
     path::Path,
@@ -490,6 +490,13 @@ where
     if let Some(credentials) = credentials {
         place_continued_spot_demo_orders(credentials, extra, &mut report).await?;
     }
+    if extra > 0 {
+        if let Some(socket) = live_socket.as_mut() {
+            let rows =
+                wait_spot_live_reconciliations(socket, &report, config.user_data_timeout).await?;
+            merge_continued_reconciliation_rows(&mut env, &mut report, rows);
+        }
+    }
     finish_continued_user_data(&config, &mut env, &mut report)?;
     Ok(report)
 }
@@ -548,21 +555,38 @@ where
         orders: PolicyDemoOrders::Usdm(orders),
     };
 
-    if let Some(mut live) = live_user_data {
-        let reconciliations =
-            wait_usdm_live_reconciliations(&mut live.socket, &report, config.user_data_timeout)
-                .await;
-        let _ = live.listen_client.close().await;
-        report.reconciliations = reconciliations?;
-    }
+    let mut live_user_data = live_user_data;
+    let finish = async {
+        if let Some(live) = live_user_data.as_mut() {
+            report.reconciliations =
+                wait_usdm_live_reconciliations(&mut live.socket, &report, config.user_data_timeout)
+                    .await?;
+        }
 
-    let mut report = finish_policy_demo_report(&config, &mut env, policy, report)?;
-    let extra = append_continued_usdm_orders(&config, &mut rx, &mut report);
-    if let Some(credentials) = credentials {
-        place_continued_usdm_demo_orders(credentials, extra, &mut report).await?;
+        let mut report = finish_policy_demo_report(&config, &mut env, policy, report)?;
+        let extra = append_continued_usdm_orders(&config, &mut rx, &mut report);
+        if let Some(credentials) = credentials {
+            place_continued_usdm_demo_orders(credentials, extra, &mut report).await?;
+        }
+        if extra > 0 {
+            if let Some(live) = live_user_data.as_mut() {
+                let rows = wait_usdm_live_reconciliations(
+                    &mut live.socket,
+                    &report,
+                    config.user_data_timeout,
+                )
+                .await?;
+                merge_continued_reconciliation_rows(&mut env, &mut report, rows);
+            }
+        }
+        finish_continued_user_data(&config, &mut env, &mut report)?;
+        Ok(report)
     }
-    finish_continued_user_data(&config, &mut env, &mut report)?;
-    Ok(report)
+    .await;
+    if let Some(live) = live_user_data {
+        let _ = live.listen_client.close().await;
+    }
+    finish
 }
 
 async fn prepare_spot_policy_demo_with_placer<P, F, Fut>(
@@ -789,6 +813,96 @@ where
     Ok(report)
 }
 
+/// Offline stand-in for the live demo user-data socket: one shared frame source
+/// is drained by the same wait helper used after first-tape REST place, then
+/// again after continued-tape placement (WP-061).
+#[doc(hidden)]
+pub async fn run_spot_policy_demo_with_live_user_data_source<P, F, Fut>(
+    config: PolicyDemoConfig,
+    policy: &P,
+    policy_source: impl Into<String>,
+    place_order: F,
+    user_data_frames: impl IntoIterator<Item = Message>,
+) -> Result<PolicyDemoReport, PolicyDemoError>
+where
+    P: PolicyProvider + ?Sized,
+    F: FnMut(SpotPlaceOrderRequest) -> Fut,
+    Fut: Future<Output = Result<SpotPlaceOrderResponse, PolicyDemoError>>,
+{
+    ensure_live_reconciliation_config(&config)?;
+    let should_wait = config.wait_for_user_data;
+    let mut place_order = place_order;
+    let mut frames: VecDeque<Message> = user_data_frames.into_iter().collect();
+    let (config, mut env, mut rx, mut report) =
+        prepare_spot_policy_demo_with_placer(config, policy, policy_source, &mut place_order)
+            .await?;
+    if should_wait {
+        report.reconciliations = wait_spot_live_reconciliations_from(&report, || {
+            let message = frames.pop_front();
+            async move { Ok(message) }
+        })
+        .await?;
+    }
+    let mut report = finish_policy_demo_report(&config, &mut env, policy, report)?;
+    let extra = append_continued_spot_orders(&config, &mut rx, &mut report);
+    place_continued_spot_orders(&config, &mut place_order, extra, &mut report).await?;
+    finish_continued_user_data(&config, &mut env, &mut report)?;
+    if should_wait && extra > 0 {
+        let rows = wait_spot_live_reconciliations_from(&report, || {
+            let message = frames.pop_front();
+            async move { Ok(message) }
+        })
+        .await?;
+        merge_continued_reconciliation_rows(&mut env, &mut report, rows);
+    }
+    Ok(report)
+}
+
+/// Offline stand-in for the live USDM user-data socket. Same two-wait sequence
+/// as [`run_usdm_policy_demo`]: first-tape wait, then continued-tape wait on
+/// leftover frames.
+#[doc(hidden)]
+pub async fn run_usdm_policy_demo_with_live_user_data_source<P, F, Fut>(
+    config: PolicyDemoConfig,
+    policy: &P,
+    policy_source: impl Into<String>,
+    place_order: F,
+    user_data_frames: impl IntoIterator<Item = Message>,
+) -> Result<PolicyDemoReport, PolicyDemoError>
+where
+    P: PolicyProvider + ?Sized,
+    F: FnMut(UsdmPlaceOrderRequest) -> Fut,
+    Fut: Future<Output = Result<UsdmPlaceOrderResponse, PolicyDemoError>>,
+{
+    ensure_live_reconciliation_config(&config)?;
+    let should_wait = config.wait_for_user_data;
+    let mut place_order = place_order;
+    let mut frames: VecDeque<Message> = user_data_frames.into_iter().collect();
+    let (config, mut env, mut rx, mut report) =
+        prepare_usdm_policy_demo_with_placer(config, policy, policy_source, &mut place_order)
+            .await?;
+    if should_wait {
+        report.reconciliations = wait_usdm_live_reconciliations_from(&report, || {
+            let message = frames.pop_front();
+            async move { Ok(message) }
+        })
+        .await?;
+    }
+    let mut report = finish_policy_demo_report(&config, &mut env, policy, report)?;
+    let extra = append_continued_usdm_orders(&config, &mut rx, &mut report);
+    place_continued_usdm_orders(&config, &mut place_order, extra, &mut report).await?;
+    finish_continued_user_data(&config, &mut env, &mut report)?;
+    if should_wait && extra > 0 {
+        let rows = wait_usdm_live_reconciliations_from(&report, || {
+            let message = frames.pop_front();
+            async move { Ok(message) }
+        })
+        .await?;
+        merge_continued_reconciliation_rows(&mut env, &mut report, rows);
+    }
+    Ok(report)
+}
+
 pub fn reconcile_policy_demo_report(
     report: &mut PolicyDemoReport,
     messages: impl IntoIterator<Item = Message>,
@@ -966,6 +1080,17 @@ impl ReconciliationState {
             reconciliations: Vec::new(),
             seen: HashSet::new(),
         }
+    }
+
+    /// Seed already-matched rows so a second live wait only blocks on new receipts.
+    fn from_report_with_existing(report: &PolicyDemoReport) -> Self {
+        let mut state = Self::from_report(report);
+        for row in &report.reconciliations {
+            if state.matches(row.order_id, &row.client_order_id) {
+                state.upsert(row.clone());
+            }
+        }
+        state
     }
 
     fn is_empty(&self) -> bool {
@@ -1153,6 +1278,28 @@ fn merge_continued_reconciliations<E>(
     let existing = report.reconciliations.clone();
     reconcile_policy_demo_report(report, messages);
     let continued = std::mem::take(&mut report.reconciliations);
+    merge_new_reconciliation_rows(env, report, existing, continued);
+}
+
+fn merge_continued_reconciliation_rows<E>(
+    env: &mut Env<E>,
+    report: &mut PolicyDemoReport,
+    rows: Vec<PolicyDemoReconciliation>,
+) where
+    E: trolly_strategy::StreamEgress,
+{
+    let existing = report.reconciliations.clone();
+    merge_new_reconciliation_rows(env, report, existing, rows);
+}
+
+fn merge_new_reconciliation_rows<E>(
+    env: &mut Env<E>,
+    report: &mut PolicyDemoReport,
+    existing: Vec<PolicyDemoReconciliation>,
+    continued: Vec<PolicyDemoReconciliation>,
+) where
+    E: trolly_strategy::StreamEgress,
+{
     let mut new_rows = Vec::new();
     for row in continued {
         if existing
@@ -2376,9 +2523,9 @@ async fn wait_spot_live_reconciliations(
     report: &PolicyDemoReport,
     timeout_duration: Duration,
 ) -> Result<Vec<PolicyDemoReconciliation>, PolicyDemoError> {
-    let mut state = ReconciliationState::from_report(report);
-    if state.is_empty() {
-        return Ok(Vec::new());
+    let mut state = ReconciliationState::from_report_with_existing(report);
+    if state.is_empty() || state.is_terminal_complete() {
+        return Ok(state.into_reconciliations());
     }
 
     let (tx, mut rx) = mpsc::unbounded_channel();
@@ -2407,9 +2554,9 @@ async fn wait_usdm_live_reconciliations(
     report: &PolicyDemoReport,
     timeout_duration: Duration,
 ) -> Result<Vec<PolicyDemoReconciliation>, PolicyDemoError> {
-    let mut state = ReconciliationState::from_report(report);
-    if state.is_empty() {
-        return Ok(Vec::new());
+    let mut state = ReconciliationState::from_report_with_existing(report);
+    if state.is_empty() || state.is_terminal_complete() {
+        return Ok(state.into_reconciliations());
     }
 
     let (tx, mut rx) = mpsc::unbounded_channel();
@@ -2420,6 +2567,68 @@ async fn wait_usdm_live_reconciliations(
 
     while !state.is_terminal_complete() {
         let Some(message) = next_live_user_data_message(socket, deadline, "USDM").await? else {
+            break;
+        };
+        ingest_usdm_user_data(&mut hub, message);
+        drain_usdm_reconciliation_events(&mut rx, &mut state);
+    }
+
+    Ok(state.into_reconciliations())
+}
+
+async fn wait_spot_live_reconciliations_from<S, Fut>(
+    report: &PolicyDemoReport,
+    mut next_message: S,
+) -> Result<Vec<PolicyDemoReconciliation>, PolicyDemoError>
+where
+    S: FnMut() -> Fut,
+    Fut: Future<Output = Result<Option<Message>, PolicyDemoError>>,
+{
+    let mut state = ReconciliationState::from_report_with_existing(report);
+    if state.is_empty() || state.is_terminal_complete() {
+        return Ok(state.into_reconciliations());
+    }
+
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let account = Arc::new(Mutex::new(AccountBook::default()));
+    let ctx = SpotExecContext {
+        events: tx,
+        account,
+    };
+    let symbols = policy_demo_reconcile_symbols(report);
+    let mut hub = build_spot_multiplexor(&symbol_refs(&symbols), ctx);
+
+    while !state.is_terminal_complete() {
+        let Some(message) = next_message().await? else {
+            break;
+        };
+        ingest_spot_user_data(&mut hub, message);
+        drain_spot_reconciliation_events(&mut rx, &mut state);
+    }
+
+    Ok(state.into_reconciliations())
+}
+
+async fn wait_usdm_live_reconciliations_from<S, Fut>(
+    report: &PolicyDemoReport,
+    mut next_message: S,
+) -> Result<Vec<PolicyDemoReconciliation>, PolicyDemoError>
+where
+    S: FnMut() -> Fut,
+    Fut: Future<Output = Result<Option<Message>, PolicyDemoError>>,
+{
+    let mut state = ReconciliationState::from_report_with_existing(report);
+    if state.is_empty() || state.is_terminal_complete() {
+        return Ok(state.into_reconciliations());
+    }
+
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let ctx = UsdmExecContext::new(Some(tx));
+    let symbols = policy_demo_reconcile_symbols(report);
+    let mut hub = build_usdm_multiplexor_with_context(&symbol_refs(&symbols), ctx);
+
+    while !state.is_terminal_complete() {
+        let Some(message) = next_message().await? else {
             break;
         };
         ingest_usdm_user_data(&mut hub, message);

@@ -21,7 +21,7 @@ Shipped so far (not the destination): global book CLI; stream-native spot/USDM b
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: 2026-09-23
+- last_run: 2026-09-24
 - max_parallel: 3
 - ship_branch: integrate/orchestrator-branches
 
@@ -956,7 +956,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-061 — Live user-data wait after continued-tape demo placement
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-031, WP-060]
 - scope: src/policy_demo.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
@@ -965,6 +965,19 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - first-tape live wait still runs before the continued depth tape; dry-run / captured-JSON / mock-callback paths stay unchanged
   - offline tests; no production hosts; do not train
 - notes: WP-060 covers the mock placer callback. The live spot/USDM sockets still wait only on first-tape receipts, so demo/live trust cannot confirm the post-fill hop.
+- worker/orchestrator (2026-09-24): trainer guidance missing (silent). Live spot/USDM sockets stay open through continued REST place; second wait seeds first-tape rows and merges new receipts; USDM listenKey closes after the last wait. Offline mock source (`run_*_with_live_user_data_source`) drains one shared frame queue through the same wait helper. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 64 pass; `cargo +stable test -p trolly-gym --lib --locked` 84 pass.
+
+### WP-062 — Continue Env after continued-tape live fills
+
+- status: todo
+- repos: trolly
+- depends_on: [WP-055, WP-061]
+- scope: src/policy_demo.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - after the second live/mock user-data wait writes continued-tape extra-symbol FILLED rows into the harness Env, a subsequent injected depth step uses that book's fill-backed `q` / `position_for`
+  - default dry-run, first-tape continue, and paths without a second wait stay unchanged
+  - offline tests; no live orders; do not train
+- notes: WP-055 continues after first-tape fills. WP-061 confirms the post-fill hop on the live socket, but the runner still ends there, so the next `act()` cannot consume second-hop inventory.
 
 ## Integration test reference
 

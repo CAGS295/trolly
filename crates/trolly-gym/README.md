@@ -348,7 +348,11 @@ then matches those new receipts / assigned `newClientOrderId`s and writes
 extra-symbol `FILLED` rows into the same harness Env (WP-059). Mock
 `--wait-for-user-data` frames reconcile on that same harness Env before the
 continued tape (WP-057) and again after continued-tape placement so those
-receipts can match without `--continued-user-data-json` (WP-060). Primary-book fills stay on the policy-step
+receipts can match without `--continued-user-data-json` (WP-060). The live
+spot/USDM sockets stay open for that second collect after continued REST
+place (WP-061); tests mock the socket via
+`run_spot_policy_demo_with_live_user_data_source` /
+`run_usdm_policy_demo_with_live_user_data_source`. Primary-book fills stay on the policy-step
 inventory path so single-symbol reconcile is unchanged. Gaussian
 `join_ladder_symbols = false` still uses primary `q`. The report lists
 extra-pair positions as `extra_inventory`.
@@ -451,9 +455,12 @@ cargo run --bin depth_monitor -- execute policy-demo \
 Spot connects to the Binance demo WebSocket API and sends the signed
 `userDataStream.subscribe.signature` request before demo placement; USDM creates
 a demo `listenKey`, connects to the private demo stream, and closes the key
-after the bounded wait. In both venues, raw frames are reconciled through the
-existing `binance-spot-exec` / `binance-usdm-exec` ingest and bookkeeping paths;
-the runner only prints typed reconciliation rows, not captured JSON.
+after the last bounded wait. When `--continued-depth-json` produces extra
+orders, the same live socket waits again after those REST placements so the
+post-fill hop can reconcile without `--continued-user-data-json`. In both
+venues, raw frames are reconciled through the existing `binance-spot-exec` /
+`binance-usdm-exec` ingest and bookkeeping paths; the runner only prints typed
+reconciliation rows, not captured JSON.
 
 To validate captured user-data frames against those receipts, pass an explicit
 JSON file to `--reconcile-user-data-json`. The runner reads that file before
@@ -547,6 +554,7 @@ mock wait-for-user-data fills applied before the continued tape (WP-057),
 guarded placement of continued-tape orders (WP-058),
 continued-tape receipt reconcile via `--continued-user-data-json` (WP-059),
 mock wait-for-user-data after continued-tape placement (WP-060),
+live-socket wait after continued-tape demo placement (WP-061),
 the guard refusal, live wait option guards,
 mock placement receipts, mocked frame-source reconciliation, and captured
 receipt-to-user-stream reconciliation without live network or keys.

@@ -17,9 +17,11 @@ use trolly::policy_demo::{
     public_depth_subscribe_request_json, public_depth_subscribe_request_json_for_symbols,
     reconcile_policy_demo_report, run_policy_demo, run_policy_demo_with_policy,
     run_policy_demo_with_public_depth, run_policy_demo_with_subscribed_public_depth_texts,
-    run_spot_policy_demo_with_placer, run_spot_policy_demo_with_placer_and_user_data,
-    run_usdm_policy_demo_with_placer, run_usdm_policy_demo_with_placer_and_user_data, DemoVenue,
-    PolicyDemoConfig, PolicyDemoError, PolicyDemoOrders, PolicyDemoSymbolInventory,
+    run_spot_policy_demo_with_live_user_data_source, run_spot_policy_demo_with_placer,
+    run_spot_policy_demo_with_placer_and_user_data,
+    run_usdm_policy_demo_with_live_user_data_source, run_usdm_policy_demo_with_placer,
+    run_usdm_policy_demo_with_placer_and_user_data, DemoVenue, PolicyDemoConfig, PolicyDemoError,
+    PolicyDemoOrders, PolicyDemoSymbolInventory,
 };
 use trolly_gym::{
     write_recorded_mean_mu_onnx, Action, Env, EnvConfig, PolicyProvider,
@@ -1538,6 +1540,185 @@ async fn policy_demo_wait_user_data_reconciles_continued_tape() {
     assert_eq!(
         report.reconciliations[2].client_order_id,
         "unit-spot-wait2-spot-0002"
+    );
+    assert!(report.reconciliations[2].terminal);
+    assert_eq!(
+        report.extra_symbol_inventory,
+        vec![PolicyDemoSymbolInventory {
+            symbol: "ETHUSDT".into(),
+            position: 1,
+        }]
+    );
+}
+
+#[tokio::test]
+async fn policy_demo_live_source_waits_after_continued_tape_place() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT,ETHUSDT");
+    config.set_dispatch_symbol("ETHUSDT");
+    config.max_steps = 3;
+    config.window_frames = 1;
+    config.qty = "0.03".into();
+    config.execute_demo_orders = true;
+    config.wait_for_user_data = true;
+    config.client_order_id_prefix = "unit-spot-live2".into();
+    config.continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"210.00","qty":"1.0"}],"asks":[{"price":"212.00","qty":"1.0"}],"update_id":9}"#
+            .into(),
+    );
+    let policy =
+        SequencePolicy::with_actions(vec![Action::Hold, Action::Buy, Action::Sell, Action::Buy]);
+    let frames = policy_demo_user_data_messages_from_json(&format!(
+        "{}\n{}\n{}",
+        spot_execution_report_json("ETHUSDT", "unit-spot-live2-spot-0000", 81, "BUY", "FILLED"),
+        spot_execution_report_json("ETHUSDT", "unit-spot-live2-spot-0001", 82, "SELL", "FILLED"),
+        spot_execution_report_json("ETHUSDT", "unit-spot-live2-spot-0002", 83, "BUY", "FILLED"),
+    ))
+    .unwrap();
+
+    let report = run_spot_policy_demo_with_live_user_data_source(
+        config,
+        &policy,
+        "live-source-continue",
+        |order| async move {
+            let client_order_id = order
+                .new_client_order_id
+                .clone()
+                .expect("client order id assigned before placement");
+            Ok(SpotPlaceOrderResponse {
+                symbol: order.symbol.clone(),
+                order_id: match client_order_id.as_str() {
+                    "unit-spot-live2-spot-0000" => 81,
+                    "unit-spot-live2-spot-0001" => 82,
+                    "unit-spot-live2-spot-0002" => 83,
+                    other => panic!("unexpected client order id {other}"),
+                },
+                client_order_id,
+                transact_time: 1,
+                price: "0.00000000".into(),
+                orig_qty: order.quantity.clone(),
+                executed_qty: order.quantity,
+                status: "NEW".into(),
+                side: order.side.as_str().into(),
+                order_type: order.order_type.as_str().into(),
+            })
+        },
+        frames,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(report.placed_orders, 3);
+    assert_eq!(report.receipts.len(), 3);
+    assert_eq!(report.reconciliations.len(), 3);
+    assert_eq!(
+        report.reconciliations[0].client_order_id,
+        "unit-spot-live2-spot-0000"
+    );
+    assert_eq!(
+        report.reconciliations[2].client_order_id,
+        "unit-spot-live2-spot-0002"
+    );
+    assert!(report.reconciliations[2].terminal);
+    assert_eq!(report.reconciliations[2].side, "BUY");
+    assert_eq!(
+        report.extra_symbol_inventory,
+        vec![PolicyDemoSymbolInventory {
+            symbol: "ETHUSDT".into(),
+            position: 1,
+        }]
+    );
+}
+
+#[tokio::test]
+async fn policy_demo_usdm_live_source_waits_after_continued_tape_place() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Usdm, "BTCUSDT,ETHUSDT");
+    config.set_dispatch_symbol("ETHUSDT");
+    config.max_steps = 3;
+    config.window_frames = 1;
+    config.qty = "0.03".into();
+    config.execute_demo_orders = true;
+    config.wait_for_user_data = true;
+    config.client_order_id_prefix = "unit-usdm-live2".into();
+    config.continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"210.00","qty":"1.0"}],"asks":[{"price":"212.00","qty":"1.0"}],"update_id":9}"#
+            .into(),
+    );
+    let policy =
+        SequencePolicy::with_actions(vec![Action::Hold, Action::Buy, Action::Sell, Action::Buy]);
+    let frames = policy_demo_user_data_messages_from_json(
+        &serde_json::json!([
+            usdm_order_trade_update_json(
+                "ETHUSDT",
+                "unit-usdm-live2-usdm-0000",
+                91,
+                "BUY",
+                "FILLED"
+            ),
+            usdm_order_trade_update_json(
+                "ETHUSDT",
+                "unit-usdm-live2-usdm-0001",
+                92,
+                "SELL",
+                "FILLED"
+            ),
+            usdm_order_trade_update_json(
+                "ETHUSDT",
+                "unit-usdm-live2-usdm-0002",
+                93,
+                "BUY",
+                "FILLED"
+            )
+        ])
+        .to_string(),
+    )
+    .unwrap();
+
+    let report = run_usdm_policy_demo_with_live_user_data_source(
+        config,
+        &policy,
+        "live-source-continue-usdm",
+        |order| async move {
+            let client_order_id = order
+                .new_client_order_id
+                .clone()
+                .expect("client order id assigned before placement");
+            Ok(UsdmPlaceOrderResponse {
+                symbol: order.symbol.clone(),
+                order_id: match client_order_id.as_str() {
+                    "unit-usdm-live2-usdm-0000" => 91,
+                    "unit-usdm-live2-usdm-0001" => 92,
+                    "unit-usdm-live2-usdm-0002" => 93,
+                    other => panic!("unexpected client order id {other}"),
+                },
+                client_order_id,
+                update_time: 1,
+                price: "0.00000000".into(),
+                orig_qty: order.quantity.clone(),
+                executed_qty: order.quantity,
+                status: "NEW".into(),
+                side: order.side.as_str().into(),
+                order_type: order.order_type.as_str().into(),
+                position_side: order
+                    .position_side
+                    .map(|side| side.as_str())
+                    .unwrap_or("BOTH")
+                    .into(),
+            })
+        },
+        frames,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(report.placed_orders, 3);
+    assert_eq!(report.reconciliations.len(), 3);
+    assert_eq!(
+        report.reconciliations[0].client_order_id,
+        "unit-usdm-live2-usdm-0000"
+    );
+    assert_eq!(
+        report.reconciliations[2].client_order_id,
+        "unit-usdm-live2-usdm-0002"
     );
     assert!(report.reconciliations[2].terminal);
     assert_eq!(
