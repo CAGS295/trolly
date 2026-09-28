@@ -348,9 +348,13 @@ then matches those new receipts / assigned `newClientOrderId`s and writes
 extra-symbol `FILLED` rows into the same harness Env (WP-059). Mock
 `--wait-for-user-data` frames reconcile on that same harness Env before the
 continued tape (WP-057) and again after continued-tape placement so those
-receipts can match without `--continued-user-data-json` (WP-060). The live
+receipts can match without `--continued-user-data-json` (WP-060). After
+second-continued-tape placement the same mock wait runs a third time so
+those receipts can match without `--second-continued-user-data-json`
+(WP-066). The live
 spot/USDM sockets stay open for that second collect after continued REST
-place (WP-061); tests mock the socket via
+place (WP-061) and a third collect after second-continued REST place
+(WP-067); tests mock the socket via
 `run_spot_policy_demo_with_live_user_data_source` /
 `run_usdm_policy_demo_with_live_user_data_source`. After that second wait
 writes continued-tape extra-symbol `FILLED` rows into the same Env,
@@ -360,7 +364,10 @@ second-continued steps drain onto the same `PolicyDemoReport.orders` with
 the next `newClientOrderId` values (WP-063). With `--execute-demo-orders`
 those third-hop requests go through the same guarded adapters; first-tape
 and first-continue receipts stay first (WP-064). Dry-run still records
-them without placing.
+them without placing. `--second-continued-user-data-json` then matches
+those new receipts / assigned `newClientOrderId`s and writes extra-symbol
+`FILLED` rows into the same harness Env; first-tape and first-continue
+rows stay on the report (WP-065).
 Unset keeps the harness ending after the second wait. Primary-book fills stay on the policy-step
 inventory path so single-symbol reconcile is unchanged. Gaussian
 `join_ladder_symbols = false` still uses primary `q`. The report lists
@@ -467,6 +474,8 @@ a demo `listenKey`, connects to the private demo stream, and closes the key
 after the last bounded wait. When `--continued-depth-json` produces extra
 orders, the same live socket waits again after those REST placements so the
 post-fill hop can reconcile without `--continued-user-data-json`.
+When `--second-continued-depth-json` produces extra orders, the same live
+socket waits a third time after those REST placements (WP-067).
 `--second-continued-depth-json` then steps that fill-backed Env (WP-062). In both
 venues, raw frames are reconciled through the existing `binance-spot-exec` /
 `binance-usdm-exec` ingest and bookkeeping paths; the runner only prints typed
@@ -484,7 +493,10 @@ assigned to queued orders (WP-054). After those fills land, `--continued-depth-j
 `--reconcile-user-data-json`) then matches continued-tape receipts or assigned
 ids after that hop and writes extra-symbol `FILLED` rows into the same Env
 (WP-059). `--second-continued-depth-json` then steps the same Env after those
-second-hop fills (WP-062). Unset keeps first-tape reconcile only. The file may contain one
+second-hop fills (WP-062). `--second-continued-user-data-json` (same envelope)
+then matches third-hop receipts or assigned ids after that place and writes
+extra-symbol `FILLED` rows into the same Env (WP-065). Unset keeps first-tape
+and first-continue reconcile only. The file may contain one
 JSON frame, a JSON array of frames, or newline-delimited raw frames.
 Reconciliation fans the frames through the existing spot `executionReport` /
 USDM `ORDER_TRADE_UPDATE` ingest and bookkeeping paths and prints typed rows
@@ -499,7 +511,8 @@ cargo run --bin depth_monitor -- execute policy-demo \
     --reconcile-user-data-json captured-demo-user-data.json \
     --continued-depth-json captured-demo-depth-after-fill.json \
     --continued-user-data-json captured-demo-user-data-after-continue.json \
-    --second-continued-depth-json captured-demo-depth-after-second-fill.json
+    --second-continued-depth-json captured-demo-depth-after-second-fill.json \
+    --second-continued-user-data-json captured-demo-user-data-after-second-continue.json
 ```
 
 To feed a captured demo/live book instead of the built-in synthetic depth tape,
@@ -570,6 +583,9 @@ live-socket wait after continued-tape demo placement (WP-061),
 Env step after continued-tape live/mock fills using second-hop `q` (WP-062),
 second-continued-tape `Action::dispatch` drained onto the report (WP-063),
 guarded placement of second-continued-tape orders (WP-064),
+second-continued-tape receipt reconcile via `--second-continued-user-data-json` (WP-065),
+mock wait-for-user-data after second-continued-tape placement (WP-066),
+live-socket wait after second-continued-tape demo placement (WP-067),
 the guard refusal, live wait option guards,
 mock placement receipts, mocked frame-source reconciliation, and captured
 receipt-to-user-stream reconciliation without live network or keys.

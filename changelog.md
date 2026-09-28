@@ -4,12 +4,15 @@ Project journal for shipped work. Active backlog lives in [`WORKPLAN.md`](WORKPL
 
 ## WIP
 
-- Live demo place + user-stream reconcile of a Gaussian-quantized policy on Binance demo (keys / `RUN_BINANCE_DEMO_ORDERS=1`). Offline load-and-dispatch, captured/injected/subscribed books, ONNX Gaussian μ, snapshot+diff rebuild, multi-symbol joined observations, per-symbol `Action::dispatch`, extra-symbol reconcile, book-local inventory scoring, extra-symbol fill write-back, post-fill continued depth, continued-tape order drain/placement, continued-tape captured-JSON / mock-wait reconcile, live-socket wait after continued REST place, a second Env step after those fills, and second-continued-tape order drain/placement are in.
-- After second-continued-tape orders are placed, captured user-data matching those receipts is WP-065.
+- Live demo place + user-stream reconcile of a Gaussian-quantized policy on Binance demo (keys / `RUN_BINANCE_DEMO_ORDERS=1`). Offline load-and-dispatch, captured/injected/subscribed books, ONNX Gaussian μ, snapshot+diff rebuild, multi-symbol joined observations, per-symbol `Action::dispatch`, extra-symbol reconcile, book-local inventory scoring, extra-symbol fill write-back, post-fill continued depth, continued-tape order drain/placement, continued-tape captured-JSON / mock-wait reconcile, live-socket wait after continued REST place, a second Env step after those fills, second-continued-tape order drain/placement, second-continued captured-JSON / mock-wait reconcile, and live-socket wait after second-continued REST place are in.
+- After second-continued-tape live/mock fills land, a further Env step that consumes third-hop `q` is WP-068.
 - Keep local GPU training checkpoint metrics improving via ClickHouse `trolly.ticks`, trajectory FIFO replay, daily `--continue` slices, and checkpoint fingerprints.
 - Add more exchange providers beyond Binance spot + USDM (stub scaffold landed; full venues remain).
 
 ## change log
++ `execute policy-demo`: live spot/USDM user-data sockets wait again after second-continued-tape REST place (WP-067). Trainer guidance missing (silent).
++ `execute policy-demo`: mock `--wait-for-user-data` matches second-continued-tape receipts (WP-066). Trainer guidance missing (silent).
++ `execute policy-demo`: `--second-continued-user-data-json` matches third-hop receipts / assigned ids (WP-065). Trainer guidance missing (silent).
 + `execute policy-demo`: second-continued-tape Buy/Sell place through guarded adapters (WP-064). Trainer guidance missing (silent).
 + `execute policy-demo`: second-continued-tape Buy/Sell drain onto `PolicyDemoReport.orders` with the next `newClientOrderId` (WP-063). Trainer guidance missing (silent).
 + `execute policy-demo`: `--second-continued-depth-json` steps the same Env after continued-tape live/mock fills so the next act() sees second-hop `q` (WP-062). Trainer guidance missing (silent).
