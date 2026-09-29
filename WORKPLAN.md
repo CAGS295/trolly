@@ -21,7 +21,7 @@ Shipped so far (not the destination): global book CLI; stream-native spot/USDM b
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: 2026-09-28
+- last_run: 2026-09-29
 - max_parallel: 3
 - ship_branch: integrate/orchestrator-branches
 
@@ -1047,7 +1047,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-068 — Continue Env after second-continued-tape live fills
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-062, WP-067]
 - scope: src/policy_demo.rs, src/cli/mod.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
@@ -1056,6 +1056,45 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - default dry-run, first-tape continue, first-continue, and paths without a third wait stay unchanged
   - offline tests; no live orders; do not train
 - notes: WP-062 continues after first-continue fills. WP-067 confirms the third hop on the live socket, but the runner still ends there, so the next `act()` cannot consume third-hop inventory.
+- worker/orchestrator (2026-09-29): trainer guidance missing (silent). `--third-continued-depth-json` / `third_continued_depth_messages` step the same harness Env after second-continued-tape live/mock fills; report `third_continued_observation` carries fill-backed extra-symbol `q`. Unset / first-tape / first-continue stay unchanged. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 79 pass; `cargo +stable test -p trolly-gym --lib --locked` 84 pass.
+
+### WP-069 — Drain third-continued-tape Action::dispatch onto the report
+
+- status: done
+- repos: trolly
+- depends_on: [WP-056, WP-068]
+- scope: src/policy_demo.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - Buy/Sell emitted on the post-third-fill tape appear on `PolicyDemoReport.orders` with the next deterministic `newClientOrderId`
+  - default dry-run and paths without `--third-continued-depth-json` stay unchanged; third-continued orders are not placed
+  - offline tests; no live orders; do not train
+- notes: WP-068 steps the third-continued tape through `Action::dispatch` but those OrderRequests sit in the channel after the second-continue drain. gym←exec→gym→strategy needs the fourth-hop orders on the same report.
+- worker/orchestrator (2026-09-29): trainer guidance missing (silent). After the third-continued tape, leftover spot/USDM channel orders append with the next `newClientOrderId` (`*-0004`). Dry-run and earlier placement stay unchanged. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 79 pass.
+
+### WP-070 — Guarded placement of third-continued-tape orders
+
+- status: done
+- repos: trolly
+- depends_on: [WP-058, WP-069]
+- scope: src/policy_demo.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - when `--execute-demo-orders` is set, OrderRequests drained from the post-third-fill tape can be placed through the same guarded spot/USDM adapters (offline mock placer is enough)
+  - default dry-run records third-continued orders without placing; first-tape, first-continue, and second-continue receipts stay first
+  - offline tests; no live network; do not train
+- notes: WP-069 records fourth-hop `Action::dispatch` on the report but only the second-continue tape is placed. The gym←exec→gym→exec loop still drops the third-continued hop.
+- worker/orchestrator (2026-09-29): trainer guidance missing (silent). After the third-continued tape, leftover spot/USDM orders place through the same mock/live adapters; earlier receipts stay first. Dry-run still records only. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 79 pass.
+
+### WP-071 — Reconcile third-continued-tape placement receipts
+
+- status: todo
+- repos: trolly
+- depends_on: [WP-059, WP-070]
+- scope: src/policy_demo.rs, src/cli/mod.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - after third-continued-tape orders are assigned (dry-run) or placed, captured user-data can match those new receipts / `newClientOrderId`s
+  - extra-symbol FILLED rows from that fourth hop update the same harness Env; first-tape, first-continue, and second-continue reconcile rows stay on the report
+  - default paths without `--third-continued-user-data-json` stay unchanged; offline tests; no live orders; do not train
+- notes: WP-070 places the fourth hop. Second-continue captured/wait reconcile still runs before the third-continued tape, so the gym←exec→gym→exec loop cannot confirm the third-continued receipts.
 
 ## Integration test reference
 
