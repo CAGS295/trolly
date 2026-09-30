@@ -4,12 +4,13 @@ Project journal for shipped work. Active backlog lives in [`WORKPLAN.md`](WORKPL
 
 ## WIP
 
-- Live demo place + user-stream reconcile of a Gaussian-quantized policy on Binance demo (keys / `RUN_BINANCE_DEMO_ORDERS=1`). Offline load-and-dispatch, captured/injected/subscribed books, ONNX Gaussian μ, snapshot+diff rebuild, multi-symbol joined observations, per-symbol `Action::dispatch`, extra-symbol reconcile, book-local inventory scoring, extra-symbol fill write-back, post-fill continued depth, continued-tape order drain/placement, continued-tape captured-JSON / mock-wait reconcile, live-socket wait after continued REST place, a second Env step after those fills, second-continued-tape order drain/placement, second-continued captured-JSON / mock-wait reconcile, live-socket wait after second-continued REST place, a third Env step after those fills, and third-continued-tape order drain/placement are in.
-- After third-continued-tape orders place, captured/wait reconcile of those fourth-hop receipts is WP-071.
+- Live demo place + user-stream reconcile of a Gaussian-quantized policy on Binance demo (keys / `RUN_BINANCE_DEMO_ORDERS=1`). Offline load-and-dispatch, captured/injected/subscribed books, ONNX Gaussian μ, snapshot+diff rebuild, multi-symbol joined observations, per-symbol `Action::dispatch`, extra-symbol reconcile, book-local inventory scoring, extra-symbol fill write-back, post-fill continued depth, continued-tape order drain/placement, continued-tape captured-JSON / mock-wait reconcile, live-socket wait after continued REST place, a second Env step after those fills, second-continued-tape order drain/placement, second-continued captured-JSON / mock-wait reconcile, live-socket wait after second-continued REST place, a third Env step after those fills, third-continued-tape order drain/placement, and third-continued captured-JSON / mock-wait / live-socket reconcile are in.
+- After third-continued-tape live/mock fills, continuing Env so the next act() sees fourth-hop `q` is WP-074.
 - Keep local GPU training checkpoint metrics improving via ClickHouse `trolly.ticks`, trajectory FIFO replay, daily `--continue` slices, and checkpoint fingerprints.
 - Add more exchange providers beyond Binance spot + USDM (stub scaffold landed; full venues remain).
 
 ## change log
++ `execute policy-demo`: `--third-continued-user-data-json` matches fourth-hop receipts / assigned ids; mock `--wait-for-user-data` and live spot/USDM sockets wait again after third-continued-tape REST place (WP-071–WP-073). Trainer guidance missing (silent).
 + `execute policy-demo`: `--third-continued-depth-json` steps the same Env after second-continued-tape live/mock fills so the next act() sees third-hop `q`; third-continued Buy/Sell drain and place through guarded adapters (WP-068–WP-070). Trainer guidance missing (silent).
 + `execute policy-demo`: live spot/USDM user-data sockets wait again after second-continued-tape REST place (WP-067). Trainer guidance missing (silent).
 + `execute policy-demo`: mock `--wait-for-user-data` matches second-continued-tape receipts (WP-066). Trainer guidance missing (silent).
