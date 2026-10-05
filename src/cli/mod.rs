@@ -144,6 +144,10 @@ struct PolicyDemoArgs {
     /// Same envelope as `--third-continued-user-data-json`. Earlier hops stay on the report.
     #[clap(long)]
     fourth_continued_user_data_json: Option<std::path::PathBuf>,
+    /// Injected depth JSON/NDJSON stepped after fourth-continued-tape live/mock fills.
+    /// Same envelope as `--fourth-continued-depth-json`. Unset keeps the harness ending after the fifth wait.
+    #[clap(long)]
+    fifth_continued_depth_json: Option<std::path::PathBuf>,
     /// After guarded demo placement, wait on the Binance demo user-data stream for receipts.
     #[clap(
         long,
@@ -382,6 +386,15 @@ impl PolicyDemoArgs {
                 }
             }
         }
+        if let Some(path) = &self.fifth_continued_depth_json {
+            match std::fs::read_to_string(path) {
+                Ok(input) => config.fifth_continued_depth_json = Some(input),
+                Err(err) => {
+                    eprintln!("policy demo failed to read {}: {err}", path.display());
+                    std::process::exit(1);
+                }
+            }
+        }
 
         match run_policy_demo(config).await {
             Ok(report) => print_policy_demo_report(&report),
@@ -395,7 +408,7 @@ impl PolicyDemoArgs {
 
 fn print_policy_demo_report(report: &PolicyDemoReport) {
     println!(
-        "policy demo: venue={} symbol={} dispatch={} policy={} depth={} steps={} continued_steps={} second_continued_steps={} third_continued_steps={} fourth_continued_steps={} order_requests={} placed_orders={} reconciled_orders={} mode={}",
+        "policy demo: venue={} symbol={} dispatch={} policy={} depth={} steps={} continued_steps={} second_continued_steps={} third_continued_steps={} fourth_continued_steps={} fifth_continued_steps={} order_requests={} placed_orders={} reconciled_orders={} mode={}",
         report.venue,
         report.display_symbols(),
         report.dispatch_symbol,
@@ -406,6 +419,7 @@ fn print_policy_demo_report(report: &PolicyDemoReport) {
         report.second_continued_steps,
         report.third_continued_steps,
         report.fourth_continued_steps,
+        report.fifth_continued_steps,
         report.order_count(),
         report.placed_orders,
         report.reconciliations.len(),

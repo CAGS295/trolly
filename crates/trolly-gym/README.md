@@ -397,8 +397,16 @@ Dry-run still records them without placing. `--fourth-continued-user-data-json`
 then matches those new receipts / assigned `newClientOrderId`s and writes
 extra-symbol `FILLED` rows into the same harness Env; first-tape,
 first-continue, second-continue, and third-continue rows stay on the
-report (WP-077). Unset keeps the harness
-ending after the fourth wait when the fourth tape is absent. Primary-book fills stay on the policy-step
+report (WP-077). After that fifth wait writes fourth-continued extra-symbol
+`FILLED` rows into the same Env, `--fifth-continued-depth-json` steps more
+injected depth so the next `act()` sees fifth-hop `q` / `position_for`
+(WP-080). Buy/Sell from those fifth-continued steps drain onto the same
+`PolicyDemoReport.orders` with the next `newClientOrderId` values
+(WP-081). With `--execute-demo-orders` those sixth-hop requests go
+through the same guarded adapters; first-tape, first-continue,
+second-continue, third-continue, and fourth-continue receipts stay first
+(WP-082). Dry-run still records them without placing. Unset keeps the
+harness ending after the fifth wait when the fifth tape is absent. Primary-book fills stay on the policy-step
 inventory path so single-symbol reconcile is unchanged. Gaussian
 `join_ladder_symbols = false` still uses primary `q`. The report lists
 extra-pair positions as `extra_inventory`.
@@ -514,7 +522,9 @@ socket waits a fifth time after those REST placements (WP-079).
 `--third-continued-depth-json` then steps the same Env after the third wait
 writes second-continued extra-symbol `FILLED` rows (WP-068).
 `--fourth-continued-depth-json` then steps the same Env after the fourth wait
-writes third-continued extra-symbol `FILLED` rows (WP-074). In both
+writes third-continued extra-symbol `FILLED` rows (WP-074).
+`--fifth-continued-depth-json` then steps the same Env after the fifth wait
+writes fourth-continued extra-symbol `FILLED` rows (WP-080). In both
 venues, raw frames are reconciled through the existing `binance-spot-exec` /
 `binance-usdm-exec` ingest and bookkeeping paths; the runner only prints typed
 reconciliation rows, not captured JSON.
@@ -539,8 +549,9 @@ then steps the same Env after those third-hop fills (WP-068). `--third-continued
 extra-symbol `FILLED` rows into the same Env (WP-071). `--fourth-continued-depth-json`
 then steps the same Env after those fourth-hop fills (WP-074). `--fourth-continued-user-data-json`
 (same envelope) then matches fifth-hop receipts or assigned ids after that place and writes
-extra-symbol `FILLED` rows into the same Env (WP-077). Unset keeps first-tape,
-first-continue, second-continue, and third-continue reconcile only. The file may contain one
+extra-symbol `FILLED` rows into the same Env (WP-077). `--fifth-continued-depth-json`
+then steps the same Env after those fifth-hop fills (WP-080). Unset keeps first-tape,
+first-continue, second-continue, third-continue, and fourth-continue reconcile only. The file may contain one
 JSON frame, a JSON array of frames, or newline-delimited raw frames.
 Reconciliation fans the frames through the existing spot `executionReport` /
 USDM `ORDER_TRADE_UPDATE` ingest and bookkeeping paths and prints typed rows
@@ -560,7 +571,8 @@ cargo run --bin depth_monitor -- execute policy-demo \
     --third-continued-depth-json captured-demo-depth-after-third-fill.json \
     --third-continued-user-data-json captured-demo-user-data-after-third-continue.json \
     --fourth-continued-depth-json captured-demo-depth-after-fourth-fill.json \
-    --fourth-continued-user-data-json captured-demo-user-data-after-fourth-continue.json
+    --fourth-continued-user-data-json captured-demo-user-data-after-fourth-continue.json \
+    --fifth-continued-depth-json captured-demo-depth-after-fifth-fill.json
 ```
 
 To feed a captured demo/live book instead of the built-in synthetic depth tape,
@@ -646,6 +658,9 @@ guarded placement of fourth-continued-tape orders (WP-076),
 fourth-continued-tape receipt reconcile via `--fourth-continued-user-data-json` (WP-077),
 mock wait-for-user-data after fourth-continued-tape placement (WP-078),
 live-socket wait after fourth-continued-tape demo placement (WP-079),
+Env step after fourth-continued-tape live/mock fills using fifth-hop `q` (WP-080),
+fifth-continued-tape `Action::dispatch` drained onto the report (WP-081),
+guarded placement of fifth-continued-tape orders (WP-082),
 the guard refusal, live wait option guards,
 mock placement receipts, mocked frame-source reconciliation, and captured
 receipt-to-user-stream reconciliation without live network or keys.
