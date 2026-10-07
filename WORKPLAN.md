@@ -21,7 +21,7 @@ Shipped so far (not the destination): global book CLI; stream-native spot/USDM b
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: 2026-10-06
+- last_run: 2026-10-07
 - max_parallel: 3
 - ship_branch: integrate/orchestrator-branches
 
@@ -1281,7 +1281,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-086 — Continue Env after fifth-continued-tape live fills
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-080, WP-085]
 - scope: src/policy_demo.rs, src/cli/mod.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
@@ -1290,6 +1290,45 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - default dry-run, first-tape continue, first-continue, second-continue, third-continue, fourth-continue, and paths without a sixth wait stay unchanged
   - offline tests; no live orders; do not train
 - notes: WP-080 continues after fourth-continue fills. WP-085 confirms the sixth hop on the live socket, but the runner still ends there, so the next `act()` cannot consume sixth-hop inventory.
+- worker/orchestrator (2026-10-07): trainer guidance missing (silent). `--sixth-continued-depth-json` / `sixth_continued_depth_messages` step the same harness Env after fifth-continued-tape live/mock fills; report `sixth_continued_observation` carries fill-backed extra-symbol `q`. Unset / earlier continues stay unchanged. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 109 pass; `cargo +stable test -p trolly-gym --lib --locked` 84 pass.
+
+### WP-087 — Drain sixth-continued-tape Action::dispatch onto the report
+
+- status: done
+- repos: trolly
+- depends_on: [WP-056, WP-086]
+- scope: src/policy_demo.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - Buy/Sell emitted on the post-sixth-fill tape appear on `PolicyDemoReport.orders` with the next deterministic `newClientOrderId`
+  - default dry-run and paths without `--sixth-continued-depth-json` stay unchanged; sixth-continued orders are not placed
+  - offline tests; no live orders; do not train
+- notes: WP-086 steps the sixth-continued tape through `Action::dispatch` but those OrderRequests sit in the channel after the fifth-continue drain. gym←exec→gym→strategy needs the seventh-hop orders on the same report.
+- worker/orchestrator (2026-10-07): trainer guidance missing (silent). After the sixth-continued tape, leftover spot/USDM channel orders append with the next `newClientOrderId` (`*-0007`). Dry-run and earlier placement stay unchanged. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 109 pass.
+
+### WP-088 — Guarded placement of sixth-continued-tape orders
+
+- status: done
+- repos: trolly
+- depends_on: [WP-058, WP-087]
+- scope: src/policy_demo.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - when `--execute-demo-orders` is set, OrderRequests drained from the post-sixth-fill tape can be placed through the same guarded spot/USDM adapters (offline mock placer is enough)
+  - default dry-run records sixth-continued orders without placing; first-tape, first-continue, second-continue, third-continue, fourth-continue, and fifth-continue receipts stay first
+  - offline tests; no live network; do not train
+- notes: WP-087 records seventh-hop `Action::dispatch` on the report but only the fifth-continue tape is placed. The gym←exec→gym→exec loop still drops the sixth-continued hop.
+- worker/orchestrator (2026-10-07): trainer guidance missing (silent). After the sixth-continued tape, leftover spot/USDM orders place through the same mock/live adapters; earlier receipts stay first. Dry-run still records only. Clone live credentials through extra5 so extra6 can place. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 109 pass; `cargo +stable test -p trolly-gym --lib --locked` 84 pass.
+
+### WP-089 — Reconcile sixth-continued-tape placement receipts
+
+- status: todo
+- repos: trolly
+- depends_on: [WP-059, WP-088]
+- scope: src/policy_demo.rs, src/cli/mod.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - after sixth-continued-tape orders are assigned (dry-run) or placed, captured user-data can match those new receipts / `newClientOrderId`s
+  - extra-symbol FILLED rows from that seventh hop update the same harness Env; first-tape, first-continue, second-continue, third-continue, fourth-continue, and fifth-continue reconcile rows stay on the report
+  - default paths without `--sixth-continued-user-data-json` stay unchanged; offline tests; no live orders; do not train
+- notes: WP-088 places the seventh hop. Fifth-continue captured/wait reconcile still runs before the sixth-continued tape, so the gym←exec→gym→exec loop cannot confirm the sixth-continued receipts.
 
 ## Integration test reference
 
