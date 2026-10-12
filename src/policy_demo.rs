@@ -170,6 +170,11 @@ pub struct PolicyDemoConfig {
     pub seventh_continued_depth_json: Option<String>,
     /// Pre-parsed seventh-hop depth frames (tests / injectable tape).
     pub seventh_continued_depth_messages: Option<Vec<Message>>,
+    /// Captured user-data JSON/NDJSON matched after seventh-continued-tape placement.
+    /// Same envelope as `--sixth-continued-user-data-json`. Unset keeps first-tape,
+    /// first-continue, second-continue, third-continue, fourth-continue,
+    /// fifth-continue, and sixth-continue reconcile only.
+    pub seventh_continued_user_data_json: Option<String>,
     /// Use the WP-032 `V×5` ladder so continued extra-symbol `q` is visible.
     /// Default false keeps Hold / 3-logit on 7-D stream frames.
     pub use_ladder_observation: bool,
@@ -225,6 +230,7 @@ impl PolicyDemoConfig {
             sixth_continued_user_data_json: None,
             seventh_continued_depth_json: None,
             seventh_continued_depth_messages: None,
+            seventh_continued_user_data_json: None,
             use_ladder_observation: false,
         }
     }
@@ -678,6 +684,14 @@ where
     if let Some(credentials) = credentials {
         place_continued_spot_demo_orders(credentials, extra7, &mut report).await?;
     }
+    finish_seventh_continued_user_data(&config, &mut env, &mut report)?;
+    if extra7 > 0 {
+        if let Some(socket) = live_socket.as_mut() {
+            let rows =
+                wait_spot_live_reconciliations(socket, &report, config.user_data_timeout).await?;
+            merge_continued_reconciliation_rows(&mut env, &mut report, rows);
+        }
+    }
     Ok(report)
 }
 
@@ -862,6 +876,18 @@ where
         if let Some(credentials) = credentials {
             place_continued_usdm_demo_orders(credentials, extra7, &mut report).await?;
         }
+        finish_seventh_continued_user_data(&config, &mut env, &mut report)?;
+        if extra7 > 0 {
+            if let Some(live) = live_user_data.as_mut() {
+                let rows = wait_usdm_live_reconciliations(
+                    &mut live.socket,
+                    &report,
+                    config.user_data_timeout,
+                )
+                .await?;
+                merge_continued_reconciliation_rows(&mut env, &mut report, rows);
+            }
+        }
         Ok(report)
     }
     .await;
@@ -1043,6 +1069,7 @@ where
     continue_policy_demo_after_seventh_fills(&config, &mut env, policy, &mut report)?;
     let extra7 = append_continued_spot_orders(&config, &mut rx, &mut report);
     place_continued_spot_orders(&config, &mut place_order, extra7, &mut report).await?;
+    finish_seventh_continued_user_data(&config, &mut env, &mut report)?;
     Ok(report)
 }
 
@@ -1088,6 +1115,7 @@ where
     continue_policy_demo_after_seventh_fills(&config, &mut env, policy, &mut report)?;
     let extra7 = append_continued_usdm_orders(&config, &mut rx, &mut report);
     place_continued_usdm_orders(&config, &mut place_order, extra7, &mut report).await?;
+    finish_seventh_continued_user_data(&config, &mut env, &mut report)?;
     Ok(report)
 }
 
@@ -1168,6 +1196,11 @@ where
     continue_policy_demo_after_seventh_fills(&config, &mut env, policy, &mut report)?;
     let extra7 = append_continued_spot_orders(&config, &mut rx, &mut report);
     place_continued_spot_orders(&config, &mut place_order, extra7, &mut report).await?;
+    finish_seventh_continued_user_data(&config, &mut env, &mut report)?;
+    if should_wait && extra7 > 0 {
+        let messages = user_data_messages(&report).await?;
+        merge_continued_reconciliations(&mut env, &mut report, messages);
+    }
     Ok(report)
 }
 
@@ -1248,6 +1281,11 @@ where
     continue_policy_demo_after_seventh_fills(&config, &mut env, policy, &mut report)?;
     let extra7 = append_continued_usdm_orders(&config, &mut rx, &mut report);
     place_continued_usdm_orders(&config, &mut place_order, extra7, &mut report).await?;
+    finish_seventh_continued_user_data(&config, &mut env, &mut report)?;
+    if should_wait && extra7 > 0 {
+        let messages = user_data_messages(&report).await?;
+        merge_continued_reconciliations(&mut env, &mut report, messages);
+    }
     Ok(report)
 }
 
@@ -1256,9 +1294,11 @@ where
 /// after continued-tape placement (WP-061), then after second-continued
 /// placement (WP-067), then after third-continued placement (WP-073), then
 /// after fourth-continued placement (WP-079), then after fifth-continued
-/// placement (WP-085), then after sixth-continued placement (WP-091). After
-/// that seventh wait, `--seventh-continued-depth-json` can step the same Env
-/// (WP-092).
+/// placement (WP-085), then after sixth-continued placement (WP-091), then
+/// after seventh-continued placement (WP-097). After that seventh wait,
+/// `--seventh-continued-depth-json` can step the same Env (WP-092). After the
+/// eighth wait, `--seventh-continued-user-data-json` or leftover frames can
+/// confirm the eighth hop.
 #[doc(hidden)]
 pub async fn run_spot_policy_demo_with_live_user_data_source<P, F, Fut>(
     config: PolicyDemoConfig,
@@ -1361,6 +1401,15 @@ where
     continue_policy_demo_after_seventh_fills(&config, &mut env, policy, &mut report)?;
     let extra7 = append_continued_spot_orders(&config, &mut rx, &mut report);
     place_continued_spot_orders(&config, &mut place_order, extra7, &mut report).await?;
+    finish_seventh_continued_user_data(&config, &mut env, &mut report)?;
+    if should_wait && extra7 > 0 {
+        let rows = wait_spot_live_reconciliations_from(&report, || {
+            let message = frames.pop_front();
+            async move { Ok(message) }
+        })
+        .await?;
+        merge_continued_reconciliation_rows(&mut env, &mut report, rows);
+    }
     Ok(report)
 }
 
@@ -1368,8 +1417,10 @@ where
 /// as [`run_usdm_policy_demo`]: first-tape wait, continued-tape wait,
 /// second-continued-tape wait, third-continued-tape wait,
 /// fourth-continued-tape wait, then fifth-continued-tape wait, then
-/// sixth-continued-tape wait on leftover frames. After that seventh wait,
-/// `--seventh-continued-depth-json` can step the same Env (WP-092).
+/// sixth-continued-tape wait, then seventh-continued-tape wait on leftover
+/// frames. After that seventh wait, `--seventh-continued-depth-json` can
+/// step the same Env (WP-092). After the eighth wait, leftover frames can
+/// confirm the eighth hop (WP-097).
 #[doc(hidden)]
 pub async fn run_usdm_policy_demo_with_live_user_data_source<P, F, Fut>(
     config: PolicyDemoConfig,
@@ -1472,6 +1523,15 @@ where
     continue_policy_demo_after_seventh_fills(&config, &mut env, policy, &mut report)?;
     let extra7 = append_continued_usdm_orders(&config, &mut rx, &mut report);
     place_continued_usdm_orders(&config, &mut place_order, extra7, &mut report).await?;
+    finish_seventh_continued_user_data(&config, &mut env, &mut report)?;
+    if should_wait && extra7 > 0 {
+        let rows = wait_usdm_live_reconciliations_from(&report, || {
+            let message = frames.pop_front();
+            async move { Ok(message) }
+        })
+        .await?;
+        merge_continued_reconciliation_rows(&mut env, &mut report, rows);
+    }
     Ok(report)
 }
 
@@ -1925,6 +1985,25 @@ where
     E: trolly_strategy::StreamEgress,
 {
     let Some(input) = &config.sixth_continued_user_data_json else {
+        return Ok(());
+    };
+    let messages = policy_demo_user_data_messages_from_json(input)?;
+    if messages.is_empty() {
+        return Ok(());
+    }
+    merge_continued_reconciliations(env, report, messages);
+    Ok(())
+}
+
+fn finish_seventh_continued_user_data<E>(
+    config: &PolicyDemoConfig,
+    env: &mut Env<E>,
+    report: &mut PolicyDemoReport,
+) -> Result<(), PolicyDemoError>
+where
+    E: trolly_strategy::StreamEgress,
+{
+    let Some(input) = &config.seventh_continued_user_data_json else {
         return Ok(());
     };
     let messages = policy_demo_user_data_messages_from_json(input)?;
