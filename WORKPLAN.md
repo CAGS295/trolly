@@ -21,7 +21,7 @@ Shipped so far (not the destination): global book CLI; stream-native spot/USDM b
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: 2026-10-12
+- last_run: 2026-10-13
 - max_parallel: 3
 - ship_branch: integrate/orchestrator-branches
 
@@ -1437,7 +1437,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-098 — Continue Env after seventh-continued-tape live fills
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-092, WP-097]
 - scope: src/policy_demo.rs, src/cli/mod.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
@@ -1446,6 +1446,45 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - default dry-run, first-tape continue, and earlier continue paths without an eighth wait stay unchanged
   - offline tests; no live orders; do not train
 - notes: WP-092 continues after sixth-continue fills. WP-097 confirms the eighth hop on the live socket, but the runner still ends there, so the next `act()` cannot consume eighth-hop inventory.
+- worker/orchestrator (2026-10-13): trainer guidance missing (silent). `--eighth-continued-depth-json` / `eighth_continued_depth_messages` step the same harness Env after seventh-continued-tape live/mock fills; report `eighth_continued_observation` carries fill-backed extra-symbol `q`. Unset / earlier continues stay unchanged. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 129 pass; `cargo +stable test -p trolly-gym --lib --locked` 84 pass.
+
+### WP-099 — Drain eighth-continued-tape Action::dispatch onto the report
+
+- status: done
+- repos: trolly
+- depends_on: [WP-056, WP-098]
+- scope: src/policy_demo.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - Buy/Sell emitted on the post-eighth-fill tape appear on `PolicyDemoReport.orders` with the next deterministic `newClientOrderId`
+  - default dry-run and paths without `--eighth-continued-depth-json` stay unchanged; eighth-continued orders are not placed
+  - offline tests; no live orders; do not train
+- notes: WP-098 steps the eighth-continued tape through `Action::dispatch` but those OrderRequests sit in the channel after the seventh-continue drain. gym←exec→gym→strategy needs the ninth-hop orders on the same report.
+- worker/orchestrator (2026-10-13): trainer guidance missing (silent). After the eighth-continued tape, leftover spot/USDM channel orders append with the next `newClientOrderId` (`*-0009`). Dry-run and earlier placement stay unchanged. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 129 pass.
+
+### WP-100 — Guarded placement of eighth-continued-tape orders
+
+- status: done
+- repos: trolly
+- depends_on: [WP-058, WP-099]
+- scope: src/policy_demo.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - when `--execute-demo-orders` is set, OrderRequests drained from the post-eighth-fill tape can be placed through the same guarded spot/USDM adapters (offline mock placer is enough)
+  - default dry-run records eighth-continued orders without placing; first-tape and earlier continue receipts stay first
+  - offline tests; no live network; do not train
+- notes: WP-099 records ninth-hop `Action::dispatch` on the report but only the seventh-continue tape is placed. The gym←exec→gym→exec loop still drops the eighth-continued hop.
+- worker/orchestrator (2026-10-13): trainer guidance missing (silent). After the eighth-continued tape, leftover spot/USDM orders place through the same mock/live adapters; earlier receipts stay first. Dry-run still records only. Clone live credentials through extra7 so extra8 can place. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 129 pass; `cargo +stable test -p trolly-gym --lib --locked` 84 pass.
+
+### WP-101 — Reconcile eighth-continued-tape placement receipts
+
+- status: todo
+- repos: trolly
+- depends_on: [WP-059, WP-100]
+- scope: src/policy_demo.rs, src/cli/mod.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - after eighth-continued-tape orders are assigned (dry-run) or placed, captured user-data can match those new receipts / `newClientOrderId`s
+  - extra-symbol FILLED rows from that ninth hop update the same harness Env; earlier hops stay on the report
+  - default paths without `--eighth-continued-user-data-json` stay unchanged; offline tests; no live orders; do not train
+- notes: WP-100 places the ninth hop. Seventh-continue captured/wait reconcile still runs before the eighth-continued tape, so the gym←exec→gym→exec loop cannot confirm the eighth-continued receipts.
 
 ## Integration test reference
 
