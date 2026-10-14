@@ -21,7 +21,7 @@ Shipped so far (not the destination): global book CLI; stream-native spot/USDM b
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: 2026-10-13
+- last_run: 2026-10-14
 - max_parallel: 3
 - ship_branch: integrate/orchestrator-branches
 
@@ -1476,7 +1476,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-101 — Reconcile eighth-continued-tape placement receipts
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-059, WP-100]
 - scope: src/policy_demo.rs, src/cli/mod.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
@@ -1485,6 +1485,45 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - extra-symbol FILLED rows from that ninth hop update the same harness Env; earlier hops stay on the report
   - default paths without `--eighth-continued-user-data-json` stay unchanged; offline tests; no live orders; do not train
 - notes: WP-100 places the ninth hop. Seventh-continue captured/wait reconcile still runs before the eighth-continued tape, so the gym←exec→gym→exec loop cannot confirm the eighth-continued receipts.
+- worker/orchestrator (2026-10-14): trainer guidance missing (silent). `--eighth-continued-user-data-json` matches eighth-continued receipts / assigned ids after place; extra-symbol FILLED rows write the same Env; earlier hops stay. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 134 pass; `cargo +stable test -p trolly-gym --lib --locked` 84 pass.
+
+### WP-102 — Wait-for-user-data after eighth-continued-tape placement
+
+- status: done
+- repos: trolly
+- depends_on: [WP-060, WP-101]
+- scope: src/policy_demo.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - mock `--wait-for-user-data` can supply frames after eighth-continued-tape orders are placed so those receipts reconcile without `--eighth-continued-user-data-json`
+  - first-tape wait still runs before the continued depth tape; earlier continue waits still run after those places; dry-run / captured-JSON paths stay unchanged
+  - offline tests; no live network; do not train
+- notes: WP-096 waits only on seventh-continue receipts. WP-101 covers captured JSON after the eighth-continued tape. Demo/live trust still needs the wait helper to see the ninth hop.
+- worker/orchestrator (2026-10-14): trainer guidance missing (silent). Mock wait callback is `FnMut` and runs a ninth time after eighth-continued place when extra orders exist; new rows merge by client order id. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 134 pass.
+
+### WP-103 — Live user-data wait after eighth-continued-tape demo placement
+
+- status: done
+- repos: trolly
+- depends_on: [WP-061, WP-102]
+- scope: src/policy_demo.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - when `--wait-for-user-data` and `--execute-demo-orders` are set, the live demo user-data listener can collect frames after eighth-continued-tape REST placement (offline mock socket/source is enough)
+  - first-tape and earlier continue live waits still run earlier; dry-run / captured-JSON / mock-callback paths stay unchanged
+  - offline tests; no production hosts; do not train
+- notes: WP-102 covers the mock placer callback. The live spot/USDM sockets still wait only through the seventh-continue hop, so demo/live trust cannot confirm the eighth-continued receipts.
+- worker/orchestrator (2026-10-14): trainer guidance missing (silent). Live spot/USDM sockets stay open through eighth-continued REST place; ninth wait seeds earlier rows and merges new receipts; USDM listenKey closes after the last wait. Offline mock source drains one shared frame queue through the same wait helper. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 134 pass; `cargo +stable test -p trolly-gym --lib --locked` 84 pass.
+
+### WP-104 — Continue Env after eighth-continued-tape live fills
+
+- status: todo
+- repos: trolly
+- depends_on: [WP-098, WP-103]
+- scope: src/policy_demo.rs, src/cli/mod.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - after the ninth live/mock user-data wait writes eighth-continued extra-symbol FILLED rows into the harness Env, a subsequent injected depth step uses that book's fill-backed `q` / `position_for`
+  - default dry-run, first-tape continue, and earlier continue paths without a ninth wait stay unchanged
+  - offline tests; no live orders; do not train
+- notes: WP-098 continues after seventh-continue fills. WP-103 confirms the ninth hop on the live socket, but the runner still ends there, so the next `act()` cannot consume ninth-hop inventory.
 
 ## Integration test reference
 
