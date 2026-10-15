@@ -176,6 +176,10 @@ struct PolicyDemoArgs {
     /// Same envelope as `--seventh-continued-user-data-json`. Earlier hops stay on the report.
     #[clap(long)]
     eighth_continued_user_data_json: Option<std::path::PathBuf>,
+    /// Injected depth JSON/NDJSON stepped after eighth-continued-tape live/mock fills.
+    /// Same envelope as `--eighth-continued-depth-json`. Unset keeps the harness ending after the ninth wait.
+    #[clap(long)]
+    ninth_continued_depth_json: Option<std::path::PathBuf>,
     /// After guarded demo placement, wait on the Binance demo user-data stream for receipts.
     #[clap(
         long,
@@ -486,6 +490,15 @@ impl PolicyDemoArgs {
                 }
             }
         }
+        if let Some(path) = &self.ninth_continued_depth_json {
+            match std::fs::read_to_string(path) {
+                Ok(input) => config.ninth_continued_depth_json = Some(input),
+                Err(err) => {
+                    eprintln!("policy demo failed to read {}: {err}", path.display());
+                    std::process::exit(1);
+                }
+            }
+        }
 
         match run_policy_demo(config).await {
             Ok(report) => print_policy_demo_report(&report),
@@ -499,7 +512,7 @@ impl PolicyDemoArgs {
 
 fn print_policy_demo_report(report: &PolicyDemoReport) {
     println!(
-        "policy demo: venue={} symbol={} dispatch={} policy={} depth={} steps={} continued_steps={} second_continued_steps={} third_continued_steps={} fourth_continued_steps={} fifth_continued_steps={} sixth_continued_steps={} seventh_continued_steps={} eighth_continued_steps={} order_requests={} placed_orders={} reconciled_orders={} mode={}",
+        "policy demo: venue={} symbol={} dispatch={} policy={} depth={} steps={} continued_steps={} second_continued_steps={} third_continued_steps={} fourth_continued_steps={} fifth_continued_steps={} sixth_continued_steps={} seventh_continued_steps={} eighth_continued_steps={} ninth_continued_steps={} order_requests={} placed_orders={} reconciled_orders={} mode={}",
         report.venue,
         report.display_symbols(),
         report.dispatch_symbol,
@@ -514,6 +527,7 @@ fn print_policy_demo_report(report: &PolicyDemoReport) {
         report.sixth_continued_steps,
         report.seventh_continued_steps,
         report.eighth_continued_steps,
+        report.ninth_continued_steps,
         report.order_count(),
         report.placed_orders,
         report.reconciliations.len(),
