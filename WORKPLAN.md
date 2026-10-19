@@ -21,7 +21,7 @@ Shipped so far (not the destination): global book CLI; stream-native spot/USDM b
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: 2026-10-16
+- last_run: 2026-10-19
 - max_parallel: 3
 - ship_branch: integrate/orchestrator-branches
 
@@ -1593,7 +1593,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-110 — Continue Env after ninth-continued-tape live fills
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-104, WP-109]
 - scope: src/policy_demo.rs, src/cli/mod.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
@@ -1602,6 +1602,45 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - default dry-run, first-tape continue, and earlier continue paths without a tenth wait stay unchanged
   - offline tests; no live orders; do not train
 - notes: WP-104 continues after eighth-continue fills. WP-109 confirms the tenth hop on the live socket, but the runner still ends there, so the next `act()` cannot consume tenth-hop inventory.
+- worker/orchestrator (2026-10-19): trainer guidance missing (silent). `--tenth-continued-depth-json` / `tenth_continued_depth_messages` step the same harness Env after ninth-continued-tape live/mock fills; report `tenth_continued_observation` carries fill-backed extra-symbol `q`. Unset / earlier continues stay unchanged. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 149 pass; `cargo +stable test -p trolly-gym --lib --locked` 84 pass.
+
+### WP-111 — Drain tenth-continued-tape Action::dispatch onto the report
+
+- status: done
+- repos: trolly
+- depends_on: [WP-056, WP-110]
+- scope: src/policy_demo.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - Buy/Sell emitted on the post-tenth-fill tape appear on `PolicyDemoReport.orders` with the next deterministic `newClientOrderId`
+  - default dry-run and paths without `--tenth-continued-depth-json` stay unchanged; tenth-continued orders are not placed
+  - offline tests; no live orders; do not train
+- notes: WP-110 steps the tenth-continued tape through `Action::dispatch` but those OrderRequests sit in the channel after the ninth-continue drain. gym←exec→gym→strategy needs the eleventh-hop orders on the same report.
+- worker/orchestrator (2026-10-19): trainer guidance missing (silent). After the tenth-continued tape, leftover spot/USDM channel orders append with the next `newClientOrderId` (`*-0011`). Dry-run and earlier placement stay unchanged. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 149 pass.
+
+### WP-112 — Guarded placement of tenth-continued-tape orders
+
+- status: done
+- repos: trolly
+- depends_on: [WP-058, WP-111]
+- scope: src/policy_demo.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - when `--execute-demo-orders` is set, OrderRequests drained from the post-tenth-fill tape can be placed through the same guarded spot/USDM adapters (offline mock placer is enough)
+  - default dry-run records tenth-continued orders without placing; first-tape and earlier continue receipts stay first
+  - offline tests; no live network; do not train
+- notes: WP-111 records eleventh-hop `Action::dispatch` on the report but only the ninth-continue tape is placed. The gym←exec→gym→exec loop still drops the tenth-continued hop.
+- worker/orchestrator (2026-10-19): trainer guidance missing (silent). After the tenth-continued tape, leftover spot/USDM orders place through the same mock/live adapters; earlier receipts stay first. Dry-run still records only. Clone live credentials through extra9 so extra10 can place. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 149 pass; `cargo +stable test -p trolly-gym --lib --locked` 84 pass.
+
+### WP-113 — Reconcile tenth-continued-tape placement receipts
+
+- status: todo
+- repos: trolly
+- depends_on: [WP-059, WP-112]
+- scope: src/policy_demo.rs, src/cli/mod.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - after tenth-continued-tape orders are assigned (dry-run) or placed, captured user-data can match those new receipts / `newClientOrderId`s
+  - extra-symbol FILLED rows from that eleventh hop update the same harness Env; earlier hops stay on the report
+  - default paths without `--tenth-continued-user-data-json` stay unchanged; offline tests; no live orders; do not train
+- notes: WP-112 places the eleventh hop. Ninth-continue captured/wait reconcile still runs before the tenth-continued tape, so the gym←exec→gym→exec loop cannot confirm the tenth-continued receipts.
 
 ## Integration test reference
 
