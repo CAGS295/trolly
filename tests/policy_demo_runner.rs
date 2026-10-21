@@ -1563,10 +1563,12 @@ async fn policy_demo_wait_user_data_reconciles_continued_tape() {
     assert_eq!(report.eighth_continued_steps, 0);
     assert_eq!(report.ninth_continued_steps, 0);
     assert_eq!(report.tenth_continued_steps, 0);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert!(report.seventh_continued_observation.is_empty());
     assert!(report.eighth_continued_observation.is_empty());
     assert!(report.ninth_continued_observation.is_empty());
     assert!(report.tenth_continued_observation.is_empty());
+    assert!(report.eleventh_continued_observation.is_empty());
 }
 
 #[tokio::test]
@@ -2137,6 +2139,7 @@ async fn policy_demo_wait_user_data_reconciles_sixth_continued_tape() {
     assert_eq!(report.eighth_continued_steps, 0);
     assert_eq!(report.ninth_continued_steps, 0);
     assert_eq!(report.tenth_continued_steps, 0);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert_eq!(report.placed_orders, 8);
     assert_eq!(report.receipts.len(), 8);
     assert_eq!(report.reconciliations.len(), 8);
@@ -2276,6 +2279,7 @@ async fn policy_demo_wait_user_data_reconciles_seventh_continued_tape() {
     assert_eq!(report.eighth_continued_steps, 0);
     assert_eq!(report.ninth_continued_steps, 0);
     assert_eq!(report.tenth_continued_steps, 0);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert_eq!(report.placed_orders, 9);
     assert_eq!(report.receipts.len(), 9);
     assert_eq!(report.reconciliations.len(), 9);
@@ -2421,6 +2425,7 @@ async fn policy_demo_wait_user_data_reconciles_eighth_continued_tape() {
     assert_eq!(report.eighth_continued_steps, 1);
     assert_eq!(report.ninth_continued_steps, 0);
     assert_eq!(report.tenth_continued_steps, 0);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert_eq!(report.placed_orders, 10);
     assert_eq!(report.receipts.len(), 10);
     assert_eq!(report.reconciliations.len(), 10);
@@ -3585,6 +3590,7 @@ async fn policy_demo_live_source_waits_after_sixth_continued_tape_place() {
     assert_eq!(report.eighth_continued_steps, 0);
     assert_eq!(report.ninth_continued_steps, 0);
     assert_eq!(report.tenth_continued_steps, 0);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert_eq!(report.placed_orders, 8);
     assert_eq!(report.receipts.len(), 8);
     assert_eq!(report.reconciliations.len(), 8);
@@ -3741,6 +3747,7 @@ async fn policy_demo_live_source_waits_after_seventh_continued_tape_place() {
     assert_eq!(report.eighth_continued_steps, 0);
     assert_eq!(report.ninth_continued_steps, 0);
     assert_eq!(report.tenth_continued_steps, 0);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert_eq!(report.placed_orders, 9);
     assert_eq!(report.receipts.len(), 9);
     assert_eq!(report.reconciliations.len(), 9);
@@ -3910,6 +3917,7 @@ async fn policy_demo_live_source_waits_after_eighth_continued_tape_place() {
     assert_eq!(report.eighth_continued_steps, 1);
     assert_eq!(report.ninth_continued_steps, 0);
     assert_eq!(report.tenth_continued_steps, 0);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert_eq!(report.placed_orders, 10);
     assert_eq!(report.receipts.len(), 10);
     assert_eq!(report.reconciliations.len(), 10);
@@ -4246,6 +4254,7 @@ async fn policy_demo_usdm_live_source_waits_after_sixth_continued_tape_place() {
     assert_eq!(report.eighth_continued_steps, 0);
     assert_eq!(report.ninth_continued_steps, 0);
     assert_eq!(report.tenth_continued_steps, 0);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert_eq!(report.placed_orders, 8);
     assert_eq!(report.reconciliations.len(), 8);
     assert_eq!(
@@ -4430,6 +4439,7 @@ async fn policy_demo_usdm_live_source_waits_after_seventh_continued_tape_place()
     assert_eq!(report.eighth_continued_steps, 0);
     assert_eq!(report.ninth_continued_steps, 0);
     assert_eq!(report.tenth_continued_steps, 0);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert_eq!(report.placed_orders, 9);
     assert_eq!(report.reconciliations.len(), 9);
     assert_eq!(
@@ -4627,6 +4637,7 @@ async fn policy_demo_usdm_live_source_waits_after_eighth_continued_tape_place() 
     assert_eq!(report.eighth_continued_steps, 1);
     assert_eq!(report.ninth_continued_steps, 0);
     assert_eq!(report.tenth_continued_steps, 0);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert_eq!(report.placed_orders, 10);
     assert_eq!(report.reconciliations.len(), 10);
     assert_eq!(
@@ -5116,10 +5127,12 @@ async fn policy_demo_live_source_waits_after_continued_tape_place() {
     assert_eq!(report.eighth_continued_steps, 0);
     assert_eq!(report.ninth_continued_steps, 0);
     assert_eq!(report.tenth_continued_steps, 0);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert!(report.seventh_continued_observation.is_empty());
     assert!(report.eighth_continued_observation.is_empty());
     assert!(report.ninth_continued_observation.is_empty());
     assert!(report.tenth_continued_observation.is_empty());
+    assert!(report.eleventh_continued_observation.is_empty());
 }
 
 #[tokio::test]
@@ -5235,10 +5248,12 @@ async fn policy_demo_usdm_live_source_waits_after_continued_tape_place() {
     assert_eq!(report.eighth_continued_steps, 0);
     assert_eq!(report.ninth_continued_steps, 0);
     assert_eq!(report.tenth_continued_steps, 0);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert!(report.seventh_continued_observation.is_empty());
     assert!(report.eighth_continued_observation.is_empty());
     assert!(report.ninth_continued_observation.is_empty());
     assert!(report.tenth_continued_observation.is_empty());
+    assert!(report.eleventh_continued_observation.is_empty());
 }
 
 #[tokio::test]
@@ -5338,10 +5353,12 @@ async fn policy_demo_live_source_continues_after_second_wait_fills() {
     assert_eq!(report.eighth_continued_steps, 0);
     assert_eq!(report.ninth_continued_steps, 0);
     assert_eq!(report.tenth_continued_steps, 0);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert!(report.seventh_continued_observation.is_empty());
     assert!(report.eighth_continued_observation.is_empty());
     assert!(report.ninth_continued_observation.is_empty());
     assert!(report.tenth_continued_observation.is_empty());
+    assert!(report.eleventh_continued_observation.is_empty());
 }
 
 #[tokio::test]
@@ -5446,10 +5463,12 @@ async fn policy_demo_wait_user_data_continues_after_second_wait_fills() {
     assert_eq!(report.eighth_continued_steps, 0);
     assert_eq!(report.ninth_continued_steps, 0);
     assert_eq!(report.tenth_continued_steps, 0);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert!(report.seventh_continued_observation.is_empty());
     assert!(report.eighth_continued_observation.is_empty());
     assert!(report.ninth_continued_observation.is_empty());
     assert!(report.tenth_continued_observation.is_empty());
+    assert!(report.eleventh_continued_observation.is_empty());
 }
 
 #[tokio::test]
@@ -5566,10 +5585,12 @@ async fn policy_demo_usdm_live_source_continues_after_second_wait_fills() {
     assert_eq!(report.eighth_continued_steps, 0);
     assert_eq!(report.ninth_continued_steps, 0);
     assert_eq!(report.tenth_continued_steps, 0);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert!(report.seventh_continued_observation.is_empty());
     assert!(report.eighth_continued_observation.is_empty());
     assert!(report.ninth_continued_observation.is_empty());
     assert!(report.tenth_continued_observation.is_empty());
+    assert!(report.eleventh_continued_observation.is_empty());
 }
 
 #[tokio::test]
@@ -5669,10 +5690,12 @@ async fn policy_demo_live_source_continues_after_third_wait_fills() {
     assert_eq!(report.eighth_continued_steps, 0);
     assert_eq!(report.ninth_continued_steps, 0);
     assert_eq!(report.tenth_continued_steps, 0);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert!(report.seventh_continued_observation.is_empty());
     assert!(report.eighth_continued_observation.is_empty());
     assert!(report.ninth_continued_observation.is_empty());
     assert!(report.tenth_continued_observation.is_empty());
+    assert!(report.eleventh_continued_observation.is_empty());
     assert_eq!(report.placed_orders, 4);
     assert_eq!(report.order_count(), 4);
     assert_eq!(report.reconciliations.len(), 4);
@@ -5788,10 +5811,12 @@ async fn policy_demo_wait_user_data_continues_after_third_wait_fills() {
     assert_eq!(report.eighth_continued_steps, 0);
     assert_eq!(report.ninth_continued_steps, 0);
     assert_eq!(report.tenth_continued_steps, 0);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert!(report.seventh_continued_observation.is_empty());
     assert!(report.eighth_continued_observation.is_empty());
     assert!(report.ninth_continued_observation.is_empty());
     assert!(report.tenth_continued_observation.is_empty());
+    assert!(report.eleventh_continued_observation.is_empty());
     assert_eq!(report.order_count(), 4);
     assert_eq!(
         report.extra_symbol_inventory,
@@ -5924,10 +5949,12 @@ async fn policy_demo_usdm_live_source_continues_after_third_wait_fills() {
     assert_eq!(report.eighth_continued_steps, 0);
     assert_eq!(report.ninth_continued_steps, 0);
     assert_eq!(report.tenth_continued_steps, 0);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert!(report.seventh_continued_observation.is_empty());
     assert!(report.eighth_continued_observation.is_empty());
     assert!(report.ninth_continued_observation.is_empty());
     assert!(report.tenth_continued_observation.is_empty());
+    assert!(report.eleventh_continued_observation.is_empty());
     assert_eq!(report.order_count(), 4);
     assert_eq!(
         report.extra_symbol_inventory,
@@ -7586,6 +7613,7 @@ async fn policy_demo_live_source_continues_after_sixth_wait_fills() {
     assert_eq!(report.eighth_continued_steps, 0);
     assert_eq!(report.ninth_continued_steps, 0);
     assert_eq!(report.tenth_continued_steps, 0);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert_eq!(report.placed_orders, 7);
     assert_eq!(report.order_count(), 7);
     assert_eq!(report.reconciliations.len(), 7);
@@ -7716,6 +7744,7 @@ async fn policy_demo_wait_user_data_continues_after_sixth_wait_fills() {
     assert_eq!(report.eighth_continued_steps, 0);
     assert_eq!(report.ninth_continued_steps, 0);
     assert_eq!(report.tenth_continued_steps, 0);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert_eq!(report.order_count(), 7);
     assert_eq!(
         report.extra_symbol_inventory,
@@ -7884,6 +7913,7 @@ async fn policy_demo_usdm_live_source_continues_after_sixth_wait_fills() {
     assert_eq!(report.eighth_continued_steps, 0);
     assert_eq!(report.ninth_continued_steps, 0);
     assert_eq!(report.tenth_continued_steps, 0);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert_eq!(report.order_count(), 7);
     assert_eq!(
         report.extra_symbol_inventory,
@@ -8034,6 +8064,7 @@ async fn policy_demo_live_source_continues_after_seventh_wait_fills() {
     assert_eq!(report.eighth_continued_steps, 0);
     assert_eq!(report.ninth_continued_steps, 0);
     assert_eq!(report.tenth_continued_steps, 0);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert_eq!(report.placed_orders, 8);
     assert_eq!(report.order_count(), 8);
     assert_eq!(report.reconciliations.len(), 8);
@@ -8170,6 +8201,7 @@ async fn policy_demo_wait_user_data_continues_after_seventh_wait_fills() {
     assert_eq!(report.eighth_continued_steps, 0);
     assert_eq!(report.ninth_continued_steps, 0);
     assert_eq!(report.tenth_continued_steps, 0);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert_eq!(report.order_count(), 8);
     assert_eq!(
         report.extra_symbol_inventory,
@@ -8351,6 +8383,7 @@ async fn policy_demo_usdm_live_source_continues_after_seventh_wait_fills() {
     assert_eq!(report.eighth_continued_steps, 0);
     assert_eq!(report.ninth_continued_steps, 0);
     assert_eq!(report.tenth_continued_steps, 0);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert_eq!(report.order_count(), 8);
     assert_eq!(
         report.extra_symbol_inventory,
@@ -8470,6 +8503,7 @@ async fn policy_demo_sixth_continued_tape_drains_dispatch_orders() {
     assert_eq!(report.eighth_continued_steps, 0);
     assert_eq!(report.ninth_continued_steps, 0);
     assert_eq!(report.tenth_continued_steps, 0);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert_eq!(report.placed_orders, 0);
     assert_eq!(report.order_count(), 8);
     let PolicyDemoOrders::Spot(orders) = &report.orders else {
@@ -8601,6 +8635,7 @@ async fn policy_demo_sixth_continued_tape_places_orders_when_guarded() {
     assert_eq!(report.eighth_continued_steps, 0);
     assert_eq!(report.ninth_continued_steps, 0);
     assert_eq!(report.tenth_continued_steps, 0);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert_eq!(report.placed_orders, 8);
     assert_eq!(report.order_count(), 8);
     assert_eq!(report.receipts.len(), 8);
@@ -8738,6 +8773,7 @@ async fn policy_demo_seventh_continued_tape_drains_dispatch_orders() {
     assert_eq!(report.eighth_continued_steps, 0);
     assert_eq!(report.ninth_continued_steps, 0);
     assert_eq!(report.tenth_continued_steps, 0);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert_eq!(report.placed_orders, 0);
     assert_eq!(report.order_count(), 9);
     let PolicyDemoOrders::Spot(orders) = &report.orders else {
@@ -8881,6 +8917,7 @@ async fn policy_demo_seventh_continued_tape_places_orders_when_guarded() {
     assert_eq!(report.eighth_continued_steps, 0);
     assert_eq!(report.ninth_continued_steps, 0);
     assert_eq!(report.tenth_continued_steps, 0);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert_eq!(report.placed_orders, 9);
     assert_eq!(report.order_count(), 9);
     assert_eq!(report.receipts.len(), 9);
@@ -9044,6 +9081,7 @@ async fn policy_demo_live_source_continues_after_eighth_wait_fills() {
     assert_eq!(report.eighth_continued_steps, 1);
     assert_eq!(report.ninth_continued_steps, 0);
     assert_eq!(report.tenth_continued_steps, 0);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert_eq!(report.placed_orders, 9);
     assert_eq!(report.order_count(), 9);
     assert_eq!(report.reconciliations.len(), 9);
@@ -9186,6 +9224,7 @@ async fn policy_demo_wait_user_data_continues_after_eighth_wait_fills() {
     assert_eq!(report.eighth_continued_steps, 1);
     assert_eq!(report.ninth_continued_steps, 0);
     assert_eq!(report.tenth_continued_steps, 0);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert_eq!(report.order_count(), 9);
     assert_eq!(
         report.extra_symbol_inventory,
@@ -9380,6 +9419,7 @@ async fn policy_demo_usdm_live_source_continues_after_eighth_wait_fills() {
     assert_eq!(report.eighth_continued_steps, 1);
     assert_eq!(report.ninth_continued_steps, 0);
     assert_eq!(report.tenth_continued_steps, 0);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert_eq!(report.order_count(), 9);
     assert_eq!(
         report.extra_symbol_inventory,
@@ -9523,6 +9563,7 @@ async fn policy_demo_eighth_continued_tape_drains_dispatch_orders() {
     assert_eq!(report.eighth_continued_steps, 1);
     assert_eq!(report.ninth_continued_steps, 0);
     assert_eq!(report.tenth_continued_steps, 0);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert_eq!(report.placed_orders, 0);
     assert_eq!(report.order_count(), 10);
     let PolicyDemoOrders::Spot(orders) = &report.orders else {
@@ -9672,6 +9713,7 @@ async fn policy_demo_eighth_continued_tape_places_orders_when_guarded() {
     assert_eq!(report.eighth_continued_steps, 1);
     assert_eq!(report.ninth_continued_steps, 0);
     assert_eq!(report.tenth_continued_steps, 0);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert_eq!(report.placed_orders, 10);
     assert_eq!(report.order_count(), 10);
     assert_eq!(report.receipts.len(), 10);
@@ -10698,6 +10740,7 @@ async fn policy_demo_live_source_continues_after_tenth_wait_fills() {
     assert_eq!(report.eighth_continued_steps, 1);
     assert_eq!(report.ninth_continued_steps, 1);
     assert_eq!(report.tenth_continued_steps, 1);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert_eq!(report.placed_orders, 11);
     assert_eq!(report.order_count(), 11);
     assert_eq!(report.reconciliations.len(), 11);
@@ -10852,6 +10895,7 @@ async fn policy_demo_wait_user_data_continues_after_tenth_wait_fills() {
     assert_eq!(report.eighth_continued_steps, 1);
     assert_eq!(report.ninth_continued_steps, 1);
     assert_eq!(report.tenth_continued_steps, 1);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert_eq!(report.order_count(), 11);
     assert_eq!(
         report.extra_symbol_inventory,
@@ -11072,6 +11116,7 @@ async fn policy_demo_usdm_live_source_continues_after_tenth_wait_fills() {
     assert_eq!(report.eighth_continued_steps, 1);
     assert_eq!(report.ninth_continued_steps, 1);
     assert_eq!(report.tenth_continued_steps, 1);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert_eq!(report.order_count(), 11);
     assert_eq!(
         report.extra_symbol_inventory,
@@ -11239,6 +11284,7 @@ async fn policy_demo_tenth_continued_tape_drains_dispatch_orders() {
     assert_eq!(report.eighth_continued_steps, 1);
     assert_eq!(report.ninth_continued_steps, 1);
     assert_eq!(report.tenth_continued_steps, 1);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert_eq!(report.placed_orders, 0);
     assert_eq!(report.order_count(), 12);
     let PolicyDemoOrders::Spot(orders) = &report.orders else {
@@ -11405,6 +11451,7 @@ async fn policy_demo_tenth_continued_tape_places_orders_when_guarded() {
     .unwrap();
 
     assert_eq!(report.tenth_continued_steps, 1);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert_eq!(report.placed_orders, 12);
     assert_eq!(report.order_count(), 12);
     assert_eq!(report.receipts.len(), 12);
@@ -11426,6 +11473,952 @@ async fn policy_demo_tenth_continued_tape_places_orders_when_guarded() {
     );
     assert_eq!(orders[11].side, SpotOrderSide::Sell);
 }
+
+#[tokio::test]
+async fn policy_demo_live_source_continues_after_eleventh_wait_fills() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT,ETHUSDT");
+    config.set_dispatch_symbol("ETHUSDT");
+    config.max_steps = 3;
+    config.window_frames = 1;
+    config.qty = "0.03".into();
+    config.execute_demo_orders = true;
+    config.wait_for_user_data = true;
+    config.use_ladder_observation = true;
+    config.client_order_id_prefix = "unit-spot-live12".into();
+    config.continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"210.00","qty":"1.0"}],"asks":[{"price":"212.00","qty":"1.0"}],"update_id":9}"#
+            .into(),
+    );
+    config.second_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"211.00","qty":"1.0"}],"asks":[{"price":"213.00","qty":"1.0"}],"update_id":10}"#
+            .into(),
+    );
+    config.third_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"212.00","qty":"1.0"}],"asks":[{"price":"214.00","qty":"1.0"}],"update_id":11}"#
+            .into(),
+    );
+    config.fourth_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"213.00","qty":"1.0"}],"asks":[{"price":"215.00","qty":"1.0"}],"update_id":12}"#
+            .into(),
+    );
+    config.fifth_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"214.00","qty":"1.0"}],"asks":[{"price":"216.00","qty":"1.0"}],"update_id":13}"#
+            .into(),
+    );
+    config.sixth_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"215.00","qty":"1.0"}],"asks":[{"price":"217.00","qty":"1.0"}],"update_id":14}"#
+            .into(),
+    );
+    config.seventh_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"216.00","qty":"1.0"}],"asks":[{"price":"218.00","qty":"1.0"}],"update_id":15}"#
+            .into(),
+    );
+    config.eighth_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"217.00","qty":"1.0"}],"asks":[{"price":"219.00","qty":"1.0"}],"update_id":16}"#
+            .into(),
+    );
+    config.ninth_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"218.00","qty":"1.0"}],"asks":[{"price":"220.00","qty":"1.0"}],"update_id":17}"#
+            .into(),
+    );
+    config.tenth_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"219.00","qty":"1.0"}],"asks":[{"price":"221.00","qty":"1.0"}],"update_id":18}"#
+            .into(),
+    );
+    config.eleventh_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"220.00","qty":"1.0"}],"asks":[{"price":"222.00","qty":"1.0"}],"update_id":19}"#
+            .into(),
+    );
+    let policy = SequencePolicy::with_actions(vec![
+        Action::Hold,
+        Action::Buy,
+        Action::Sell,
+        Action::Buy,
+        Action::Sell,
+        Action::Buy,
+        Action::Sell,
+        Action::Buy,
+        Action::Sell,
+        Action::Buy,
+        Action::Sell,
+        Action::Buy,
+        Action::Sell,
+    ]);
+    let frames = policy_demo_user_data_messages_from_json(&format!(
+        "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+        spot_execution_report_json("ETHUSDT", "unit-spot-live12-spot-0000", 581, "BUY", "FILLED"),
+        spot_execution_report_json(
+            "ETHUSDT",
+            "unit-spot-live12-spot-0001",
+            582,
+            "SELL",
+            "FILLED"
+        ),
+        spot_execution_report_json("ETHUSDT", "unit-spot-live12-spot-0002", 583, "BUY", "FILLED"),
+        spot_execution_report_json(
+            "ETHUSDT",
+            "unit-spot-live12-spot-0003",
+            584,
+            "SELL",
+            "FILLED"
+        ),
+        spot_execution_report_json("ETHUSDT", "unit-spot-live12-spot-0004", 585, "BUY", "FILLED"),
+        spot_execution_report_json(
+            "ETHUSDT",
+            "unit-spot-live12-spot-0005",
+            586,
+            "SELL",
+            "FILLED"
+        ),
+        spot_execution_report_json("ETHUSDT", "unit-spot-live12-spot-0006", 587, "BUY", "FILLED"),
+        spot_execution_report_json(
+            "ETHUSDT",
+            "unit-spot-live12-spot-0007",
+            588,
+            "SELL",
+            "FILLED"
+        ),
+        spot_execution_report_json("ETHUSDT", "unit-spot-live12-spot-0008", 589, "BUY", "FILLED"),
+        spot_execution_report_json(
+            "ETHUSDT",
+            "unit-spot-live12-spot-0009",
+            590,
+            "SELL",
+            "FILLED"
+        ),
+        spot_execution_report_json("ETHUSDT", "unit-spot-live12-spot-0010", 591, "BUY", "FILLED"),
+        spot_execution_report_json(
+            "ETHUSDT",
+            "unit-spot-live12-spot-0011",
+            592,
+            "SELL",
+            "FILLED"
+        ),
+    ))
+    .unwrap();
+
+    let report = run_spot_policy_demo_with_live_user_data_source(
+        config,
+        &policy,
+        "live-source-eleventh-continue",
+        |order| async move {
+            let client_order_id = order
+                .new_client_order_id
+                .clone()
+                .expect("client order id assigned before placement");
+            Ok(SpotPlaceOrderResponse {
+                symbol: order.symbol.clone(),
+                order_id: match client_order_id.as_str() {
+                    "unit-spot-live12-spot-0000" => 581,
+                    "unit-spot-live12-spot-0001" => 582,
+                    "unit-spot-live12-spot-0002" => 583,
+                    "unit-spot-live12-spot-0003" => 584,
+                    "unit-spot-live12-spot-0004" => 585,
+                    "unit-spot-live12-spot-0005" => 586,
+                    "unit-spot-live12-spot-0006" => 587,
+                    "unit-spot-live12-spot-0007" => 588,
+                    "unit-spot-live12-spot-0008" => 589,
+                    "unit-spot-live12-spot-0009" => 590,
+                    "unit-spot-live12-spot-0010" => 591,
+                    "unit-spot-live12-spot-0011" => 592,
+                    other => panic!("unexpected client order id {other}"),
+                },
+                client_order_id,
+                transact_time: 1,
+                price: "0.00000000".into(),
+                orig_qty: order.quantity.clone(),
+                executed_qty: order.quantity,
+                status: "NEW".into(),
+                side: order.side.as_str().into(),
+                order_type: order.order_type.as_str().into(),
+            })
+        },
+        frames,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(report.continued_steps, 1);
+    assert_eq!(report.second_continued_steps, 1);
+    assert_eq!(report.third_continued_steps, 1);
+    assert_eq!(report.fourth_continued_steps, 1);
+    assert_eq!(report.fifth_continued_steps, 1);
+    assert_eq!(report.sixth_continued_steps, 1);
+    assert_eq!(report.seventh_continued_steps, 1);
+    assert_eq!(report.eighth_continued_steps, 1);
+    assert_eq!(report.ninth_continued_steps, 1);
+    assert_eq!(report.tenth_continued_steps, 1);
+    assert_eq!(report.eleventh_continued_steps, 1);
+    assert_eq!(report.placed_orders, 12);
+    assert_eq!(report.order_count(), 12);
+    assert_eq!(report.reconciliations.len(), 12);
+    assert_eq!(
+        report.extra_symbol_inventory,
+        vec![PolicyDemoSymbolInventory {
+            symbol: "ETHUSDT".into(),
+            position: -1,
+        }]
+    );
+    assert_eq!(report.eleventh_continued_observation.len(), 80);
+    assert!(
+        (report.eleventh_continued_observation[44] + 1.0).abs() < 1e-5,
+        "eleventh-hop fill-backed eth q {}",
+        report.eleventh_continued_observation[44]
+    );
+}
+
+#[tokio::test]
+async fn policy_demo_wait_user_data_continues_after_eleventh_wait_fills() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT,ETHUSDT");
+    config.set_dispatch_symbol("ETHUSDT");
+    config.max_steps = 3;
+    config.window_frames = 1;
+    config.qty = "0.03".into();
+    config.execute_demo_orders = true;
+    config.wait_for_user_data = true;
+    config.use_ladder_observation = true;
+    config.client_order_id_prefix = "unit-spot-wait13".into();
+    config.continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"210.00","qty":"1.0"}],"asks":[{"price":"212.00","qty":"1.0"}],"update_id":9}"#
+            .into(),
+    );
+    config.second_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"211.00","qty":"1.0"}],"asks":[{"price":"213.00","qty":"1.0"}],"update_id":10}"#
+            .into(),
+    );
+    config.third_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"212.00","qty":"1.0"}],"asks":[{"price":"214.00","qty":"1.0"}],"update_id":11}"#
+            .into(),
+    );
+    config.fourth_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"213.00","qty":"1.0"}],"asks":[{"price":"215.00","qty":"1.0"}],"update_id":12}"#
+            .into(),
+    );
+    config.fifth_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"214.00","qty":"1.0"}],"asks":[{"price":"216.00","qty":"1.0"}],"update_id":13}"#
+            .into(),
+    );
+    config.sixth_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"215.00","qty":"1.0"}],"asks":[{"price":"217.00","qty":"1.0"}],"update_id":14}"#
+            .into(),
+    );
+    config.seventh_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"216.00","qty":"1.0"}],"asks":[{"price":"218.00","qty":"1.0"}],"update_id":15}"#
+            .into(),
+    );
+    config.eighth_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"217.00","qty":"1.0"}],"asks":[{"price":"219.00","qty":"1.0"}],"update_id":16}"#
+            .into(),
+    );
+    config.ninth_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"218.00","qty":"1.0"}],"asks":[{"price":"220.00","qty":"1.0"}],"update_id":17}"#
+            .into(),
+    );
+    config.tenth_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"219.00","qty":"1.0"}],"asks":[{"price":"221.00","qty":"1.0"}],"update_id":18}"#
+            .into(),
+    );
+    config.eleventh_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"220.00","qty":"1.0"}],"asks":[{"price":"222.00","qty":"1.0"}],"update_id":19}"#
+            .into(),
+    );
+    let policy = SequencePolicy::with_actions(vec![
+        Action::Hold,
+        Action::Buy,
+        Action::Sell,
+        Action::Buy,
+        Action::Sell,
+        Action::Buy,
+        Action::Sell,
+        Action::Buy,
+        Action::Sell,
+        Action::Buy,
+        Action::Sell,
+        Action::Buy,
+        Action::Sell,
+    ]);
+    let waits = Cell::new(0usize);
+
+    let report = run_spot_policy_demo_with_placer_and_user_data(
+        config,
+        &policy,
+        "wait-eleventh-continue",
+        |order| async move {
+            let client_order_id = order
+                .new_client_order_id
+                .clone()
+                .expect("client order id assigned before placement");
+            Ok(SpotPlaceOrderResponse {
+                symbol: order.symbol.clone(),
+                order_id: match client_order_id.as_str() {
+                    "unit-spot-wait13-spot-0000" => 601,
+                    "unit-spot-wait13-spot-0001" => 602,
+                    "unit-spot-wait13-spot-0002" => 603,
+                    "unit-spot-wait13-spot-0003" => 604,
+                    "unit-spot-wait13-spot-0004" => 605,
+                    "unit-spot-wait13-spot-0005" => 606,
+                    "unit-spot-wait13-spot-0006" => 607,
+                    "unit-spot-wait13-spot-0007" => 608,
+                    "unit-spot-wait13-spot-0008" => 609,
+                    "unit-spot-wait13-spot-0009" => 610,
+                    "unit-spot-wait13-spot-0010" => 611,
+                    "unit-spot-wait13-spot-0011" => 612,
+                    other => panic!("unexpected client order id {other}"),
+                },
+                client_order_id,
+                transact_time: 1,
+                price: "0.00000000".into(),
+                orig_qty: order.quantity.clone(),
+                executed_qty: order.quantity,
+                status: "NEW".into(),
+                side: order.side.as_str().into(),
+                order_type: order.order_type.as_str().into(),
+            })
+        },
+        |report| {
+            waits.set(waits.get() + 1);
+            let payload = report
+                .receipts
+                .iter()
+                .map(|receipt| {
+                    spot_execution_report_json(
+                        &receipt.symbol,
+                        &receipt.client_order_id,
+                        receipt.order_id,
+                        &receipt.side,
+                        "FILLED",
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            let messages = policy_demo_user_data_messages_from_json(&payload);
+            async move { messages }
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(waits.get(), 11);
+    assert_eq!(report.continued_steps, 1);
+    assert_eq!(report.second_continued_steps, 1);
+    assert_eq!(report.third_continued_steps, 1);
+    assert_eq!(report.fourth_continued_steps, 1);
+    assert_eq!(report.fifth_continued_steps, 1);
+    assert_eq!(report.sixth_continued_steps, 1);
+    assert_eq!(report.seventh_continued_steps, 1);
+    assert_eq!(report.eighth_continued_steps, 1);
+    assert_eq!(report.ninth_continued_steps, 1);
+    assert_eq!(report.tenth_continued_steps, 1);
+    assert_eq!(report.eleventh_continued_steps, 1);
+    assert_eq!(report.order_count(), 12);
+    assert_eq!(
+        report.extra_symbol_inventory,
+        vec![PolicyDemoSymbolInventory {
+            symbol: "ETHUSDT".into(),
+            position: -1,
+        }]
+    );
+    assert_eq!(report.eleventh_continued_observation.len(), 80);
+    assert!(
+        (report.eleventh_continued_observation[44] + 1.0).abs() < 1e-5,
+        "mock wait eleventh-hop fill-backed eth q {}",
+        report.eleventh_continued_observation[44]
+    );
+}
+
+#[tokio::test]
+async fn policy_demo_usdm_live_source_continues_after_eleventh_wait_fills() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Usdm, "BTCUSDT,ETHUSDT");
+    config.set_dispatch_symbol("ETHUSDT");
+    config.max_steps = 3;
+    config.window_frames = 1;
+    config.qty = "0.03".into();
+    config.execute_demo_orders = true;
+    config.wait_for_user_data = true;
+    config.use_ladder_observation = true;
+    config.client_order_id_prefix = "unit-usdm-live12".into();
+    config.continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"210.00","qty":"1.0"}],"asks":[{"price":"212.00","qty":"1.0"}],"update_id":9}"#
+            .into(),
+    );
+    config.second_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"211.00","qty":"1.0"}],"asks":[{"price":"213.00","qty":"1.0"}],"update_id":10}"#
+            .into(),
+    );
+    config.third_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"212.00","qty":"1.0"}],"asks":[{"price":"214.00","qty":"1.0"}],"update_id":11}"#
+            .into(),
+    );
+    config.fourth_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"213.00","qty":"1.0"}],"asks":[{"price":"215.00","qty":"1.0"}],"update_id":12}"#
+            .into(),
+    );
+    config.fifth_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"214.00","qty":"1.0"}],"asks":[{"price":"216.00","qty":"1.0"}],"update_id":13}"#
+            .into(),
+    );
+    config.sixth_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"215.00","qty":"1.0"}],"asks":[{"price":"217.00","qty":"1.0"}],"update_id":14}"#
+            .into(),
+    );
+    config.seventh_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"216.00","qty":"1.0"}],"asks":[{"price":"218.00","qty":"1.0"}],"update_id":15}"#
+            .into(),
+    );
+    config.eighth_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"217.00","qty":"1.0"}],"asks":[{"price":"219.00","qty":"1.0"}],"update_id":16}"#
+            .into(),
+    );
+    config.ninth_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"218.00","qty":"1.0"}],"asks":[{"price":"220.00","qty":"1.0"}],"update_id":17}"#
+            .into(),
+    );
+    config.tenth_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"219.00","qty":"1.0"}],"asks":[{"price":"221.00","qty":"1.0"}],"update_id":18}"#
+            .into(),
+    );
+    config.eleventh_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"220.00","qty":"1.0"}],"asks":[{"price":"222.00","qty":"1.0"}],"update_id":19}"#
+            .into(),
+    );
+    let policy = SequencePolicy::with_actions(vec![
+        Action::Hold,
+        Action::Buy,
+        Action::Sell,
+        Action::Buy,
+        Action::Sell,
+        Action::Buy,
+        Action::Sell,
+        Action::Buy,
+        Action::Sell,
+        Action::Buy,
+        Action::Sell,
+        Action::Buy,
+        Action::Sell,
+    ]);
+    let frames = policy_demo_user_data_messages_from_json(
+        &serde_json::json!([
+            usdm_order_trade_update_json(
+                "ETHUSDT",
+                "unit-usdm-live12-usdm-0000",
+                621,
+                "BUY",
+                "FILLED"
+            ),
+            usdm_order_trade_update_json(
+                "ETHUSDT",
+                "unit-usdm-live12-usdm-0001",
+                622,
+                "SELL",
+                "FILLED"
+            ),
+            usdm_order_trade_update_json(
+                "ETHUSDT",
+                "unit-usdm-live12-usdm-0002",
+                623,
+                "BUY",
+                "FILLED"
+            ),
+            usdm_order_trade_update_json(
+                "ETHUSDT",
+                "unit-usdm-live12-usdm-0003",
+                624,
+                "SELL",
+                "FILLED"
+            ),
+            usdm_order_trade_update_json(
+                "ETHUSDT",
+                "unit-usdm-live12-usdm-0004",
+                625,
+                "BUY",
+                "FILLED"
+            ),
+            usdm_order_trade_update_json(
+                "ETHUSDT",
+                "unit-usdm-live12-usdm-0005",
+                626,
+                "SELL",
+                "FILLED"
+            ),
+            usdm_order_trade_update_json(
+                "ETHUSDT",
+                "unit-usdm-live12-usdm-0006",
+                627,
+                "BUY",
+                "FILLED"
+            ),
+            usdm_order_trade_update_json(
+                "ETHUSDT",
+                "unit-usdm-live12-usdm-0007",
+                628,
+                "SELL",
+                "FILLED"
+            ),
+            usdm_order_trade_update_json(
+                "ETHUSDT",
+                "unit-usdm-live12-usdm-0008",
+                629,
+                "BUY",
+                "FILLED"
+            ),
+            usdm_order_trade_update_json(
+                "ETHUSDT",
+                "unit-usdm-live12-usdm-0009",
+                630,
+                "SELL",
+                "FILLED"
+            ),
+            usdm_order_trade_update_json(
+                "ETHUSDT",
+                "unit-usdm-live12-usdm-0010",
+                631,
+                "BUY",
+                "FILLED"
+            ),
+            usdm_order_trade_update_json(
+                "ETHUSDT",
+                "unit-usdm-live12-usdm-0011",
+                632,
+                "SELL",
+                "FILLED"
+            )
+        ])
+        .to_string(),
+    )
+    .unwrap();
+
+    let report = run_usdm_policy_demo_with_live_user_data_source(
+        config,
+        &policy,
+        "live-source-eleventh-continue-usdm",
+        |order| async move {
+            let client_order_id = order
+                .new_client_order_id
+                .clone()
+                .expect("client order id assigned before placement");
+            Ok(UsdmPlaceOrderResponse {
+                symbol: order.symbol.clone(),
+                order_id: match client_order_id.as_str() {
+                    "unit-usdm-live12-usdm-0000" => 621,
+                    "unit-usdm-live12-usdm-0001" => 622,
+                    "unit-usdm-live12-usdm-0002" => 623,
+                    "unit-usdm-live12-usdm-0003" => 624,
+                    "unit-usdm-live12-usdm-0004" => 625,
+                    "unit-usdm-live12-usdm-0005" => 626,
+                    "unit-usdm-live12-usdm-0006" => 627,
+                    "unit-usdm-live12-usdm-0007" => 628,
+                    "unit-usdm-live12-usdm-0008" => 629,
+                    "unit-usdm-live12-usdm-0009" => 630,
+                    "unit-usdm-live12-usdm-0010" => 631,
+                    "unit-usdm-live12-usdm-0011" => 632,
+                    other => panic!("unexpected client order id {other}"),
+                },
+                client_order_id,
+                update_time: 1,
+                price: "0.00000000".into(),
+                orig_qty: order.quantity.clone(),
+                executed_qty: order.quantity,
+                status: "NEW".into(),
+                side: order.side.as_str().into(),
+                order_type: order.order_type.as_str().into(),
+                position_side: order
+                    .position_side
+                    .map(|side| side.as_str())
+                    .unwrap_or("BOTH")
+                    .into(),
+            })
+        },
+        frames,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(report.continued_steps, 1);
+    assert_eq!(report.second_continued_steps, 1);
+    assert_eq!(report.third_continued_steps, 1);
+    assert_eq!(report.fourth_continued_steps, 1);
+    assert_eq!(report.fifth_continued_steps, 1);
+    assert_eq!(report.sixth_continued_steps, 1);
+    assert_eq!(report.seventh_continued_steps, 1);
+    assert_eq!(report.eighth_continued_steps, 1);
+    assert_eq!(report.ninth_continued_steps, 1);
+    assert_eq!(report.tenth_continued_steps, 1);
+    assert_eq!(report.eleventh_continued_steps, 1);
+    assert_eq!(report.order_count(), 12);
+    assert_eq!(
+        report.extra_symbol_inventory,
+        vec![PolicyDemoSymbolInventory {
+            symbol: "ETHUSDT".into(),
+            position: -1,
+        }]
+    );
+    assert_eq!(report.eleventh_continued_observation.len(), 80);
+    assert!(
+        (report.eleventh_continued_observation[44] + 1.0).abs() < 1e-5,
+        "usdm eleventh-hop fill-backed eth q {}",
+        report.eleventh_continued_observation[44]
+    );
+}
+
+#[tokio::test]
+async fn policy_demo_eleventh_continued_tape_drains_dispatch_orders() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT,ETHUSDT");
+    config.set_dispatch_symbol("ETHUSDT");
+    config.max_steps = 3;
+    config.window_frames = 1;
+    config.qty = "0.03".into();
+    config.execute_demo_orders = false;
+    config.client_order_id_prefix = "unit-spot-hop12".into();
+    config.captured_user_data_json = Some(format!(
+        "{}\n{}",
+        spot_execution_report_json("ETHUSDT", "unit-spot-hop12-spot-0000", 641, "BUY", "FILLED"),
+        spot_execution_report_json("ETHUSDT", "unit-spot-hop12-spot-0001", 642, "SELL", "FILLED"),
+    ));
+    config.continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"210.00","qty":"1.0"}],"asks":[{"price":"212.00","qty":"1.0"}],"update_id":9}"#
+            .into(),
+    );
+    config.continued_user_data_json = Some(spot_execution_report_json(
+        "ETHUSDT",
+        "unit-spot-hop12-spot-0002",
+        643,
+        "BUY",
+        "FILLED",
+    ));
+    config.second_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"211.00","qty":"1.0"}],"asks":[{"price":"213.00","qty":"1.0"}],"update_id":10}"#
+            .into(),
+    );
+    config.second_continued_user_data_json = Some(spot_execution_report_json(
+        "ETHUSDT",
+        "unit-spot-hop12-spot-0003",
+        644,
+        "SELL",
+        "FILLED",
+    ));
+    config.third_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"212.00","qty":"1.0"}],"asks":[{"price":"214.00","qty":"1.0"}],"update_id":11}"#
+            .into(),
+    );
+    config.third_continued_user_data_json = Some(spot_execution_report_json(
+        "ETHUSDT",
+        "unit-spot-hop12-spot-0004",
+        645,
+        "BUY",
+        "FILLED",
+    ));
+    config.fourth_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"213.00","qty":"1.0"}],"asks":[{"price":"215.00","qty":"1.0"}],"update_id":12}"#
+            .into(),
+    );
+    config.fourth_continued_user_data_json = Some(spot_execution_report_json(
+        "ETHUSDT",
+        "unit-spot-hop12-spot-0005",
+        646,
+        "SELL",
+        "FILLED",
+    ));
+    config.fifth_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"214.00","qty":"1.0"}],"asks":[{"price":"216.00","qty":"1.0"}],"update_id":13}"#
+            .into(),
+    );
+    config.fifth_continued_user_data_json = Some(spot_execution_report_json(
+        "ETHUSDT",
+        "unit-spot-hop12-spot-0006",
+        647,
+        "BUY",
+        "FILLED",
+    ));
+    config.sixth_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"215.00","qty":"1.0"}],"asks":[{"price":"217.00","qty":"1.0"}],"update_id":14}"#
+            .into(),
+    );
+    config.sixth_continued_user_data_json = Some(spot_execution_report_json(
+        "ETHUSDT",
+        "unit-spot-hop12-spot-0007",
+        648,
+        "SELL",
+        "FILLED",
+    ));
+    config.seventh_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"216.00","qty":"1.0"}],"asks":[{"price":"218.00","qty":"1.0"}],"update_id":15}"#
+            .into(),
+    );
+    config.seventh_continued_user_data_json = Some(spot_execution_report_json(
+        "ETHUSDT",
+        "unit-spot-hop12-spot-0008",
+        649,
+        "BUY",
+        "FILLED",
+    ));
+    config.eighth_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"217.00","qty":"1.0"}],"asks":[{"price":"219.00","qty":"1.0"}],"update_id":16}"#
+            .into(),
+    );
+    config.eighth_continued_user_data_json = Some(spot_execution_report_json(
+        "ETHUSDT",
+        "unit-spot-hop12-spot-0009",
+        650,
+        "SELL",
+        "FILLED",
+    ));
+    config.ninth_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"218.00","qty":"1.0"}],"asks":[{"price":"220.00","qty":"1.0"}],"update_id":17}"#
+            .into(),
+    );
+    config.ninth_continued_user_data_json = Some(spot_execution_report_json(
+        "ETHUSDT",
+        "unit-spot-hop12-spot-0010",
+        651,
+        "BUY",
+        "FILLED",
+    ));
+    config.tenth_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"219.00","qty":"1.0"}],"asks":[{"price":"221.00","qty":"1.0"}],"update_id":18}"#
+            .into(),
+    );
+    config.tenth_continued_user_data_json = Some(spot_execution_report_json(
+        "ETHUSDT",
+        "unit-spot-hop12-spot-0011",
+        652,
+        "SELL",
+        "FILLED",
+    ));
+    config.eleventh_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"220.00","qty":"1.0"}],"asks":[{"price":"222.00","qty":"1.0"}],"update_id":19}"#
+            .into(),
+    );
+    let policy = SequencePolicy::with_actions(vec![
+        Action::Hold,
+        Action::Buy,
+        Action::Sell,
+        Action::Buy,
+        Action::Sell,
+        Action::Buy,
+        Action::Sell,
+        Action::Buy,
+        Action::Sell,
+        Action::Buy,
+        Action::Sell,
+        Action::Buy,
+        Action::Sell,
+        Action::Buy,
+    ]);
+
+    let report =
+        run_spot_policy_demo_with_placer(config, &policy, "eleventh-continue-drain", |_| async {
+            panic!("dry-run must not place")
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(report.steps, 3);
+    assert_eq!(report.continued_steps, 1);
+    assert_eq!(report.second_continued_steps, 1);
+    assert_eq!(report.third_continued_steps, 1);
+    assert_eq!(report.fourth_continued_steps, 1);
+    assert_eq!(report.fifth_continued_steps, 1);
+    assert_eq!(report.sixth_continued_steps, 1);
+    assert_eq!(report.seventh_continued_steps, 1);
+    assert_eq!(report.eighth_continued_steps, 1);
+    assert_eq!(report.ninth_continued_steps, 1);
+    assert_eq!(report.tenth_continued_steps, 1);
+    assert_eq!(report.eleventh_continued_steps, 1);
+    assert_eq!(report.placed_orders, 0);
+    assert_eq!(report.order_count(), 13);
+    let PolicyDemoOrders::Spot(orders) = &report.orders else {
+        panic!("expected spot orders");
+    };
+    assert_eq!(orders[12].symbol, "ETHUSDT");
+    assert_eq!(orders[12].quantity, "0.03");
+    assert_eq!(orders[12].side, SpotOrderSide::Buy);
+    assert_eq!(
+        orders[12].new_client_order_id.as_deref(),
+        Some("unit-spot-hop12-spot-0012")
+    );
+}
+
+#[tokio::test]
+async fn policy_demo_eleventh_continued_tape_places_orders_when_guarded() {
+    let mut config = PolicyDemoConfig::new(DemoVenue::Spot, "BTCUSDT,ETHUSDT");
+    config.set_dispatch_symbol("ETHUSDT");
+    config.max_steps = 3;
+    config.window_frames = 1;
+    config.qty = "0.03".into();
+    config.execute_demo_orders = true;
+    config.wait_for_user_data = true;
+    config.client_order_id_prefix = "unit-spot-hop12p".into();
+    config.continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"210.00","qty":"1.0"}],"asks":[{"price":"212.00","qty":"1.0"}],"update_id":9}"#
+            .into(),
+    );
+    config.second_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"211.00","qty":"1.0"}],"asks":[{"price":"213.00","qty":"1.0"}],"update_id":10}"#
+            .into(),
+    );
+    config.third_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"212.00","qty":"1.0"}],"asks":[{"price":"214.00","qty":"1.0"}],"update_id":11}"#
+            .into(),
+    );
+    config.fourth_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"213.00","qty":"1.0"}],"asks":[{"price":"215.00","qty":"1.0"}],"update_id":12}"#
+            .into(),
+    );
+    config.fifth_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"214.00","qty":"1.0"}],"asks":[{"price":"216.00","qty":"1.0"}],"update_id":13}"#
+            .into(),
+    );
+    config.sixth_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"215.00","qty":"1.0"}],"asks":[{"price":"217.00","qty":"1.0"}],"update_id":14}"#
+            .into(),
+    );
+    config.seventh_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"216.00","qty":"1.0"}],"asks":[{"price":"218.00","qty":"1.0"}],"update_id":15}"#
+            .into(),
+    );
+    config.eighth_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"217.00","qty":"1.0"}],"asks":[{"price":"219.00","qty":"1.0"}],"update_id":16}"#
+            .into(),
+    );
+    config.ninth_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"218.00","qty":"1.0"}],"asks":[{"price":"220.00","qty":"1.0"}],"update_id":17}"#
+            .into(),
+    );
+    config.tenth_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"219.00","qty":"1.0"}],"asks":[{"price":"221.00","qty":"1.0"}],"update_id":18}"#
+            .into(),
+    );
+    config.eleventh_continued_depth_json = Some(
+        r#"{"kind":"depth","symbol":"ETHUSDT","bids":[{"price":"220.00","qty":"1.0"}],"asks":[{"price":"222.00","qty":"1.0"}],"update_id":19}"#
+            .into(),
+    );
+    let policy = SequencePolicy::with_actions(vec![
+        Action::Hold,
+        Action::Buy,
+        Action::Sell,
+        Action::Buy,
+        Action::Sell,
+        Action::Buy,
+        Action::Sell,
+        Action::Buy,
+        Action::Sell,
+        Action::Buy,
+        Action::Sell,
+        Action::Buy,
+        Action::Sell,
+        Action::Buy,
+    ]);
+    let frames = policy_demo_user_data_messages_from_json(&format!(
+        "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+        spot_execution_report_json("ETHUSDT", "unit-spot-hop12p-spot-0000", 661, "BUY", "FILLED"),
+        spot_execution_report_json(
+            "ETHUSDT",
+            "unit-spot-hop12p-spot-0001",
+            662,
+            "SELL",
+            "FILLED"
+        ),
+        spot_execution_report_json("ETHUSDT", "unit-spot-hop12p-spot-0002", 663, "BUY", "FILLED"),
+        spot_execution_report_json(
+            "ETHUSDT",
+            "unit-spot-hop12p-spot-0003",
+            664,
+            "SELL",
+            "FILLED"
+        ),
+        spot_execution_report_json("ETHUSDT", "unit-spot-hop12p-spot-0004", 665, "BUY", "FILLED"),
+        spot_execution_report_json(
+            "ETHUSDT",
+            "unit-spot-hop12p-spot-0005",
+            666,
+            "SELL",
+            "FILLED"
+        ),
+        spot_execution_report_json("ETHUSDT", "unit-spot-hop12p-spot-0006", 667, "BUY", "FILLED"),
+        spot_execution_report_json(
+            "ETHUSDT",
+            "unit-spot-hop12p-spot-0007",
+            668,
+            "SELL",
+            "FILLED"
+        ),
+        spot_execution_report_json("ETHUSDT", "unit-spot-hop12p-spot-0008", 669, "BUY", "FILLED"),
+        spot_execution_report_json(
+            "ETHUSDT",
+            "unit-spot-hop12p-spot-0009",
+            670,
+            "SELL",
+            "FILLED"
+        ),
+        spot_execution_report_json("ETHUSDT", "unit-spot-hop12p-spot-0010", 671, "BUY", "FILLED"),
+    ))
+    .unwrap();
+
+    let report = run_spot_policy_demo_with_live_user_data_source(
+        config,
+        &policy,
+        "eleventh-continue-place",
+        |order| async move {
+            let client_order_id = order
+                .new_client_order_id
+                .clone()
+                .expect("client order id assigned before placement");
+            Ok(SpotPlaceOrderResponse {
+                symbol: order.symbol.clone(),
+                order_id: match client_order_id.as_str() {
+                    "unit-spot-hop12p-spot-0000" => 661,
+                    "unit-spot-hop12p-spot-0001" => 662,
+                    "unit-spot-hop12p-spot-0002" => 663,
+                    "unit-spot-hop12p-spot-0003" => 664,
+                    "unit-spot-hop12p-spot-0004" => 665,
+                    "unit-spot-hop12p-spot-0005" => 666,
+                    "unit-spot-hop12p-spot-0006" => 667,
+                    "unit-spot-hop12p-spot-0007" => 668,
+                    "unit-spot-hop12p-spot-0008" => 669,
+                    "unit-spot-hop12p-spot-0009" => 670,
+                    "unit-spot-hop12p-spot-0010" => 671,
+                    "unit-spot-hop12p-spot-0011" => 672,
+                    "unit-spot-hop12p-spot-0012" => 673,
+                    other => panic!("unexpected placed client order id {other}"),
+                },
+                client_order_id,
+                transact_time: 1,
+                price: "0.00000000".into(),
+                orig_qty: order.quantity.clone(),
+                executed_qty: order.quantity,
+                status: "NEW".into(),
+                side: order.side.as_str().into(),
+                order_type: order.order_type.as_str().into(),
+            })
+        },
+        frames,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(report.eleventh_continued_steps, 1);
+    assert_eq!(report.placed_orders, 13);
+    assert_eq!(report.order_count(), 13);
+    assert_eq!(report.receipts.len(), 13);
+    assert_eq!(
+        report.receipts[0].client_order_id,
+        "unit-spot-hop12p-spot-0000"
+    );
+    assert_eq!(
+        report.receipts[12].client_order_id,
+        "unit-spot-hop12p-spot-0012"
+    );
+    assert_eq!(report.receipts[12].side, "BUY");
+    let PolicyDemoOrders::Spot(orders) = &report.orders else {
+        panic!("expected spot orders");
+    };
+    assert_eq!(
+        orders[12].new_client_order_id.as_deref(),
+        Some("unit-spot-hop12p-spot-0012")
+    );
+    assert_eq!(orders[12].side, SpotOrderSide::Buy);
+}
+
 
 #[tokio::test]
 async fn policy_demo_spot_captured_user_data_writes_extra_inventory() {
@@ -13035,6 +14028,7 @@ async fn policy_demo_sixth_continued_tape_reconciles_placed_receipts() {
     assert_eq!(report.eighth_continued_steps, 0);
     assert_eq!(report.ninth_continued_steps, 0);
     assert_eq!(report.tenth_continued_steps, 0);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert_eq!(report.placed_orders, 8);
     assert_eq!(report.receipts.len(), 8);
     assert_eq!(
@@ -13200,6 +14194,7 @@ async fn policy_demo_dry_run_sixth_continued_user_data_matches_assigned_ids() {
     assert_eq!(report.eighth_continued_steps, 0);
     assert_eq!(report.ninth_continued_steps, 0);
     assert_eq!(report.tenth_continued_steps, 0);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert_eq!(report.reconciliations.len(), 8);
     assert_eq!(
         report.reconciliations[2].client_order_id,
@@ -13379,6 +14374,7 @@ async fn policy_demo_seventh_continued_tape_reconciles_placed_receipts() {
     assert_eq!(report.eighth_continued_steps, 0);
     assert_eq!(report.ninth_continued_steps, 0);
     assert_eq!(report.tenth_continued_steps, 0);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert_eq!(report.placed_orders, 9);
     assert_eq!(report.receipts.len(), 9);
     assert_eq!(
@@ -13555,6 +14551,7 @@ async fn policy_demo_dry_run_seventh_continued_user_data_matches_assigned_ids() 
     assert_eq!(report.eighth_continued_steps, 0);
     assert_eq!(report.ninth_continued_steps, 0);
     assert_eq!(report.tenth_continued_steps, 0);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert_eq!(report.reconciliations.len(), 9);
     assert_eq!(
         report.reconciliations[2].client_order_id,
@@ -13747,6 +14744,7 @@ async fn policy_demo_eighth_continued_tape_reconciles_placed_receipts() {
     assert_eq!(report.eighth_continued_steps, 1);
     assert_eq!(report.ninth_continued_steps, 0);
     assert_eq!(report.tenth_continued_steps, 0);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert_eq!(report.placed_orders, 10);
     assert_eq!(report.receipts.len(), 10);
     assert_eq!(
@@ -13935,6 +14933,7 @@ async fn policy_demo_dry_run_eighth_continued_user_data_matches_assigned_ids() {
     assert_eq!(report.eighth_continued_steps, 1);
     assert_eq!(report.ninth_continued_steps, 0);
     assert_eq!(report.tenth_continued_steps, 0);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert_eq!(report.reconciliations.len(), 10);
     assert_eq!(
         report.reconciliations[2].client_order_id,
@@ -15021,6 +16020,7 @@ async fn policy_demo_wait_user_data_reconciles_tenth_continued_tape() {
     assert_eq!(waits.get(), 11);
     assert_eq!(report.ninth_continued_steps, 1);
     assert_eq!(report.tenth_continued_steps, 1);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert_eq!(report.placed_orders, 12);
     assert_eq!(report.receipts.len(), 12);
     assert_eq!(report.reconciliations.len(), 12);
@@ -15208,6 +16208,7 @@ async fn policy_demo_live_source_waits_after_tenth_continued_tape_place() {
 
     assert_eq!(report.ninth_continued_steps, 1);
     assert_eq!(report.tenth_continued_steps, 1);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert_eq!(report.placed_orders, 12);
     assert_eq!(report.receipts.len(), 12);
     assert_eq!(report.reconciliations.len(), 12);
@@ -15438,6 +16439,7 @@ async fn policy_demo_usdm_live_source_waits_after_tenth_continued_tape_place() {
 
     assert_eq!(report.ninth_continued_steps, 1);
     assert_eq!(report.tenth_continued_steps, 1);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert_eq!(report.placed_orders, 12);
     assert_eq!(report.reconciliations.len(), 12);
     assert_eq!(
@@ -15649,6 +16651,7 @@ async fn policy_demo_tenth_continued_tape_reconciles_placed_receipts() {
 
     assert_eq!(report.ninth_continued_steps, 1);
     assert_eq!(report.tenth_continued_steps, 1);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert_eq!(report.placed_orders, 12);
     assert_eq!(report.receipts.len(), 12);
     assert_eq!(
@@ -15859,6 +16862,7 @@ async fn policy_demo_dry_run_tenth_continued_user_data_matches_assigned_ids() {
     assert_eq!(report.order_count(), 12);
     assert_eq!(report.ninth_continued_steps, 1);
     assert_eq!(report.tenth_continued_steps, 1);
+    assert_eq!(report.eleventh_continued_steps, 0);
     assert_eq!(report.reconciliations.len(), 12);
     assert_eq!(
         report.reconciliations[2].client_order_id,
