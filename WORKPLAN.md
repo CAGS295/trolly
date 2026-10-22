@@ -21,7 +21,7 @@ Shipped so far (not the destination): global book CLI; stream-native spot/USDM b
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: 2026-10-21
+- last_run: 2026-10-22
 - max_parallel: 3
 - ship_branch: integrate/orchestrator-branches
 
@@ -1710,7 +1710,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-119 — Reconcile eleventh-continued-tape placement receipts
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-059, WP-118]
 - scope: src/policy_demo.rs, src/cli/mod.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
@@ -1719,6 +1719,45 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - extra-symbol FILLED rows from that twelfth hop update the same harness Env; earlier hops stay on the report
   - default paths without `--eleventh-continued-user-data-json` stay unchanged; offline tests; no live orders; do not train
 - notes: WP-118 places the twelfth hop. Tenth-continue captured/wait reconcile still runs before the eleventh-continued tape, so the gym←exec→gym→exec loop cannot confirm the eleventh-continued receipts.
+- worker/orchestrator (2026-10-22): trainer guidance missing (silent). `--eleventh-continued-user-data-json` matches twelfth-hop receipts / assigned ids and writes extra-symbol FILLED into the same Env. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 164 pass.
+
+### WP-120 — Wait-for-user-data after eleventh-continued-tape placement
+
+- status: done
+- repos: trolly
+- depends_on: [WP-060, WP-119]
+- scope: src/policy_demo.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - mock `--wait-for-user-data` can collect frames after eleventh-continued-tape placement so those receipts reconcile without `--eleventh-continued-user-data-json`
+  - first-tape and earlier continue waits still run earlier; dry-run / captured-JSON paths stay unchanged
+  - offline tests; no live orders; do not train
+- notes: WP-119 covers captured JSON. The mock wait helper still stops after the tenth-continue hop, so demo/live trust cannot confirm the eleventh-continued receipts without a captured file.
+- worker/orchestrator (2026-10-22): trainer guidance missing (silent). Mock wait callback is `FnMut` and runs a twelfth time after eleventh-continued place when extra orders exist; new rows merge by client order id. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 164 pass.
+
+### WP-121 — Live user-data wait after eleventh-continued-tape demo placement
+
+- status: done
+- repos: trolly
+- depends_on: [WP-061, WP-120]
+- scope: src/policy_demo.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - when `--wait-for-user-data` and `--execute-demo-orders` are set, the live demo user-data listener can collect frames after eleventh-continued-tape REST placement (offline mock socket/source is enough)
+  - first-tape and earlier continue live waits still run earlier; dry-run / captured-JSON / mock-callback paths stay unchanged
+  - offline tests; no production hosts; do not train
+- notes: WP-120 covers the mock placer callback. The live spot/USDM sockets still wait only through the tenth-continue hop, so demo/live trust cannot confirm the eleventh-continued receipts.
+- worker/orchestrator (2026-10-22): trainer guidance missing (silent). Live spot/USDM sockets stay open through eleventh-continued REST place; twelfth wait seeds earlier rows and merges new receipts; USDM listenKey closes after the last wait. Offline mock source drains one shared frame queue through the same wait helper. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 164 pass; `cargo +stable test -p trolly-gym --lib --locked` 84 pass.
+
+### WP-122 — Continue Env after eleventh-continued-tape live fills
+
+- status: todo
+- repos: trolly
+- depends_on: [WP-116, WP-121]
+- scope: src/policy_demo.rs, src/cli/mod.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - after the twelfth live/mock user-data wait writes eleventh-continued extra-symbol FILLED rows into the harness Env, a subsequent injected depth step uses that book's fill-backed `q` / `position_for`
+  - default dry-run, first-tape continue, and earlier continue paths without a twelfth wait stay unchanged
+  - offline tests; no live orders; do not train
+- notes: WP-116 continues after tenth-continue fills. WP-121 confirms the twelfth hop on the live socket, but the runner still ends there, so the next `act()` cannot consume twelfth-hop inventory.
 
 ## Integration test reference
 
