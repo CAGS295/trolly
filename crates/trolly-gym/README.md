@@ -437,7 +437,14 @@ injected depth so the next `act()` sees thirteenth-hop `q` / `position_for`
 `PolicyDemoReport.orders` with the next `newClientOrderId` values
 (WP-129). With `--execute-demo-orders` those fourteenth-hop requests go through
 the same guarded adapters; earlier receipts stay first (WP-130). Dry-run
-still records them without placing. After that second wait
+still records them without placing.
+`--thirteenth-continued-user-data-json` then matches those new receipts /
+assigned `newClientOrderId`s and writes extra-symbol `FILLED` rows into
+the same harness Env; earlier hops stay on the report (WP-131). After
+thirteenth-continued-tape placement the same mock wait runs a fourteenth time so
+those receipts can match without `--thirteenth-continued-user-data-json`
+(WP-132). The live spot/USDM sockets wait again after thirteenth-continued REST
+place (WP-133). After that second wait
 writes continued-tape extra-symbol `FILLED` rows into the same Env,
 `--second-continued-depth-json` steps more injected depth so the next
 `act()` sees second-hop `q` / `position_for` (WP-062). Buy/Sell from those
@@ -591,7 +598,14 @@ injected depth so the next `act()` sees thirteenth-hop `q` / `position_for`
 (WP-129). With `--execute-demo-orders` those fourteenth-hop requests go through
 the same guarded adapters; earlier receipts stay first (WP-130). Dry-run
 still records them without placing.
-Unset keeps the harness ending after the thirteenth wait when a later tape is
+`--thirteenth-continued-user-data-json` then matches those new receipts /
+assigned `newClientOrderId`s and writes extra-symbol `FILLED` rows into
+the same harness Env; earlier hops stay on the report (WP-131). Mock
+`--wait-for-user-data` can supply frames after that thirteenth-continued place so
+those receipts reconcile without `--thirteenth-continued-user-data-json`
+(WP-132). The live spot/USDM sockets wait again after thirteenth-continued REST
+place (WP-133).
+Unset keeps the harness ending after the fourteenth wait when a later tape is
 absent. Primary-book fills stay on the policy-step
 inventory path so single-symbol reconcile is unchanged. Gaussian
 `join_ladder_symbols = false` still uses primary `q`. The report lists
@@ -728,6 +742,8 @@ When `--twelfth-continued-depth-json` produces extra orders, the same live
 socket waits a thirteenth time after those REST placements (WP-127).
 `--thirteenth-continued-depth-json` then steps the same Env after the thirteenth wait
 writes twelfth-continued extra-symbol `FILLED` rows (WP-128).
+When `--thirteenth-continued-depth-json` produces extra orders, the same live
+socket waits a fourteenth time after those REST placements (WP-133).
 `--sixth-continued-depth-json` then steps the same Env after the sixth wait
 writes fifth-continued extra-symbol `FILLED` rows (WP-086).
 `--seventh-continued-depth-json` then steps the same Env after the seventh wait
@@ -790,9 +806,11 @@ extra-symbol `FILLED` rows into the same Env (WP-119). `--twelfth-continued-dept
 then steps the same Env after those twelfth-hop fills (WP-122). `--twelfth-continued-user-data-json`
 (same envelope) then matches thirteenth-hop receipts or assigned ids after that place and writes
 extra-symbol `FILLED` rows into the same Env (WP-125). `--thirteenth-continued-depth-json`
-then steps the same Env after those thirteenth-hop fills (WP-128). Unset keeps first-tape,
+then steps the same Env after those thirteenth-hop fills (WP-128). `--thirteenth-continued-user-data-json`
+(same envelope) then matches fourteenth-hop receipts or assigned ids after that place and writes
+extra-symbol `FILLED` rows into the same Env (WP-131). Unset keeps first-tape,
 first-continue, second-continue, third-continue, fourth-continue, fifth-continue,
-sixth-continue, seventh-continue, eighth-continue, ninth-continue, tenth-continue, and eleventh-continue reconcile only. The file may contain one
+sixth-continue, seventh-continue, eighth-continue, ninth-continue, tenth-continue, eleventh-continue, and twelfth-continue reconcile only. The file may contain one
 JSON frame, a JSON array of frames, or newline-delimited raw frames.
 Reconciliation fans the frames through the existing spot `executionReport` /
 USDM `ORDER_TRADE_UPDATE` ingest and bookkeeping paths and prints typed rows
@@ -829,7 +847,8 @@ cargo run --bin depth_monitor -- execute policy-demo \
     --eleventh-continued-user-data-json captured-demo-user-data-after-eleventh-continue.json \
     --twelfth-continued-depth-json captured-demo-depth-after-twelfth-fill.json \
     --twelfth-continued-user-data-json captured-demo-user-data-after-twelfth-continue.json \
-    --thirteenth-continued-depth-json captured-demo-depth-after-thirteenth-fill.json
+    --thirteenth-continued-depth-json captured-demo-depth-after-thirteenth-fill.json \
+    --thirteenth-continued-user-data-json captured-demo-user-data-after-thirteenth-continue.json
 ```
 
 To feed a captured demo/live book instead of the built-in synthetic depth tape,
@@ -966,6 +985,9 @@ live-socket wait after twelfth-continued-tape demo placement (WP-127),
 Env step after twelfth-continued-tape live/mock fills using thirteenth-hop `q` (WP-128),
 thirteenth-continued-tape `Action::dispatch` drained onto the report (WP-129),
 guarded placement of thirteenth-continued-tape orders (WP-130),
+thirteenth-continued-tape receipt reconcile via `--thirteenth-continued-user-data-json` (WP-131),
+mock wait-for-user-data after thirteenth-continued-tape placement (WP-132),
+live-socket wait after thirteenth-continued-tape demo placement (WP-133),
 the guard refusal, live wait option guards,
 mock placement receipts, mocked frame-source reconciliation, and captured
 receipt-to-user-stream reconciliation without live network or keys.
