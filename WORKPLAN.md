@@ -21,7 +21,7 @@ Shipped so far (not the destination): global book CLI; stream-native spot/USDM b
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: 2026-10-29
+- last_run: 2026-10-30
 - max_parallel: 3
 - ship_branch: integrate/orchestrator-branches
 
@@ -1944,7 +1944,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-137 — Reconcile fourteenth-continued-tape placement receipts
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-059, WP-136]
 - scope: src/policy_demo.rs, src/cli/mod.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
@@ -1953,6 +1953,45 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - extra-symbol FILLED rows from that fifteenth hop update the same harness Env; earlier hops stay on the report
   - default paths without `--fourteenth-continued-user-data-json` stay unchanged; offline tests; no live orders; do not train
 - notes: WP-136 places the fifteenth hop. Thirteenth-continue captured/wait reconcile still runs before the fourteenth-continued tape, so the gym←exec→gym→exec loop cannot confirm the fourteenth-continued receipts.
+- worker/orchestrator (2026-10-30): trainer guidance missing (silent). `--fourteenth-continued-user-data-json` matches fifteenth-hop receipts / assigned ids and writes extra-symbol FILLED rows into the same Env; earlier hops stay on the report. Unset / earlier continues stay unchanged. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 194 pass.
+
+### WP-138 — Wait-for-user-data after fourteenth-continued-tape placement
+
+- status: done
+- repos: trolly
+- depends_on: [WP-060, WP-137]
+- scope: src/policy_demo.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - when `--wait-for-user-data` is set, the mock user-data callback runs again after fourteenth-continued-tape placement so those receipts can match without `--fourteenth-continued-user-data-json`
+  - first-tape and earlier continue waits still run earlier; captured-JSON / dry-run paths stay unchanged
+  - offline tests; no live orders; do not train
+- notes: WP-137 covers captured JSON. The mock wait still stops after the thirteenth-continue hop, so gym←exec cannot confirm fifteenth-hop fills without a file.
+- worker/orchestrator (2026-10-30): trainer guidance missing (silent). Mock `--wait-for-user-data` runs a fifteenth time after extra14 place; merge by client_order_id. Dry-run / captured-JSON stay unchanged. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 194 pass.
+
+### WP-139 — Live user-data wait after fourteenth-continued-tape demo placement
+
+- status: done
+- repos: trolly
+- depends_on: [WP-061, WP-138]
+- scope: src/policy_demo.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - when `--wait-for-user-data` and `--execute-demo-orders` are set, the live demo user-data listener can collect frames after fourteenth-continued-tape REST placement (offline mock socket/source is enough)
+  - first-tape and earlier continue live waits still run earlier; dry-run / captured-JSON / mock-callback paths stay unchanged
+  - offline tests; no production hosts; do not train
+- notes: WP-138 covers the mock placer callback. The live spot/USDM sockets still wait only through the thirteenth-continue hop, so demo/live trust cannot confirm the fourteenth-continued receipts.
+- worker/orchestrator (2026-10-30): trainer guidance missing (silent). Live spot/USDM sockets stay open through fourteenth-continued REST place; fifteenth wait seeds earlier rows and merges new receipts; USDM listenKey closes after the last wait. Offline mock source drains one shared frame queue through the same wait helper. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 194 pass; `cargo +stable test -p trolly-gym --lib --locked` 84 pass.
+
+### WP-140 — Continue Env after fourteenth-continued-tape live fills
+
+- status: todo
+- repos: trolly
+- depends_on: [WP-134, WP-139]
+- scope: src/policy_demo.rs, src/cli/mod.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - after the fifteenth live/mock user-data wait writes fourteenth-continued extra-symbol FILLED rows into the harness Env, a subsequent injected depth step uses that book's fill-backed `q` / `position_for`
+  - default dry-run, first-tape continue, and earlier continue paths without a fifteenth wait stay unchanged
+  - offline tests; no live orders; do not train
+- notes: WP-134 continues after thirteenth-continue fills. WP-139 confirms the fifteenth hop on the live socket, but the runner still ends there, so the next `act()` cannot consume fifteenth-hop inventory.
 
 ## Integration test reference
 
