@@ -248,6 +248,10 @@ struct PolicyDemoArgs {
     /// Same envelope as `--sixteenth-continued-user-data-json`. Earlier hops stay on the report.
     #[clap(long)]
     seventeenth_continued_user_data_json: Option<std::path::PathBuf>,
+    /// Injected depth JSON/NDJSON stepped after seventeenth-continued-tape live/mock fills.
+    /// Same envelope as `--seventeenth-continued-depth-json`. Unset keeps the harness ending after the eighteenth wait.
+    #[clap(long)]
+    eighteenth_continued_depth_json: Option<std::path::PathBuf>,
     /// After guarded demo placement, wait on the Binance demo user-data stream for receipts.
     #[clap(
         long,
@@ -720,6 +724,15 @@ impl PolicyDemoArgs {
                 }
             }
         }
+        if let Some(path) = &self.eighteenth_continued_depth_json {
+            match std::fs::read_to_string(path) {
+                Ok(input) => config.eighteenth_continued_depth_json = Some(input),
+                Err(err) => {
+                    eprintln!("policy demo failed to read {}: {err}", path.display());
+                    std::process::exit(1);
+                }
+            }
+        }
 
         match run_policy_demo(config).await {
             Ok(report) => print_policy_demo_report(&report),
@@ -733,7 +746,7 @@ impl PolicyDemoArgs {
 
 fn print_policy_demo_report(report: &PolicyDemoReport) {
     println!(
-        "policy demo: venue={} symbol={} dispatch={} policy={} depth={} steps={} continued_steps={} second_continued_steps={} third_continued_steps={} fourth_continued_steps={} fifth_continued_steps={} sixth_continued_steps={} seventh_continued_steps={} eighth_continued_steps={} ninth_continued_steps={} tenth_continued_steps={} eleventh_continued_steps={} twelfth_continued_steps={} thirteenth_continued_steps={} fourteenth_continued_steps={} fifteenth_continued_steps={} sixteenth_continued_steps={} seventeenth_continued_steps={} order_requests={} placed_orders={} reconciled_orders={} mode={}",
+        "policy demo: venue={} symbol={} dispatch={} policy={} depth={} steps={} continued_steps={} second_continued_steps={} third_continued_steps={} fourth_continued_steps={} fifth_continued_steps={} sixth_continued_steps={} seventh_continued_steps={} eighth_continued_steps={} ninth_continued_steps={} tenth_continued_steps={} eleventh_continued_steps={} twelfth_continued_steps={} thirteenth_continued_steps={} fourteenth_continued_steps={} fifteenth_continued_steps={} sixteenth_continued_steps={} seventeenth_continued_steps={} eighteenth_continued_steps={} order_requests={} placed_orders={} reconciled_orders={} mode={}",
         report.venue,
         report.display_symbols(),
         report.dispatch_symbol,
@@ -757,6 +770,7 @@ fn print_policy_demo_report(report: &PolicyDemoReport) {
         report.fifteenth_continued_steps,
         report.sixteenth_continued_steps,
         report.seventeenth_continued_steps,
+        report.eighteenth_continued_steps,
         report.order_count(),
         report.placed_orders,
         report.reconciliations.len(),

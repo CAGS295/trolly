@@ -21,7 +21,7 @@ Shipped so far (not the destination): global book CLI; stream-native spot/USDM b
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: 2026-11-09
+- last_run: 2026-11-10
 - max_parallel: 3
 - ship_branch: integrate/orchestrator-branches
 
@@ -2217,7 +2217,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-158 — Continue Env after seventeenth-continued-tape live fills
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-152, WP-157]
 - scope: src/policy_demo.rs, src/cli/mod.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
@@ -2226,6 +2226,45 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - default dry-run, first-tape continue, and earlier continue paths without an eighteenth wait stay unchanged
   - offline tests; no live orders; do not train
 - notes: WP-152 continues after sixteenth-continue fills. WP-157 confirms the eighteenth hop on the live socket, but the runner still ends there, so the next `act()` cannot consume eighteenth-hop inventory.
+- worker/orchestrator (2026-11-10): trainer guidance missing (silent). `--eighteenth-continued-depth-json` / `eighteenth_continued_depth_messages` step the same harness Env after seventeenth-continued-tape live/mock fills; report `eighteenth_continued_observation` carries fill-backed extra-symbol `q`. Unset / earlier continues stay unchanged. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 229 pass; `cargo +stable test -p trolly-gym --lib --locked` 84 pass.
+
+### WP-159 — Drain eighteenth-continued-tape Action::dispatch onto the report
+
+- status: done
+- repos: trolly
+- depends_on: [WP-056, WP-158]
+- scope: src/policy_demo.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - Buy/Sell emitted on the post-eighteenth-fill tape appear on `PolicyDemoReport.orders` with the next deterministic `newClientOrderId`
+  - default dry-run and paths without `--eighteenth-continued-depth-json` stay unchanged; eighteenth-continued orders are not placed
+  - offline tests; no live orders; do not train
+- notes: WP-158 steps the eighteenth-continued tape through `Action::dispatch` but those OrderRequests sit in the channel after the seventeenth-continue drain. gym←exec→gym→strategy needs the nineteenth-hop orders on the same report.
+- worker/orchestrator (2026-11-10): trainer guidance missing (silent). After the eighteenth-continued tape, leftover spot/USDM channel orders append with the next `newClientOrderId` (`*-0019`). Dry-run and earlier placement stay unchanged. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 229 pass.
+
+### WP-160 — Guarded placement of eighteenth-continued-tape orders
+
+- status: done
+- repos: trolly
+- depends_on: [WP-058, WP-159]
+- scope: src/policy_demo.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - when `--execute-demo-orders` is set, OrderRequests drained from the post-eighteenth-fill tape can be placed through the same guarded spot/USDM adapters (offline mock placer is enough)
+  - default dry-run records eighteenth-continued orders without placing; first-tape and earlier continue receipts stay first
+  - offline tests; no live network; do not train
+- notes: WP-159 records nineteenth-hop `Action::dispatch` on the report but only the seventeenth-continue tape is placed. The gym←exec→gym→exec loop still drops the eighteenth-continued hop.
+- worker/orchestrator (2026-11-10): trainer guidance missing (silent). After the eighteenth-continued tape, leftover spot/USDM orders place through the same mock/live adapters; earlier receipts stay first. Dry-run still records only. Clone live credentials through extra17 so extra18 can place. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 229 pass; `cargo +stable test -p trolly-gym --lib --locked` 84 pass.
+
+### WP-161 — Reconcile eighteenth-continued-tape placement receipts
+
+- status: todo
+- repos: trolly
+- depends_on: [WP-059, WP-160]
+- scope: src/policy_demo.rs, src/cli/mod.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - after eighteenth-continued-tape orders are assigned (dry-run) or placed, captured user-data can match those new receipts / `newClientOrderId`s
+  - extra-symbol FILLED rows from that nineteenth hop update the same harness Env; earlier hops stay on the report
+  - default paths without `--eighteenth-continued-user-data-json` stay unchanged; offline tests; no live orders; do not train
+- notes: WP-160 places the nineteenth hop. Seventeenth-continue captured/wait reconcile still runs before the eighteenth-continued tape, so the gym←exec→gym→exec loop cannot confirm the eighteenth-continued receipts.
 
 ## Integration test reference
 
