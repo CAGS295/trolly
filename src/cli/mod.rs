@@ -252,6 +252,10 @@ struct PolicyDemoArgs {
     /// Same envelope as `--seventeenth-continued-depth-json`. Unset keeps the harness ending after the eighteenth wait.
     #[clap(long)]
     eighteenth_continued_depth_json: Option<std::path::PathBuf>,
+    /// Captured user-data JSON/NDJSON matched after eighteenth-continued-tape placement.
+    /// Same envelope as `--seventeenth-continued-user-data-json`. Earlier hops stay on the report.
+    #[clap(long)]
+    eighteenth_continued_user_data_json: Option<std::path::PathBuf>,
     /// After guarded demo placement, wait on the Binance demo user-data stream for receipts.
     #[clap(
         long,
@@ -727,6 +731,15 @@ impl PolicyDemoArgs {
         if let Some(path) = &self.eighteenth_continued_depth_json {
             match std::fs::read_to_string(path) {
                 Ok(input) => config.eighteenth_continued_depth_json = Some(input),
+                Err(err) => {
+                    eprintln!("policy demo failed to read {}: {err}", path.display());
+                    std::process::exit(1);
+                }
+            }
+        }
+        if let Some(path) = &self.eighteenth_continued_user_data_json {
+            match std::fs::read_to_string(path) {
+                Ok(input) => config.eighteenth_continued_user_data_json = Some(input),
                 Err(err) => {
                     eprintln!("policy demo failed to read {}: {err}", path.display());
                     std::process::exit(1);
