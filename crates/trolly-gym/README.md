@@ -522,6 +522,13 @@ injected depth so the next `act()` sees nineteenth-hop `q` / `position_for`
 (WP-165). With `--execute-demo-orders` those twentieth-hop requests go through
 the same guarded adapters; earlier receipts stay first (WP-166). Dry-run
 still records them without placing.
+`--nineteenth-continued-user-data-json` then matches those new receipts /
+assigned `newClientOrderId`s and writes extra-symbol `FILLED` rows into
+the same harness Env; earlier hops stay on the report (WP-167). After
+nineteenth-continued-tape placement the same mock wait runs a twentieth time so
+those receipts can match without `--nineteenth-continued-user-data-json`
+(WP-168). The live spot/USDM sockets wait again after nineteenth-continued REST
+place (WP-169).
 After that second wait
 writes continued-tape extra-symbol `FILLED` rows into the same Env,
 `--second-continued-depth-json` steps more injected depth so the next
@@ -760,6 +767,13 @@ injected depth so the next `act()` sees nineteenth-hop `q` / `position_for`
 (WP-165). With `--execute-demo-orders` those twentieth-hop requests go through
 the same guarded adapters; earlier receipts stay first (WP-166). Dry-run
 still records them without placing.
+`--nineteenth-continued-user-data-json` then matches those new receipts /
+assigned `newClientOrderId`s and writes extra-symbol `FILLED` rows into
+the same harness Env; earlier hops stay on the report (WP-167). Mock
+`--wait-for-user-data` can supply frames after that nineteenth-continued place so
+those receipts reconcile without `--nineteenth-continued-user-data-json`
+(WP-168). The live spot/USDM sockets wait again after nineteenth-continued REST
+place (WP-169).
 Unset keeps the harness ending after the twentieth wait when a later tape is
 absent. Primary-book fills stay on the policy-step
 inventory path so single-symbol reconcile is unchanged. Gaussian
@@ -921,6 +935,8 @@ When `--eighteenth-continued-depth-json` produces extra orders, the same live
 socket waits a nineteenth time after those REST placements (WP-163).
 `--nineteenth-continued-depth-json` then steps the same Env after the nineteenth wait
 writes eighteenth-continued extra-symbol `FILLED` rows (WP-164).
+When `--nineteenth-continued-depth-json` produces extra orders, the same live
+socket waits a twentieth time after those REST placements (WP-169).
 `--sixth-continued-depth-json` then steps the same Env after the sixth wait
 writes fifth-continued extra-symbol `FILLED` rows (WP-086).
 `--seventh-continued-depth-json` then steps the same Env after the seventh wait
@@ -1001,7 +1017,9 @@ extra-symbol `FILLED` rows into the same Env (WP-155). `--eighteenth-continued-d
 then steps the same Env after those eighteenth-hop fills (WP-158). `--eighteenth-continued-user-data-json`
 (same envelope) then matches nineteenth-hop receipts or assigned ids after that place and writes
 extra-symbol `FILLED` rows into the same Env (WP-161). `--nineteenth-continued-depth-json`
-then steps the same Env after those nineteenth-hop fills (WP-164). Unset keeps first-tape,
+then steps the same Env after those nineteenth-hop fills (WP-164). `--nineteenth-continued-user-data-json`
+(same envelope) then matches twentieth-hop receipts or assigned ids after that place and writes
+extra-symbol `FILLED` rows into the same Env (WP-167). Unset keeps first-tape,
 first-continue, second-continue, third-continue, fourth-continue, fifth-continue,
 sixth-continue, seventh-continue, eighth-continue, ninth-continue, tenth-continue, eleventh-continue, twelfth-continue, and thirteenth-continue reconcile only. The file may contain one
 JSON frame, a JSON array of frames, or newline-delimited raw frames.
@@ -1052,7 +1070,8 @@ cargo run --bin depth_monitor -- execute policy-demo \
     --seventeenth-continued-user-data-json captured-demo-user-data-after-seventeenth-continue.json \
     --eighteenth-continued-depth-json captured-demo-depth-after-eighteenth-fill.json \
     --eighteenth-continued-user-data-json captured-demo-user-data-after-eighteenth-continue.json \
-    --nineteenth-continued-depth-json captured-demo-depth-after-nineteenth-fill.json
+    --nineteenth-continued-depth-json captured-demo-depth-after-nineteenth-fill.json \
+    --nineteenth-continued-user-data-json captured-demo-user-data-after-nineteenth-continue.json
 ```
 
 To feed a captured demo/live book instead of the built-in synthetic depth tape,
@@ -1225,6 +1244,9 @@ live-socket wait after eighteenth-continued-tape demo placement (WP-163),
 Env step after eighteenth-continued-tape live/mock fills using nineteenth-hop `q` (WP-164),
 nineteenth-continued-tape `Action::dispatch` drained onto the report (WP-165),
 guarded placement of nineteenth-continued-tape orders (WP-166),
+nineteenth-continued-tape receipt reconcile via `--nineteenth-continued-user-data-json` (WP-167),
+mock wait-for-user-data after nineteenth-continued-tape placement (WP-168),
+live-socket wait after nineteenth-continued-tape demo placement (WP-169),
 the guard refusal, live wait option guards,
 mock placement receipts, mocked frame-source reconciliation, and captured
 receipt-to-user-stream reconciliation without live network or keys.
