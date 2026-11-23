@@ -21,7 +21,7 @@ Shipped so far (not the destination): global book CLI; stream-native spot/USDM b
 ## Meta
 
 - owner: Daily workplan orchestrator
-- last_run: 2026-11-20
+- last_run: 2026-11-23
 - max_parallel: 3
 - ship_branch: integrate/orchestrator-branches
 
@@ -2568,7 +2568,7 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
 
 ### WP-185 — Reconcile twenty-second-continued-tape placement receipts
 
-- status: todo
+- status: done
 - repos: trolly
 - depends_on: [WP-059, WP-184]
 - scope: src/policy_demo.rs, src/cli/mod.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
@@ -2577,6 +2577,45 @@ Standalone workspace crates for compile-time isolation and spatial locality. Hea
   - extra-symbol FILLED rows from that twenty-third hop update the same harness Env; earlier hops stay on the report
   - default paths without `--twenty-second-continued-user-data-json` stay unchanged; offline tests; no live orders; do not train
 - notes: WP-184 places the twenty-third hop. Twenty-first-continue captured/wait reconcile still runs before the twenty-second-continued tape, so the gym←exec→gym→exec loop cannot confirm the twenty-second-continued receipts.
+- worker/orchestrator (2026-11-23): trainer guidance missing (silent). `--twenty-second-continued-user-data-json` matches twenty-third-hop receipts / assigned ids and writes extra-symbol FILLED rows into the same Env; earlier hops stay on the report. Unset / earlier continues stay unchanged. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 274 pass; `cargo +stable test -p trolly-gym --lib --locked` 84 pass.
+
+### WP-186 — Wait-for-user-data after twenty-second-continued-tape placement
+
+- status: done
+- repos: trolly
+- depends_on: [WP-060, WP-185]
+- scope: src/policy_demo.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - when `--wait-for-user-data` is set, the mock user-data callback runs again after twenty-second-continued-tape placement so those receipts can match without `--twenty-second-continued-user-data-json`
+  - first-tape and earlier continue waits still run earlier; captured-JSON / dry-run paths stay unchanged
+  - offline tests; no live orders; do not train
+- notes: WP-185 covers captured JSON. The mock wait still stops after the twenty-first-continue hop, so gym←exec cannot confirm twenty-third-hop fills without a file.
+- worker/orchestrator (2026-11-23): trainer guidance missing (silent). Mock `--wait-for-user-data` runs a twenty-third time after extra22 place; merge by client_order_id. Dry-run / captured-JSON stay unchanged. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 274 pass.
+
+### WP-187 — Live user-data wait after twenty-second-continued-tape demo placement
+
+- status: done
+- repos: trolly
+- depends_on: [WP-061, WP-186]
+- scope: src/policy_demo.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - when `--wait-for-user-data` and `--execute-demo-orders` are set, the live demo user-data listener can collect frames after twenty-second-continued-tape REST placement (offline mock socket/source is enough)
+  - first-tape and earlier continue live waits still run earlier; dry-run / captured-JSON / mock-callback paths stay unchanged
+  - offline tests; no production hosts; do not train
+- notes: WP-186 covers the mock placer callback. The live spot/USDM sockets still wait only through the twenty-first-continue hop, so demo/live trust cannot confirm the twenty-second-continued receipts.
+- worker/orchestrator (2026-11-23): trainer guidance missing (silent). Live spot/USDM sockets stay open through twenty-second-continued REST place; twenty-third wait seeds earlier rows and merges new receipts; USDM listenKey closes after the last wait. Offline mock source drains one shared frame queue through the same wait helper. Acceptance: `cargo +stable test --test policy_demo_runner --locked` 274 pass; `cargo +stable test -p trolly-gym --lib --locked` 84 pass.
+
+### WP-188 — Continue Env after twenty-second-continued-tape live fills
+
+- status: todo
+- repos: trolly
+- depends_on: [WP-182, WP-187]
+- scope: src/policy_demo.rs, src/cli/mod.rs, tests/policy_demo_runner.rs, crates/trolly-gym/README.md
+- acceptance:
+  - after the twenty-third live/mock user-data wait writes twenty-second-continued extra-symbol FILLED rows into the harness Env, a subsequent injected depth step uses that book's fill-backed `q` / `position_for`
+  - default dry-run, first-tape continue, and earlier continue paths without a twenty-third wait stay unchanged
+  - offline tests; no live orders; do not train
+- notes: WP-182 continues after twenty-first-continue fills. WP-187 confirms the twenty-third hop on the live socket, but the runner still ends there, so the next `act()` cannot consume twenty-third-hop inventory.
 
 ## Integration test reference
 
