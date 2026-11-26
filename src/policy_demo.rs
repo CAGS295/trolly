@@ -294,6 +294,12 @@ pub struct PolicyDemoConfig {
     pub twenty_third_continued_depth_json: Option<String>,
     /// Pre-parsed twenty-third-hop depth frames (tests / injectable tape).
     pub twenty_third_continued_depth_messages: Option<Vec<Message>>,
+    /// Injected depth frames stepped after twenty-third-continued-tape live/mock fills.
+    /// Same envelope as `--twenty-third-continued-depth-json`. Unset keeps the harness
+    /// ending after the twenty-fourth wait (WP-193).
+    pub twenty_fourth_continued_depth_json: Option<String>,
+    /// Pre-parsed twenty-fourth-hop depth frames (tests / injectable tape).
+    pub twenty_fourth_continued_depth_messages: Option<Vec<Message>>,
     /// Captured user-data JSON/NDJSON matched after twenty-second-continued-tape placement.
     /// Same envelope as `--twenty-first-continued-user-data-json`. Unset keeps first-tape,
     /// first-continue, second-continue, third-continue, fourth-continue,
@@ -492,6 +498,8 @@ impl PolicyDemoConfig {
             twenty_second_continued_depth_messages: None,
             twenty_third_continued_depth_json: None,
             twenty_third_continued_depth_messages: None,
+            twenty_fourth_continued_depth_json: None,
+            twenty_fourth_continued_depth_messages: None,
             twenty_second_continued_user_data_json: None,
             twenty_third_continued_user_data_json: None,
             twenty_first_continued_user_data_json: None,
@@ -671,6 +679,10 @@ pub struct PolicyDemoReport {
     pub twenty_third_continued_steps: usize,
     /// Observation the twenty-third continued tape handed `PolicyProvider::act`.
     pub twenty_third_continued_observation: Vec<f32>,
+    /// Env steps taken after twenty-third-continued-tape live/mock fills (WP-194).
+    pub twenty_fourth_continued_steps: usize,
+    /// Observation the twenty-fourth continued tape handed `PolicyProvider::act`.
+    pub twenty_fourth_continued_observation: Vec<f32>,
     pub orders: PolicyDemoOrders,
 }
 
@@ -955,6 +967,8 @@ where
         twenty_second_continued_observation: Vec::new(),
         twenty_third_continued_steps: 0,
         twenty_third_continued_observation: Vec::new(),
+        twenty_fourth_continued_steps: 0,
+        twenty_fourth_continued_observation: Vec::new(),
         orders: PolicyDemoOrders::Spot(orders),
     };
 
@@ -1261,6 +1275,11 @@ where
             merge_continued_reconciliation_rows(&mut env, &mut report, rows);
         }
     }
+    continue_policy_demo_after_twenty_fourth_fills(&config, &mut env, policy, &mut report)?;
+    let extra24 = append_continued_spot_orders(&config, &mut rx, &mut report);
+    if let Some(credentials) = credentials.clone() {
+        place_continued_spot_demo_orders(credentials, extra24, &mut report).await?;
+    }
     Ok(report)
 }
 
@@ -1359,6 +1378,8 @@ where
         twenty_second_continued_observation: Vec::new(),
         twenty_third_continued_steps: 0,
         twenty_third_continued_observation: Vec::new(),
+        twenty_fourth_continued_steps: 0,
+        twenty_fourth_continued_observation: Vec::new(),
         orders: PolicyDemoOrders::Usdm(orders),
     };
 
@@ -1761,6 +1782,11 @@ where
                 merge_continued_reconciliation_rows(&mut env, &mut report, rows);
             }
         }
+        continue_policy_demo_after_twenty_fourth_fills(&config, &mut env, policy, &mut report)?;
+        let extra24 = append_continued_usdm_orders(&config, &mut rx, &mut report);
+        if let Some(credentials) = credentials.clone() {
+            place_continued_usdm_demo_orders(credentials, extra24, &mut report).await?;
+        }
         Ok(report)
     }
     .await;
@@ -1862,6 +1888,8 @@ where
         twenty_second_continued_observation: Vec::new(),
         twenty_third_continued_steps: 0,
         twenty_third_continued_observation: Vec::new(),
+        twenty_fourth_continued_steps: 0,
+        twenty_fourth_continued_observation: Vec::new(),
         orders: PolicyDemoOrders::Spot(orders),
     };
     Ok((config, env, rx, report))
@@ -1959,6 +1987,8 @@ where
         twenty_second_continued_observation: Vec::new(),
         twenty_third_continued_steps: 0,
         twenty_third_continued_observation: Vec::new(),
+        twenty_fourth_continued_steps: 0,
+        twenty_fourth_continued_observation: Vec::new(),
         orders: PolicyDemoOrders::Usdm(orders),
     };
     Ok((config, env, rx, report))
@@ -2071,6 +2101,9 @@ where
     let extra23 = append_continued_spot_orders(&config, &mut rx, &mut report);
     place_continued_spot_orders(&config, &mut place_order, extra23, &mut report).await?;
     finish_twenty_third_continued_user_data(&config, &mut env, &mut report)?;
+    continue_policy_demo_after_twenty_fourth_fills(&config, &mut env, policy, &mut report)?;
+    let extra24 = append_continued_spot_orders(&config, &mut rx, &mut report);
+    place_continued_spot_orders(&config, &mut place_order, extra24, &mut report).await?;
     Ok(report)
 }
 
@@ -2181,6 +2214,9 @@ where
     let extra23 = append_continued_usdm_orders(&config, &mut rx, &mut report);
     place_continued_usdm_orders(&config, &mut place_order, extra23, &mut report).await?;
     finish_twenty_third_continued_user_data(&config, &mut env, &mut report)?;
+    continue_policy_demo_after_twenty_fourth_fills(&config, &mut env, policy, &mut report)?;
+    let extra24 = append_continued_usdm_orders(&config, &mut rx, &mut report);
+    place_continued_usdm_orders(&config, &mut place_order, extra24, &mut report).await?;
     Ok(report)
 }
 
@@ -2394,6 +2430,9 @@ where
         let messages = user_data_messages(&report).await?;
         merge_continued_reconciliations(&mut env, &mut report, messages);
     }
+    continue_policy_demo_after_twenty_fourth_fills(&config, &mut env, policy, &mut report)?;
+    let extra24 = append_continued_spot_orders(&config, &mut rx, &mut report);
+    place_continued_spot_orders(&config, &mut place_order, extra24, &mut report).await?;
     Ok(report)
 }
 
@@ -2607,6 +2646,9 @@ where
         let messages = user_data_messages(&report).await?;
         merge_continued_reconciliations(&mut env, &mut report, messages);
     }
+    continue_policy_demo_after_twenty_fourth_fills(&config, &mut env, policy, &mut report)?;
+    let extra24 = append_continued_usdm_orders(&config, &mut rx, &mut report);
+    place_continued_usdm_orders(&config, &mut place_order, extra24, &mut report).await?;
     Ok(report)
 }
 
@@ -2650,7 +2692,8 @@ where
 /// steps the same Env after the twentieth wait (WP-170). `--twenty-first-continued-depth-json`
 /// steps the same Env after the twenty-first wait (WP-176). `--twenty-second-continued-depth-json`
 /// steps the same Env after the twenty-second wait (WP-182). `--twenty-third-continued-depth-json`
-/// steps the same Env after the twenty-third wait (WP-188).
+/// steps the same Env after the twenty-third wait (WP-188). `--twenty-fourth-continued-depth-json`
+/// steps the same Env after the twenty-fourth wait (WP-194).
 #[doc(hidden)]
 pub async fn run_spot_policy_demo_with_live_user_data_source<P, F, Fut>(
     config: PolicyDemoConfig,
@@ -2954,6 +2997,9 @@ where
         .await?;
         merge_continued_reconciliation_rows(&mut env, &mut report, rows);
     }
+    continue_policy_demo_after_twenty_fourth_fills(&config, &mut env, policy, &mut report)?;
+    let extra24 = append_continued_spot_orders(&config, &mut rx, &mut report);
+    place_continued_spot_orders(&config, &mut place_order, extra24, &mut report).await?;
     Ok(report)
 }
 
@@ -2996,7 +3042,8 @@ where
 /// steps the same Env after the twentieth wait (WP-170). `--twenty-first-continued-depth-json`
 /// steps the same Env after the twenty-first wait (WP-176). `--twenty-second-continued-depth-json`
 /// steps the same Env after the twenty-second wait (WP-182). `--twenty-third-continued-depth-json`
-/// steps the same Env after the twenty-third wait (WP-188).
+/// steps the same Env after the twenty-third wait (WP-188). `--twenty-fourth-continued-depth-json`
+/// steps the same Env after the twenty-fourth wait (WP-194).
 #[doc(hidden)]
 pub async fn run_usdm_policy_demo_with_live_user_data_source<P, F, Fut>(
     config: PolicyDemoConfig,
@@ -3300,6 +3347,9 @@ where
         .await?;
         merge_continued_reconciliation_rows(&mut env, &mut report, rows);
     }
+    continue_policy_demo_after_twenty_fourth_fills(&config, &mut env, policy, &mut report)?;
+    let extra24 = append_continued_usdm_orders(&config, &mut rx, &mut report);
+    place_continued_usdm_orders(&config, &mut place_order, extra24, &mut report).await?;
     Ok(report)
 }
 
@@ -4776,6 +4826,35 @@ where
     Ok(())
 }
 
+fn continue_policy_demo_after_twenty_fourth_fills<E, P>(
+    config: &PolicyDemoConfig,
+    env: &mut Env<E>,
+    policy: &P,
+    report: &mut PolicyDemoReport,
+) -> Result<(), PolicyDemoError>
+where
+    E: trolly_strategy::StreamEgress,
+    E::Error: fmt::Debug,
+    P: PolicyProvider + ?Sized,
+{
+    let messages = twenty_fourth_continued_depth_messages_for_config(config)?;
+    if messages.is_empty() {
+        return Ok(());
+    }
+    env.allow_more_steps(messages.len() as u64);
+    let steps = if let Some(symbol) = &config.dispatch_symbol {
+        let pinned = DispatchSymbolPolicy::new(policy, symbol.clone());
+        run_offline_policy_harness(env, &pinned, messages)
+    } else {
+        run_offline_policy_harness(env, policy, messages)
+    }
+    .map_err(|err| PolicyDemoError::Harness(err.to_string()))?;
+    report.twenty_fourth_continued_steps = steps.len();
+    report.twenty_fourth_continued_observation = env.last_observation().to_vec();
+    report.extra_symbol_inventory = extra_symbol_positions(env, report);
+    Ok(())
+}
+
 fn continue_policy_demo_after_twenty_third_fills<E, P>(
     config: &PolicyDemoConfig,
     env: &mut Env<E>,
@@ -5370,6 +5449,32 @@ fn twenty_second_continued_depth_messages_for_config(
         if messages.is_empty() {
             return Err(PolicyDemoError::DepthInput(
                 "twenty-second continued depth source returned no frames".into(),
+            ));
+        }
+        return Ok(messages.clone());
+    }
+    Ok(Vec::new())
+}
+
+fn twenty_fourth_continued_depth_messages_for_config(
+    config: &PolicyDemoConfig,
+) -> Result<Vec<Message>, PolicyDemoError> {
+    if let Some(input) = &config.twenty_fourth_continued_depth_json {
+        let trimmed = input.trim();
+        if !trimmed.is_empty() {
+            let messages = policy_demo_depth_messages_from_json(trimmed, &config.symbol)?;
+            if messages.is_empty() {
+                return Err(PolicyDemoError::DepthInput(
+                    "twenty-fourth continued depth JSON contained no usable frames".into(),
+                ));
+            }
+            return Ok(messages);
+        }
+    }
+    if let Some(messages) = &config.twenty_fourth_continued_depth_messages {
+        if messages.is_empty() {
+            return Err(PolicyDemoError::DepthInput(
+                "twenty-fourth continued depth source returned no frames".into(),
             ));
         }
         return Ok(messages.clone());
