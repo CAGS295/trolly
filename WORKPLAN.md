@@ -19,6 +19,7 @@ Canonical artifact for the **Daily workplan orchestrator** automation.
 
 ## Orchestrator notes
 
+- **GPU train ↔ orchestration feedback:** committed artifacts and diagram in [`docs/gpu-train-orchestration-flow.md`](docs/gpu-train-orchestration-flow.md). Read **`## Trainer guidance`** before scheduling; training-script automation on `main` uses the same section.
 - **Git ship workflow (no PRs):** checkout `ship_branch` from Meta (`integrate/orchestrator-branches`). At run start, `git fetch origin` and rebase (or reset) onto current `origin/main` so the branch is fresh. All commits from this run land on the ship branch. Push `ship_branch` to origin at end of run. Do **not** open pull requests, run `gh pr create`, or create `cursor/workplan-orchestrator-process-*` branches.
 - Build the **ready set**: items with `status: todo` and all `depends_on` entries `done`.
 - Schedule up to `max_parallel` items per wave with **disjoint** `scope` paths.
