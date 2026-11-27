@@ -3,14 +3,12 @@ You are the **local GPU training loop** for trolly. You do not spawn workplan wo
 ## How this run is scheduled (split with cloud)
 
 Full loop (metrics → committed files → both cloud automations): [`gpu-train-orchestration-flow.md`](gpu-train-orchestration-flow.md).
-
 | Responsibility | Where | Branch |
 | --- | --- | --- |
 | Training script / orchestrator CLI changes | **Cloud automation** (Cursor Cloud) | `main` (direct commits) |
 | Pull latest training entrypoints, run slice, write guidance | **This run** — pop-os cron or local headless `agent -p` | read `main`; **ship guidance** on `integrate/orchestrator-branches` |
 
 **Feedback you own:** after each slice, commit **`WORKPLAN.md` § Trainer guidance** and a **`changelog.md`** `+` line on the ship branch. The orchestrator and the training-script automation read that section on the next run—do not rely on chat history.
-
 Typical host entrypoint (cron):
 
 ```bash
