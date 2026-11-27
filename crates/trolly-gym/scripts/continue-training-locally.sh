@@ -50,25 +50,47 @@ fi
 CH_URL="${TROLLY_CLICKHOUSE_URL:-http://127.0.0.1:8123}"
 CH_PING="${CH_URL%/}/ping"
 COMPOSE="$ROOT/crates/trolly-gym/clickhouse/docker-compose.yml"
-if ! curl -fsS "$CH_PING" >/dev/null 2>&1; then
-  if command -v docker >/dev/null 2>&1; then
-    docker compose -f "$COMPOSE" up -d
-    ready=0
-    for _ in $(seq 1 40); do
-      if curl -fsS "$CH_PING" >/dev/null 2>&1; then
-        ready=1
-        break
-      fi
-      sleep 0.5
-    done
-    if [[ "$ready" -ne 1 ]]; then
-      echo "error: ClickHouse is not reachable at $CH_URL after docker compose up" >&2
-      exit 1
+CLICKHOUSE_WAIT_SECS="${TROLLY_CLICKHOUSE_WAIT_SECS:-180}"
+
+clickhouse_ping_ok() {
+  curl -fsS --connect-timeout 2 --max-time 5 "$CH_PING" >/dev/null 2>&1
+}
+
+wait_for_clickhouse() {
+  local attempts=$((CLICKHOUSE_WAIT_SECS * 2))
+  local n=0
+  while (( n < attempts )); do
+    if clickhouse_ping_ok; then
+      echo "ClickHouse reachable at $CH_URL (after $((n / 2))s)" >&2
+      return 0
     fi
-  else
+    sleep 0.5
+    ((n++)) || true
+  done
+  return 1
+}
+
+clickhouse_diagnostics() {
+  echo "error: ClickHouse is not reachable at $CH_URL after ${CLICKHOUSE_WAIT_SECS}s" >&2
+  if command -v docker >/dev/null 2>&1; then
+    docker compose -f "$COMPOSE" ps >&2 || true
+    docker logs trolly-clickhouse --tail 40 >&2 || true
+  fi
+}
+
+if ! clickhouse_ping_ok; then
+  if ! command -v docker >/dev/null 2>&1; then
     echo "error: ClickHouse is not reachable at $CH_URL and docker is not available" >&2
     exit 1
   fi
+  echo "starting ClickHouse via docker compose..." >&2
+  if ! docker compose -f "$COMPOSE" up -d --wait --wait-timeout "$CLICKHOUSE_WAIT_SECS" 2>/dev/null; then
+    docker compose -f "$COMPOSE" up -d
+  fi
+fi
+if ! wait_for_clickhouse; then
+  clickhouse_diagnostics
+  exit 1
 fi
 if [[ -x "$ROOT/target/release/gpu_train_orchestrator" ]]; then
   exec "$ROOT/target/release/gpu_train_orchestrator" "$MODE"
