@@ -1,6 +1,7 @@
 [Unit]
 Description=trolly local GPU training orchestrator (weekday working hours)
-After=graphical-session.target
+After=graphical-session.target docker.service network-online.target
+Wants=docker.service
 
 [Service]
 Type=oneshot
@@ -9,6 +10,7 @@ Environment=TROLLY_TRAIN_DEVICE=auto
 Environment=TROLLY_WORK_START=09:00
 Environment=TROLLY_WORK_END=17:00
 Environment=TROLLY_WORK_WEEKDAYS=1-5
+Environment=TROLLY_CLICKHOUSE_WAIT_SECS=180
 Environment=LIBTORCH_USE_PYTORCH=1
 Environment=LIBTORCH_BYPASS_VERSION_CHECK=1
 Environment=CXX=g++

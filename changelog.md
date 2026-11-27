@@ -10,6 +10,7 @@ Project journal for shipped work. Active backlog lives in [`WORKPLAN.md`](WORKPL
 - Add more exchange providers beyond Binance spot + USDM (stub scaffold landed; full venues remain).
 
 ## change log
++ `continue-training-locally.sh`: wait up to `TROLLY_CLICKHOUSE_WAIT_SECS` (default 180) for ClickHouse `/ping`; compose healthcheck + `docker compose --wait`; emit `docker ps`/`logs` on failure (trolly-gpu-train timer fix).
 + `execute policy-demo`: `--twenty-fourth-continued-user-data-json` matches twenty-fifth-hop receipts / assigned ids; mock `--wait-for-user-data` and live spot/USDM sockets wait again after twenty-fourth-continued-tape REST place (WP-197–WP-199). Trainer guidance missing (silent).
 + `execute policy-demo`: `--twenty-fourth-continued-depth-json` steps the same Env after twenty-third-continued-tape live/mock fills so the next act() sees twenty-fourth-hop `q`; twenty-fourth-continued Buy/Sell drain and place through guarded adapters (WP-194–WP-196). Trainer guidance missing (silent).
 + `execute policy-demo`: `--twenty-third-continued-user-data-json` matches twenty-fourth-hop receipts / assigned ids; mock `--wait-for-user-data` and live spot/USDM sockets wait again after twenty-third-continued-tape REST place (WP-191–WP-193). Trainer guidance missing (silent).
